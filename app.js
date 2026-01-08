@@ -5,6 +5,7 @@ let user = JSON.parse(localStorage.getItem('user') || 'null');
 let accounts = [], accountTypes = [], propertyGroups = [];
 let currentView = 'all', currentSort = 'recent', currentFilters = {};
 let currentSortDir = 'desc'; // 排序方向: 'asc' 或 'desc'
+let lastClickedFilter = null; // 记录最后点击的筛选项 {type: 'type'|'propval'|'noprop', id: xxx, name: xxx}
 let currentViewMode = localStorage.getItem('viewMode') || 'card'; // 卡片/列表视图
 let editingAccountId = null, editingTags = [], editingCombos = [];
 
@@ -219,7 +220,7 @@ function renderSidebar() {
     let typesHtml = `<div class="collapsible-group"><div class="group-header" onclick="toggleGroup(this)"><span class="group-arrow">▼</span><span>账号类型</span><span class="group-actions"><button class="btn-tiny" onclick="event.stopPropagation();openTypeManager()">⚙</button></span></div><div class="group-content">`;
     accountTypes.forEach(t => {
         const count = accounts.filter(a => a.type_id === t.id).length;
-        const isSelected = currentFilters.type_id === t.id;
+        const isSelected = currentFilters['type_' + t.id];
         typesHtml += `<div class="nav-item${isSelected ? ' active' : ''}" onclick="filterByType(${t.id})"><span class="nav-icon" style="color:${t.color}">${t.icon}</span><span class="nav-label">${t.name}</span><span class="nav-count">${count}</span></div>`;
     });
     typesHtml += '</div></div>';
@@ -343,7 +344,15 @@ function getFilteredAccounts() {
     if (currentView === 'favorites') result = result.filter(a => a.is_favorite);
     else if (currentView === 'recent') result = result.filter(a => a.last_used && (Date.now() - new Date(a.last_used).getTime()) < 7*24*60*60*1000);
     else if (currentView === 'nocombo') result = result.filter(a => !a.combos || a.combos.length === 0 || a.combos.every(c => !c || c.length === 0));
-    if (currentFilters.type_id) result = result.filter(a => a.type_id === currentFilters.type_id);
+    
+    // 按账号类型筛选（新结构：type_xxx）
+    Object.keys(currentFilters).forEach(key => {
+        if (key.startsWith('type_')) {
+            const typeId = currentFilters[key];
+            result = result.filter(a => a.type_id === typeId);
+        }
+    });
+    
     // 按"未设置"属性组筛选
     Object.keys(currentFilters).forEach(key => {
         if (key.startsWith('noprop_')) {
@@ -398,81 +407,98 @@ function sortAccounts(list) {
 
 // 视图筛选
 function setView(view) {
-    currentView = view; currentFilters = {};
+    currentView = view; 
+    currentFilters = {};
+    lastClickedFilter = null;
     document.querySelectorAll('.view-section .nav-item').forEach(el => el.classList.toggle('active', el.dataset.view === view));
-    document.getElementById('pageTitle').textContent = view === 'all' ? '全部账号' : view === 'favorites' ? '收藏' : view === 'nocombo' ? '无属性组' : '最近使用';
-    renderFiltersBar(); renderCards();
+    updatePageTitle();
+    renderSidebar();
+    renderFiltersBar(); 
+    renderCards();
 }
 
 function filterByType(typeId) {
-    // 切换选中状态：如果已选中则取消，否则选中
-    if (currentFilters.type_id === typeId) {
-        delete currentFilters.type_id;
+    const key = 'type_' + typeId;
+    const t = accountTypes.find(t => t.id === typeId);
+    // 切换选中状态：如果已选中则取消，否则添加
+    if (currentFilters[key]) {
+        delete currentFilters[key];
+        lastClickedFilter = null;
     } else {
-        currentFilters.type_id = typeId;
+        currentFilters[key] = typeId;
+        lastClickedFilter = { type: 'type', id: typeId, name: t?.name || '账号类型' };
     }
     updatePageTitle();
-    renderFiltersBar(); renderCards();
+    renderSidebar();
+    renderFiltersBar(); 
+    renderCards();
 }
 
 function filterByProperty(groupId, valueId) {
     const key = 'propval_' + valueId;
-    // 切换选中状态：如果已选中则取消，否则选中
+    // 查找属性值名称
+    let valueName = '';
+    for (const g of propertyGroups) {
+        const v = (g.values || []).find(v => v.id === valueId);
+        if (v) { valueName = v.name; break; }
+    }
+    // 切换选中状态：如果已选中则取消，否则添加
     if (currentFilters[key]) {
         delete currentFilters[key];
+        lastClickedFilter = null;
     } else {
         currentFilters[key] = valueId;
+        lastClickedFilter = { type: 'propval', id: valueId, name: valueName };
     }
     updatePageTitle();
-    renderFiltersBar(); renderCards();
+    renderSidebar();
+    renderFiltersBar(); 
+    renderCards();
 }
 
 function filterByNoProperty(groupId) {
     const key = 'noprop_' + groupId;
-    // 切换选中状态：如果已选中则取消，否则选中
+    const g = propertyGroups.find(g => g.id === groupId);
+    // 切换选中状态：如果已选中则取消，否则添加
     if (currentFilters[key]) {
         delete currentFilters[key];
+        lastClickedFilter = null;
     } else {
         currentFilters[key] = groupId;
+        lastClickedFilter = { type: 'noprop', id: groupId, name: (g?.name || '属性') + ' - 未设置' };
     }
     updatePageTitle();
-    renderFiltersBar(); renderCards();
+    renderSidebar();
+    renderFiltersBar(); 
+    renderCards();
 }
 
 function updatePageTitle() {
-    const filterCount = Object.keys(currentFilters).length;
-    if (filterCount === 0) {
-        document.getElementById('pageTitle').textContent = '全部账号';
-    } else if (filterCount === 1) {
-        // 单个筛选条件，显示具体名称
-        if (currentFilters.type_id) {
-            const t = accountTypes.find(t => t.id === currentFilters.type_id);
-            document.getElementById('pageTitle').textContent = t?.name || '账号';
-        } else {
-            const key = Object.keys(currentFilters)[0];
-            if (key.startsWith('propval_')) {
-                const valueId = currentFilters[key];
-                for (const g of propertyGroups) {
-                    const v = (g.values || []).find(v => v.id === valueId);
-                    if (v) { document.getElementById('pageTitle').textContent = v.name; break; }
-                }
-            } else if (key.startsWith('noprop_')) {
-                const groupId = currentFilters[key];
-                const g = propertyGroups.find(g => g.id === groupId);
-                document.getElementById('pageTitle').textContent = (g?.name || '属性') + ' - 未设置';
-            }
-        }
+    const viewName = currentView === 'all' ? '全部账号' : currentView === 'favorites' ? '收藏' : currentView === 'nocombo' ? '无属性组' : '最近使用';
+    
+    if (lastClickedFilter) {
+        document.getElementById('pageTitle').textContent = viewName + ' > ' + lastClickedFilter.name;
     } else {
-        document.getElementById('pageTitle').textContent = `筛选 (${filterCount})`;
+        document.getElementById('pageTitle').textContent = viewName;
     }
 }
 
 function renderFiltersBar() {
     const container = document.getElementById('activeFilters'), has = Object.keys(currentFilters).length > 0;
     container.classList.toggle('show', has);
-    if (!has) return;
+    if (!has) { container.innerHTML = ''; return; }
     let html = '';
-    if (currentFilters.type_id) { const t = accountTypes.find(t => t.id === currentFilters.type_id); if (t) html += `<div class="filter-tag"><span class="dot" style="background:${t.color}"></span>${t.name}<span class="remove" onclick="removeFilter('type_id')">✕</span></div>`; }
+    
+    // 账号类型标签
+    Object.keys(currentFilters).forEach(key => {
+        if (key.startsWith('type_')) {
+            const typeId = currentFilters[key];
+            const t = accountTypes.find(t => t.id === typeId);
+            if (t) html += `<div class="filter-tag"><span class="dot" style="background:${t.color}"></span>${t.name}<span class="remove" onclick="removeFilter('${key}')">✕</span></div>`;
+        }
+    });
+    
+    // 属性值标签
     Object.keys(currentFilters).forEach(key => {
         if (key.startsWith('noprop_')) {
             const groupId = currentFilters[key];
@@ -483,7 +509,6 @@ function renderFiltersBar() {
         }
         if (key.startsWith('propval_')) {
             const valueId = currentFilters[key];
-            // 在所有属性组中查找此值
             for (const g of propertyGroups) {
                 const v = (g.values || []).find(v => v.id === valueId);
                 if (v) {
@@ -493,12 +518,35 @@ function renderFiltersBar() {
             }
         }
     });
-    html += `<button class="clear-filters" onclick="clearFilters()">清除</button>`;
+    
+    html += `<button class="clear-filters" onclick="clearFilters()">清除全部</button>`;
     container.innerHTML = html;
 }
 
-function removeFilter(key) { delete currentFilters[key]; document.getElementById('pageTitle').textContent = '全部账号'; renderFiltersBar(); renderCards(); }
-function clearFilters() { currentFilters = {}; document.getElementById('pageTitle').textContent = '全部账号'; renderFiltersBar(); renderCards(); }
+function removeFilter(key) { 
+    delete currentFilters[key]; 
+    // 如果删除的是最后点击的那个，清除 lastClickedFilter
+    if (lastClickedFilter) {
+        if ((key.startsWith('type_') && lastClickedFilter.type === 'type') ||
+            (key.startsWith('propval_') && lastClickedFilter.type === 'propval' && key === 'propval_' + lastClickedFilter.id) ||
+            (key.startsWith('noprop_') && lastClickedFilter.type === 'noprop' && key === 'noprop_' + lastClickedFilter.id)) {
+            lastClickedFilter = null;
+        }
+    }
+    updatePageTitle();
+    renderSidebar();
+    renderFiltersBar(); 
+    renderCards(); 
+}
+
+function clearFilters() { 
+    currentFilters = {}; 
+    lastClickedFilter = null;
+    updatePageTitle();
+    renderSidebar();
+    renderFiltersBar(); 
+    renderCards(); 
+}
 
 function setSort(sort) { 
     if (currentSort === sort) {
