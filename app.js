@@ -299,9 +299,9 @@ function renderCards() {
             }
         });
 
-        // 批量选择复选框（只显示勾，不变色）
+        // 批量选择复选框（点击框或卡片都可以勾选）
         const isChecked = selectedAccounts.has(acc.id);
-        const checkboxHtml = batchMode ? `<label class="batch-checkbox"><input type="checkbox" ${isChecked ? 'checked' : ''}><span class="checkmark"></span></label>` : '';
+        const checkboxHtml = batchMode ? `<label class="batch-checkbox" onclick="event.stopPropagation(); toggleAccountSelection(${acc.id}, event)"><input type="checkbox" ${isChecked ? 'checked' : ''}><span class="checkmark"></span></label>` : '';
 
         // 收藏状态通过卡片类名控制（紫色高亮）
         const favoriteClass = acc.is_favorite ? 'favorite' : '';
@@ -966,6 +966,19 @@ function deselectAll() {
     selectedAccounts.clear();
     updateBatchCount();
     renderCards();
+}
+
+// 全选按钮：点一次全选，再点一次取消全选
+function toggleSelectAll() {
+    const filtered = getFilteredAccounts();
+    const sorted = sortAccounts(filtered);
+    const allSelected = sorted.length > 0 && sorted.every(acc => selectedAccounts.has(acc.id));
+    
+    if (allSelected) {
+        deselectAll();
+    } else {
+        selectAllVisible();
+    }
 }
 
 async function batchDelete() {
