@@ -806,17 +806,48 @@ async function updateType(id, field, value) { try { await fetch(API + `/account-
 async function deleteType(id) { if (!confirm('删除此类型?')) return; try { await fetch(API + `/account-types/${id}`, { method: 'DELETE', headers: { Authorization: 'Bearer ' + token } }); await loadAccountTypes(); renderTypeEditor(); renderSidebar(); } catch {} }
 
 // 导入导出
-function openImportModal() { document.getElementById('importFile').value = ''; document.getElementById('importCsv').value = ''; document.getElementById('importModal').classList.add('show'); }
+function openImportModal() { 
+    document.getElementById('importFile').value = ''; 
+    document.getElementById('importCsv').value = ''; 
+    document.getElementById('importModal').classList.add('show'); 
+    initDropZone();
+}
 function closeImportModal() { document.getElementById('importModal').classList.remove('show'); }
 
-function handleImportFile(e) {
-    const file = e.target.files[0]; if (!file) return;
+// 拖拽导入初始化
+function initDropZone() {
+    const dropZone = document.getElementById('dropZone');
+    if (!dropZone || dropZone.dataset.initialized) return;
+    dropZone.dataset.initialized = 'true';
+    
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(evt => {
+        dropZone.addEventListener(evt, e => { e.preventDefault(); e.stopPropagation(); });
+    });
+    
+    ['dragenter', 'dragover'].forEach(evt => {
+        dropZone.addEventListener(evt, () => dropZone.classList.add('drag-over'));
+    });
+    
+    ['dragleave', 'drop'].forEach(evt => {
+        dropZone.addEventListener(evt, () => dropZone.classList.remove('drag-over'));
+    });
+    
+    dropZone.addEventListener('drop', e => {
+        const file = e.dataTransfer.files[0];
+        if (file && file.name.endsWith('.json')) {
+            handleDroppedFile(file);
+        } else {
+            showToast('请拖入 .json 文件', true);
+        }
+    });
+}
+
+function handleDroppedFile(file) {
     const reader = new FileReader();
     reader.onload = async (ev) => {
         try {
             const data = JSON.parse(ev.target.result);
             
-            // 检查是否是有效的备份数据
             if (data.detail) {
                 showToast('无效的备份文件: ' + data.detail, true);
                 return;
@@ -831,8 +862,6 @@ function handleImportFile(e) {
             }
             
             pendingImportData = data;
-            
-            // 检测重复
             const existingEmails = new Set(accounts.map(a => a.email?.toLowerCase()));
             const importAccounts = data.accounts || [];
             duplicateAccounts = importAccounts.filter(a => a.email && existingEmails.has(a.email.toLowerCase()));
@@ -848,6 +877,11 @@ function handleImportFile(e) {
         }
     };
     reader.readAsText(file);
+}
+
+function handleImportFile(e) {
+    const file = e.target.files[0]; if (!file) return;
+    handleDroppedFile(file);
 }
 
 function showDuplicateModal(totalCount, duplicates) {
