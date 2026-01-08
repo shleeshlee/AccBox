@@ -482,11 +482,23 @@ function filterByNoProperty(groupId) {
 function updatePageTitle() {
     const viewName = currentView === 'all' ? '全部账号' : currentView === 'favorites' ? '所有收藏' : currentView === 'nocombo' ? '无属性组' : '最近使用';
     
-    if (lastClickedFilter) {
-        document.getElementById('pageTitle').textContent = viewName + ' > ' + lastClickedFilter.name;
-    } else {
-        document.getElementById('pageTitle').textContent = viewName;
+    let path = viewName;
+    
+    // 第二层：账号类型（固定显示）
+    Object.keys(currentFilters).forEach(key => {
+        if (key.startsWith('type_')) {
+            const typeId = currentFilters[key];
+            const t = accountTypes.find(t => t.id === typeId);
+            if (t) path += ' > ' + t.name;
+        }
+    });
+    
+    // 第三层：最后点击的属性组（非类型）
+    if (lastClickedFilter && lastClickedFilter.type !== 'type') {
+        path += ' > ' + lastClickedFilter.name;
     }
+    
+    document.getElementById('pageTitle').textContent = path;
 }
 
 function renderFiltersBar() {
