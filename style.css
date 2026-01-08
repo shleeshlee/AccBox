@@ -309,8 +309,9 @@ body {
 /* 内容区需要顶部padding给固定工具栏留空间 */
 .content { padding: 20px 24px; padding-top: 80px; }
 
-.active-filters { display: none; flex-wrap: wrap; gap: 8px; padding: 0 0 14px; }
+.active-filters { display: none; flex-wrap: wrap; gap: 8px; padding: 0 0 14px; align-items: center; }
 .active-filters.show { display: flex; }
+.active-filters::before { content: '标签'; font-size: 0.8rem; color: var(--text-muted); margin-right: 4px; }
 .filter-tag { display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; background: var(--accent-dim); border: 1px solid var(--accent); border-radius: 16px; font-size: 0.8rem; color: var(--text-primary); }
 .filter-tag .dot { width: 6px; height: 6px; border-radius: 50%; }
 .filter-tag .remove { margin-left: 2px; cursor: pointer; opacity: 0.6; font-size: 0.7rem; }
@@ -979,9 +980,12 @@ body {
 .toolbar.batch-mode .btn-primary,
 .toolbar.batch-mode .tools-menu-wrapper { display: none !important; }
 .batch-count { font-size: 0.85rem; font-weight: 500; color: var(--accent); }
+.btn-batch-select { padding: 6px 12px; background: var(--bg-hover); border: 1px solid var(--border); border-radius: 6px; color: var(--text-secondary); font-size: 0.8rem; cursor: pointer; }
+.btn-batch-select:hover { border-color: var(--accent); color: var(--accent); }
 .btn-batch-delete { padding: 6px 12px; background: var(--red); border: none; border-radius: 6px; color: white; font-size: 0.8rem; cursor: pointer; }
 .btn-batch-delete:hover { filter: brightness(1.1); }
 .btn-batch-cancel { padding: 6px 12px; background: var(--bg-hover); border: 1px solid var(--border); border-radius: 6px; color: var(--text-secondary); font-size: 0.8rem; cursor: pointer; }
+.btn-batch-cancel:hover { border-color: var(--text-muted); color: var(--text-primary); }
 #btnBatchMode.active, #btnBatchModeMobile.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
 
 /* 批量选择复选框 */
