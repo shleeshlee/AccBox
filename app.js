@@ -266,9 +266,8 @@ function renderCards() {
     document.getElementById('cardsList').innerHTML = sorted.map(acc => {
         const type = accountTypes.find(t => t.id === acc.type_id) || { icon: '🔑', color: '#8b5cf6' };
         
-        // 根据combos判断卡片状态
+        // 根据combos判断卡片状态（不再根据选中状态变色）
         let cardClass = 'account-card';
-        if (batchMode && selectedAccounts.has(acc.id)) cardClass += ' selected';
         const combos = acc.combos || [];
         // 查找第一个属性组（账号状态）的值来决定卡片样式
         if (combos.length > 0 && propertyGroups.length > 0) {
@@ -300,29 +299,33 @@ function renderCards() {
             }
         });
 
-        // 批量选择复选框
-        const checkboxHtml = batchMode ? `<label class="batch-checkbox" onclick="toggleAccountSelection(${acc.id}, event)"><input type="checkbox" ${selectedAccounts.has(acc.id) ? 'checked' : ''}><span class="checkmark"></span></label>` : '';
+        // 批量选择复选框（只显示勾，不变色）
+        const isChecked = selectedAccounts.has(acc.id);
+        const checkboxHtml = batchMode ? `<label class="batch-checkbox"><input type="checkbox" ${isChecked ? 'checked' : ''}><span class="checkmark"></span></label>` : '';
 
         // 收藏状态通过卡片类名控制（紫色高亮）
         const favoriteClass = acc.is_favorite ? 'favorite' : '';
+        
+        // 勾选模式下点击卡片即可勾选
+        const cardClickHandler = batchMode ? `onclick="toggleAccountSelection(${acc.id}, event)"` : '';
 
-        return `<div class="${cardClass} ${favoriteClass}" data-id="${acc.id}">
+        return `<div class="${cardClass} ${favoriteClass}" data-id="${acc.id}" ${cardClickHandler}>
             <div class="card-body">
                 <div class="card-header">
                     ${checkboxHtml}
                     <div class="card-icon" style="background:linear-gradient(135deg,${type.color},${adjustColor(type.color,-20)})">${type.icon}</div>
-                    <div class="card-info" onclick="copyEmail('${escapeHtml(acc.email)}')" title="点击复制邮箱"><div class="card-name">${escapeHtml(acc.customName || acc.email)}</div><div class="card-email">${escapeHtml(acc.email)}</div></div>
+                    <div class="card-info" ${!batchMode ? `onclick="copyEmail('${escapeHtml(acc.email)}')" title="点击复制邮箱"` : ''}><div class="card-name">${escapeHtml(acc.customName || acc.email)}</div><div class="card-email">${escapeHtml(acc.email)}</div></div>
                     <div class="card-combos">${combosHtml}</div>
                     <div class="card-meta">
                         <span class="card-country">${getCountryDisplay(acc.country)}</span>
-                        <div class="card-menu" onclick="event.stopPropagation()">
+                        ${!batchMode ? `<div class="card-menu" onclick="event.stopPropagation()">
                             <button class="btn-menu-dots" onclick="toggleCardMenu(${acc.id})">⋮</button>
                             <div class="card-menu-dropdown">
                                 <div class="menu-item" onclick="toggleFavorite(${acc.id});closeAllMenus()">${acc.is_favorite ? '💔 取消收藏' : '💌 收藏'}</div>
                                 <div class="menu-item" onclick="openEditModal(${acc.id});closeAllMenus()">✏️ 编辑</div>
                                 <div class="menu-item danger" onclick="deleteAccount(${acc.id});closeAllMenus()">🗑️ 删除</div>
                             </div>
-                        </div>
+                        </div>` : ''}
                     </div>
                 </div>
                 ${(acc.tags||[]).length ? `<div class="card-tags">${acc.tags.map(t => `<span class="free-tag">${t}</span>`).join('')}</div>` : ''}
@@ -935,11 +938,18 @@ function updateBatchCount() {
 
 function toggleAccountSelection(id, event) {
     if (event) event.stopPropagation();
-    if (selectedAccounts.has(id)) selectedAccounts.delete(id);
-    else selectedAccounts.add(id);
+    if (selectedAccounts.has(id)) {
+        selectedAccounts.delete(id);
+    } else {
+        selectedAccounts.add(id);
+    }
     updateBatchCount();
+    // 只更新勾选框状态，不重新渲染整个卡片
     const card = document.querySelector(`.account-card[data-id="${id}"]`);
-    if (card) card.classList.toggle('selected', selectedAccounts.has(id));
+    if (card) {
+        const checkbox = card.querySelector('.batch-checkbox input');
+        if (checkbox) checkbox.checked = selectedAccounts.has(id);
+    }
 }
 
 // 勾选当前页面全部
