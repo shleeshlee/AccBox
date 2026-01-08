@@ -771,17 +771,17 @@ function openTypeManager() { renderTypeEditor(); document.getElementById('typeMo
 function closeTypeManager() { document.getElementById('typeModal').classList.remove('show'); }
 
 function renderTypeEditor() {
-    let html = '<div class="hint-box"><p>点击图标可更换背景色。</p></div><div class="editor-group"><div class="editor-values">';
+    let html = '<div class="hint-box"><p>点击图标可更换背景色</p></div><div class="editor-group"><div class="editor-values">';
     accountTypes.forEach(t => {
         const color = t.color || '#8b5cf6';
-        html += `<div class="value-row">
-            <label class="type-color-picker" style="background:${color};width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:1.1rem;flex-shrink:0;cursor:pointer;position:relative">
+        html += `<div class="value-row" style="gap:8px">
+            <label style="background:${color};min-width:32px;width:32px;height:32px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:1rem;cursor:pointer;position:relative">
                 ${escapeHtml(t.icon)}
                 <input type="color" value="${color}" style="position:absolute;opacity:0;width:100%;height:100%;cursor:pointer" onchange="updateType(${t.id}, 'color', this.value);this.parentElement.style.background=this.value">
             </label>
-            <input type="text" value="${escapeHtml(t.icon)}" style="width:50px;text-align:center" onchange="updateType(${t.id}, 'icon', this.value)" title="图标">
-            <input type="text" value="${escapeHtml(t.name)}" onchange="updateType(${t.id}, 'name', this.value)" placeholder="类型名称">
-            <input type="text" value="${escapeHtml(t.login_url || '')}" style="flex:2" placeholder="登录链接(可选)" onchange="updateType(${t.id}, 'login_url', this.value)">
+            <input type="text" value="${escapeHtml(t.icon)}" style="width:42px;text-align:center;flex:none" onchange="updateType(${t.id}, 'icon', this.value)">
+            <input type="text" value="${escapeHtml(t.name)}" style="width:80px;flex:none" onchange="updateType(${t.id}, 'name', this.value)">
+            <input type="text" value="${escapeHtml(t.login_url || '')}" style="flex:1;min-width:0" placeholder="登录链接(可选)" onchange="updateType(${t.id}, 'login_url', this.value)">
             <button class="btn-del" onclick="deleteType(${t.id})">✕</button>
         </div>`;
     });
