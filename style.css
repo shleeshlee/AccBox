@@ -325,9 +325,9 @@ body {
 .sort-option:hover { color: var(--text-secondary); }
 .sort-option.active { background: var(--bg-card); border-color: var(--border); color: var(--text-primary); }
 
-.cards-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; min-height: calc(100vh - 200px); }
+.cards-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; }
+.cards-grid:has(.empty-state) { display: flex; justify-content: center; align-items: center; min-height: calc(100vh - 200px); }
 .empty-state { 
-    grid-column: 1 / -1; 
     display: flex; 
     flex-direction: column; 
     align-items: center; 
@@ -335,7 +335,6 @@ body {
     text-align: center; 
     padding: 60px 20px; 
     color: var(--text-muted); 
-    min-height: calc(100vh - 250px);
 }
 .empty-state .icon { font-size: 3rem; margin-bottom: 12px; opacity: 0.5; }
 
