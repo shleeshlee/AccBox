@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AccBox</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text x='50' y='50' dominant-baseline='central' text-anchor='middle' font-size='80'>🍯</text></svg>">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600&family=JetBrains+Mono&display=swap" rel="stylesheet">
+    <link rel="stylesheet" id="mainStyle">
+    <script>document.getElementById('mainStyle').href = 'style.css?v=' + Date.now();</script>
+</head>
+<body>
+    <div class="login-container" id="loginContainer">
+        <div class="login-box">
+            <button class="theme-toggle-login" onclick="toggleTheme()" id="themeBtn2">🌙</button>
+            <div class="login-logo"><h1>🍯 AccBox</h1><p>安全管理您的账号小金库~</p></div>
+            <div class="login-tabs">
+                <div class="login-tab active" onclick="switchLoginTab('login')">登录</div>
+                <div class="login-tab" onclick="switchLoginTab('register')">注册</div>
+            </div>
+            <form class="login-form active" id="loginForm" onsubmit="handleLogin(event)">
+                <div class="form-group"><label class="form-label">用户名</label><input type="text" class="form-input" id="loginUsername" required></div>
+                <div class="form-group"><label class="form-label">密码</label><input type="password" class="form-input" id="loginPassword" required></div>
+                <button type="submit" class="btn-submit">登录</button>
+            </form>
+            <form class="login-form" id="registerForm" onsubmit="handleRegister(event)">
+                <div class="form-group"><label class="form-label">用户名</label><input type="text" class="form-input" id="regUsername" required></div>
+                <div class="form-group"><label class="form-label">密码</label><input type="password" class="form-input" id="regPassword" required></div>
+                <div class="form-group"><label class="form-label">确认密码</label><input type="password" class="form-input" id="regPassword2" required></div>
+                <button type="submit" class="btn-submit">注册</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="app" id="app">
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="logo"><span>🍯</span><span>AccBox</span></div>
+                <div class="header-btns">
+                    <button class="btn-header btn-avatar" onclick="toggleUserPanel()" id="userAvatar" title="个人设置">👤</button>
+                    <button class="btn-header" onclick="toggleSidebar()">◀</button>
+                </div>
+                <!-- 用户面板（头像点击弹出） -->
+                <div class="user-panel" id="userPanel">
+                    <div class="user-panel-header">
+                        <div class="user-avatar-large" id="userAvatarLarge">👤</div>
+                        <div class="user-name" id="userDisplayName"></div>
+                    </div>
+                    <div class="user-panel-body">
+                        <div class="user-panel-item" onclick="openAvatarPicker()">🎨 更换头像</div>
+                        <div class="user-panel-item" onclick="openFavStylePicker()">💌 收藏样式</div>
+                        <div class="user-panel-item" onclick="openPasswordReset()">🔑 重置密码</div>
+                        <div class="user-panel-item" onclick="toggleTheme()"><span id="themeBtn">🌙</span> 切换主题</div>
+                        <a class="user-panel-item" href="https://github.com/shleeshlee/account-manager" target="_blank" style="text-decoration:none;color:inherit;">🌻 1one/GitHub</a>
+                    </div>
+                    <div class="user-panel-footer">
+                        <button class="btn-logout-full" onclick="logout()">退出登录</button>
+                    </div>
+                </div>
+            </div>
+            <div class="sidebar-content">
+                <div class="view-section">
+                    <div class="section-label">视图</div>
+                    <div class="nav-item active" data-view="all" onclick="setView('all')"><span class="nav-icon">📋</span><span class="nav-label">全部账号</span><span class="nav-count" id="countAll">0</span></div>
+                    <div class="nav-item" data-view="favorites" onclick="setView('favorites')"><span class="nav-icon">💌</span><span class="nav-label">所有收藏</span><span class="nav-count" id="countFav">0</span></div>
+                    <div class="nav-item" data-view="nocombo" onclick="setView('nocombo')"><span class="nav-icon">💤</span><span class="nav-label">无属性组</span><span class="nav-count" id="countNoCombo">0</span></div>
+                    <div class="nav-item" data-view="recent" onclick="setView('recent')"><span class="nav-icon">🕐</span><span class="nav-label">最近使用</span><span class="nav-count" id="countRecent">0</span></div>
+                </div>
+                <div id="sidebarTypes"></div>
+                <div id="sidebarProperties"></div>
+                <button class="add-group-btn" onclick="openPropertyManager()">+ 添加属性组</button>
+            </div>
+        </aside>
+
+        <main class="main">
+            <div class="toolbar">
+                <button class="btn-menu" onclick="toggleSidebar()">☰</button>
+                <h1 class="page-title" id="pageTitle">全部账号</h1>
+                <div class="toolbar-spacer"></div>
+                <!-- 批量操作栏 -->
+                <div class="batch-actions" id="batchActions">
+                    <span class="batch-count" id="batchCount">已选 0 项</span>
+                    <button class="btn-batch-delete" onclick="batchDelete()">🗑️ 删除</button>
+                    <button class="btn-batch-cancel" onclick="cancelBatchMode()">取消</button>
+                </div>
+                <!-- 搜索框 -->
+                <div class="search-box"><span class="search-icon">🔍</span><input type="text" id="searchInput" placeholder="搜索..." oninput="filterAccounts()"></div>
+                <!-- 视图切换 -->
+                <div class="view-toggle">
+                    <button class="view-btn active" data-view="card" onclick="setViewMode('card')" title="卡片视图">🃏</button>
+                    <button class="view-btn" data-view="list" onclick="setViewMode('list')" title="列表视图">☰</button>
+                </div>
+                <!-- PC端按钮（带文字） -->
+                <button class="btn-toolbar pc-only" id="btnBatchMode" onclick="toggleBatchMode()" title="批量选择">✅ 勾选账号</button>
+                <button class="btn-toolbar pc-only" onclick="openImportModal()" title="导入数据">📥 导入</button>
+                <button class="btn-toolbar pc-only" onclick="exportData()" title="导出数据">📤 导出</button>
+                <button class="btn-primary pc-only" onclick="openAddModal()">➕ 添加账号</button>
+                <!-- 移动端按钮（带简要文字） -->
+                <button class="btn-toolbar-sm mobile-only" id="btnBatchModeMobile" onclick="toggleBatchMode()" title="勾选">✅ 勾选</button>
+                <div class="tools-menu-wrapper mobile-only">
+                    <button class="btn-toolbar-sm" onclick="toggleToolsMenu()" title="更多">⚙️ 更多</button>
+                    <div class="tools-menu" id="toolsMenu">
+                        <div class="tools-menu-item" onclick="openAddModal();closeToolsMenu()">➕ 添加账号</div>
+                        <div class="tools-menu-item" onclick="openImportModal();closeToolsMenu()">📥 导入数据</div>
+                        <div class="tools-menu-item" onclick="exportData();closeToolsMenu()">📤 导出数据</div>
+                    </div>
+                </div>
+            </div>
+            <div class="active-filters" id="activeFilters"></div>
+            <div class="content">
+                <div class="sort-bar">
+                    <span>排序:</span>
+                    <button class="sort-option active" data-sort="recent" onclick="setSort('recent')">最近使用 ↓</button>
+                    <button class="sort-option" data-sort="name" onclick="setSort('name')">名称</button>
+                    <button class="sort-option" data-sort="created" onclick="setSort('created')">创建时间</button>
+                </div>
+                <div class="cards-grid" id="cardsList"></div>
+            </div>
+        </main>
+    </div>
+
+    <!-- 账号模态框 -->
+    <div class="modal-overlay" id="accountModal">
+        <div class="modal">
+            <div class="modal-header"><h2 class="modal-title" id="accountModalTitle">添加账号</h2><button class="btn-close" onclick="closeAccountModal()">✕</button></div>
+            <div class="modal-body">
+                <div class="form-row">
+                    <div class="form-group"><label class="form-label">账号类型</label><select class="form-select" id="accType"></select></div>
+                    <div class="form-group w100"><label class="form-label">国家/地区</label><select class="form-select" id="accCountry">
+                        <option value="🌍">🌍 全球</option>
+                        <option value="US">🇺🇸 US</option>
+                        <option value="JP">🇯🇵 JP</option>
+                        <option value="TW">🇹🇼 TW</option>
+                        <option value="HK">🇭🇰 HK</option>
+                        <option value="SG">🇸🇬 SG</option>
+                        <option value="KR">🇰🇷 KR</option>
+                        <option value="GB">🇬🇧 GB</option>
+                        <option value="DE">🇩🇪 DE</option>
+                        <option value="FR">🇫🇷 FR</option>
+                        <option value="AU">🇦🇺 AU</option>
+                        <option value="CA">🇨🇦 CA</option>
+                        <option value="IN">🇮🇳 IN</option>
+                        <option value="VN">🇻🇳 VN</option>
+                        <option value="TH">🇹🇭 TH</option>
+                        <option value="MY">🇲🇾 MY</option>
+                        <option value="ID">🇮🇩 ID</option>
+                        <option value="PH">🇵🇭 PH</option>
+                        <option value="BR">🇧🇷 BR</option>
+                        <option value="RU">🇷🇺 RU</option>
+                        <option value="CN">🇨🇳 CN</option>
+                    </select></div>
+                </div>
+                <div class="form-group"><label class="form-label">自定义名称</label><input type="text" class="form-input" id="accName" placeholder="如：API主力号"></div>
+                <div class="form-row">
+                    <div class="form-group"><label class="form-label">邮箱/账号</label><input type="text" class="form-input" id="accEmail"></div>
+                    <div class="form-group"><label class="form-label">密码（可选）</label><input type="text" class="form-input" id="accPassword"></div>
+                </div>
+                <div class="form-group"><label class="form-label">服务状态</label><div class="combos-box" id="accCombosBox"></div></div>
+                <div class="form-group"><label class="form-label">标签</label><div class="tags-input-box" id="accTagsBox"><input type="text" class="tag-input" id="accTagInput" placeholder="回车添加" onkeydown="handleTagInput(event)"></div></div>
+                <div class="form-group"><label class="form-label">备注</label><textarea class="form-textarea" id="accNotes"></textarea></div>
+            </div>
+            <div class="modal-footer"><button class="btn-cancel" onclick="closeAccountModal()">取消</button><button class="btn-save" onclick="saveAccount()">保存</button></div>
+        </div>
+    </div>
+
+    <!-- 属性组模态框 -->
+    <div class="modal-overlay" id="propertyModal">
+        <div class="modal wide"><div class="modal-header"><h2 class="modal-title">管理属性组</h2><button class="btn-close" onclick="closePropertyManager()">✕</button></div><div class="modal-body" id="propertyEditorBody"></div></div>
+    </div>
+
+    <!-- 类型模态框 -->
+    <div class="modal-overlay" id="typeModal">
+        <div class="modal wide"><div class="modal-header"><h2 class="modal-title">管理账号类型</h2><button class="btn-close" onclick="closeTypeManager()">✕</button></div><div class="modal-body" id="typeEditorBody"></div></div>
+    </div>
+
+    <!-- 导入模态框 -->
+    <div class="modal-overlay" id="importModal">
+        <div class="modal">
+            <div class="modal-header"><h2 class="modal-title">导入数据</h2><button class="btn-close" onclick="closeImportModal()">✕</button></div>
+            <div class="modal-body">
+                <div class="import-section">
+                    <div class="import-section-title">📁 从JSON文件导入（完整备份）</div>
+                    <div class="hint-box"><p>选择之前导出的JSON备份文件，包含所有账号信息。</p></div>
+                    <div class="form-group">
+                        <label class="import-file-label" for="importFile">
+                            <span class="import-file-icon">📄</span>
+                            <span class="import-file-text">选择JSON文件</span>
+                            <span class="import-file-hint">选择后自动导入</span>
+                        </label>
+                        <input type="file" class="import-file-input" id="importFile" accept=".json" onchange="handleImportFile(event)">
+                    </div>
+                </div>
+                <div class="import-divider"><span>或</span></div>
+                <div class="import-section">
+                    <div class="import-section-title">📝 从CSV文本导入（批量添加）</div>
+                    <div class="hint-box"><p>每行格式：邮箱,密码,国家,名称（后两项可选）</p></div>
+                    <div class="form-group"><textarea class="form-textarea" id="importCsv" placeholder="example@gmail.com,password123,US,主账号&#10;backup@gmail.com,pass456"></textarea></div>
+                </div>
+            </div>
+            <div class="modal-footer"><button class="btn-cancel" onclick="closeImportModal()">取消</button><button class="btn-save" onclick="doImport()">导入CSV</button></div>
+        </div>
+    </div>
+
+    <!-- 导入重复确认 -->
+    <div class="modal-overlay" id="duplicateModal">
+        <div class="modal">
+            <div class="modal-header"><h2 class="modal-title">⚠️ 发现重复</h2><button class="btn-close" onclick="closeDuplicateModal()">✕</button></div>
+            <div class="modal-body">
+                <div class="duplicate-summary" id="duplicateSummary"></div>
+                <div class="duplicate-list" id="duplicateList"></div>
+            </div>
+            <div class="modal-footer duplicate-footer">
+                <button class="btn-cancel" onclick="closeDuplicateModal()">取消</button>
+                <button class="btn-option" onclick="importWithOption('skip')">跳过重复</button>
+                <button class="btn-option btn-warning" onclick="importWithOption('overwrite')">覆盖</button>
+                <button class="btn-save" onclick="importWithOption('all')">全部导入</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 密码重置模态框 -->
+    <div class="modal-overlay" id="passwordModal">
+        <div class="modal small">
+            <div class="modal-header"><h2 class="modal-title">🔑 重置密码</h2><button class="btn-close" onclick="closePasswordModal()">✕</button></div>
+            <div class="modal-body">
+                <div class="form-group"><label class="form-label">当前密码</label><input type="password" class="form-input" id="oldPassword" required></div>
+                <div class="form-group"><label class="form-label">新密码</label><input type="password" class="form-input" id="newPassword" required></div>
+                <div class="form-group"><label class="form-label">确认新密码</label><input type="password" class="form-input" id="newPassword2" required></div>
+            </div>
+            <div class="modal-footer"><button class="btn-cancel" onclick="closePasswordModal()">取消</button><button class="btn-save" onclick="submitPasswordReset()">确认修改</button></div>
+        </div>
+    </div>
+
+    <!-- 头像选择模态框 -->
+    <div class="modal-overlay" id="avatarModal">
+        <div class="modal small">
+            <div class="modal-header"><h2 class="modal-title">🎨 选择头像</h2><button class="btn-close" onclick="closeAvatarModal()">✕</button></div>
+            <div class="modal-body">
+                <div class="avatar-grid" id="avatarGrid"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 收藏样式选择模态框 -->
+    <div class="modal-overlay" id="favStyleModal">
+        <div class="modal small">
+            <div class="modal-header"><h2 class="modal-title">💌 收藏便签样式</h2><button class="btn-close" onclick="closeFavStyleModal()">✕</button></div>
+            <div class="modal-body">
+                <div class="fav-style-grid" id="favStyleGrid"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+    <script>
+        // 动态加载JS，先加载flags，再加载app
+        const flagsScript = document.createElement('script');
+        flagsScript.src = 'flags.js?v=' + Date.now();
+        flagsScript.onload = function() {
+            const appScript = document.createElement('script');
+            appScript.src = 'app.js?v=' + Date.now();
+            document.body.appendChild(appScript);
+        };
+        document.body.appendChild(flagsScript);
+    </script>
+</body>
+</html>

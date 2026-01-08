@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  account-manager:
+    build: .
+    container_name: account-manager
+    ports:
+      - "9111:80"  # 主机端口:容器端口，访问 http://localhost:9111
+    volumes:
+      - ./data:/app/data  # 数据持久化（数据库和加密密钥）
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Shanghai
