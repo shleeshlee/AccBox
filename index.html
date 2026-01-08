@@ -13,7 +13,7 @@
     <div class="login-container" id="loginContainer">
         <div class="login-box">
             <button class="theme-toggle-login" onclick="toggleTheme()" id="themeBtn2">🌙</button>
-            <div class="login-logo"><h1>🔐 账号管家</h1><p>安全管理您的账号</p></div>
+            <div class="login-logo"><h1>🍯 AccBox</h1><p>安全管理您的账号小金库~</p></div>
             <div class="login-tabs">
                 <div class="login-tab active" onclick="switchLoginTab('login')">登录</div>
                 <div class="login-tab" onclick="switchLoginTab('register')">注册</div>
@@ -35,7 +35,7 @@
     <div class="app" id="app">
         <aside class="sidebar" id="sidebar">
             <div class="sidebar-header">
-                <div class="logo"><span>🔐</span><span>账号管家</span></div>
+                <div class="logo"><span>🍯</span><span>AccBox</span></div>
                 <div class="header-btns">
                     <button class="btn-header btn-avatar" onclick="toggleUserPanel()" id="userAvatar" title="个人设置">👤</button>
                     <button class="btn-header" onclick="toggleSidebar()">◀</button>
@@ -80,6 +80,8 @@
                 <!-- 批量操作栏 -->
                 <div class="batch-actions" id="batchActions">
                     <span class="batch-count" id="batchCount">已选 0 项</span>
+                    <button class="btn-batch-select" onclick="selectAllVisible()">☑️ 全选</button>
+                    <button class="btn-batch-select" onclick="deselectAll()">☐ 清空</button>
                     <button class="btn-batch-delete" onclick="batchDelete()">🗑️ 删除</button>
                     <button class="btn-batch-cancel" onclick="cancelBatchMode()">取消</button>
                 </div>
@@ -106,8 +108,8 @@
                     </div>
                 </div>
             </div>
-            <div class="active-filters" id="activeFilters"></div>
             <div class="content">
+                <div class="active-filters" id="activeFilters"></div>
                 <div class="sort-bar">
                     <span>排序:</span>
                     <button class="sort-option active" data-sort="recent" onclick="setSort('recent')">最近使用 ↓</button>
