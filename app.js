@@ -1,5 +1,5 @@
 const API = '/api';
-const VERSION = 'v11.5'; // 添加无属性组视图、GitHub链接、美化滚动条
+const VERSION = 'v11.6'; // 修复导入combos、添加勾选全部、面包屑导航优化
 let token = localStorage.getItem('token');
 let user = JSON.parse(localStorage.getItem('user') || 'null');
 let accounts = [], accountTypes = [], propertyGroups = [];
@@ -420,6 +420,7 @@ function setView(view) {
 function filterByType(typeId) {
     const key = 'type_' + typeId;
     const t = accountTypes.find(t => t.id === typeId);
+    const wasSelected = currentFilters[key];
     
     // 账号类型互斥：先清除所有已选的账号类型
     Object.keys(currentFilters).forEach(k => {
@@ -427,12 +428,10 @@ function filterByType(typeId) {
     });
     
     // 如果点的是同一个，就取消；否则选中新的
-    if (currentFilters[key]) {
-        delete currentFilters[key];
-        lastClickedFilter = null;
+    if (wasSelected) {
+        // 已选中，取消
     } else {
         currentFilters[key] = typeId;
-        lastClickedFilter = { type: 'type', id: typeId, name: t?.name || '账号类型' };
     }
     updatePageTitle();
     renderSidebar();
@@ -941,6 +940,22 @@ function toggleAccountSelection(id, event) {
     updateBatchCount();
     const card = document.querySelector(`.account-card[data-id="${id}"]`);
     if (card) card.classList.toggle('selected', selectedAccounts.has(id));
+}
+
+// 勾选当前页面全部
+function selectAllVisible() {
+    const filtered = getFilteredAccounts();
+    const sorted = sortAccounts(filtered);
+    sorted.forEach(acc => selectedAccounts.add(acc.id));
+    updateBatchCount();
+    renderCards();
+}
+
+// 取消全部勾选
+function deselectAll() {
+    selectedAccounts.clear();
+    updateBatchCount();
+    renderCards();
 }
 
 async function batchDelete() {
