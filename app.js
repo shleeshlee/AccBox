@@ -318,7 +318,7 @@ function renderCards() {
                         <div class="card-menu" onclick="event.stopPropagation()">
                             <button class="btn-menu-dots" onclick="toggleCardMenu(${acc.id})">⋮</button>
                             <div class="card-menu-dropdown">
-                                <div class="menu-item" onclick="toggleFavorite(${acc.id});closeAllMenus()">${acc.is_favorite ? '💔 取消收藏' : '💜 收藏'}</div>
+                                <div class="menu-item" onclick="toggleFavorite(${acc.id});closeAllMenus()">${acc.is_favorite ? '💔 取消收藏' : '💌 收藏'}</div>
                                 <div class="menu-item" onclick="openEditModal(${acc.id});closeAllMenus()">✏️ 编辑</div>
                                 <div class="menu-item danger" onclick="deleteAccount(${acc.id});closeAllMenus()">🗑️ 删除</div>
                             </div>
@@ -474,7 +474,7 @@ function filterByNoProperty(groupId) {
 }
 
 function updatePageTitle() {
-    const viewName = currentView === 'all' ? '全部账号' : currentView === 'favorites' ? '收藏' : currentView === 'nocombo' ? '无属性组' : '最近使用';
+    const viewName = currentView === 'all' ? '全部账号' : currentView === 'favorites' ? '所有收藏' : currentView === 'nocombo' ? '无属性组' : '最近使用';
     
     if (lastClickedFilter) {
         document.getElementById('pageTitle').textContent = viewName + ' > ' + lastClickedFilter.name;
