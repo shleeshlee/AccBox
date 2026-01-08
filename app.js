@@ -815,6 +815,21 @@ function handleImportFile(e) {
     reader.onload = async (ev) => {
         try {
             const data = JSON.parse(ev.target.result);
+            
+            // 检查是否是有效的备份数据
+            if (data.detail) {
+                showToast('无效的备份文件: ' + data.detail, true);
+                return;
+            }
+            if (!data.accounts || !Array.isArray(data.accounts)) {
+                showToast('无效的备份文件格式', true);
+                return;
+            }
+            if (data.accounts.length === 0) {
+                showToast('备份文件中没有账号数据', true);
+                return;
+            }
+            
             pendingImportData = data;
             
             // 检测重复
@@ -827,7 +842,10 @@ function handleImportFile(e) {
             } else {
                 await doImportJson(data, 'all');
             }
-        } catch { showToast('导入失败', true); }
+        } catch (err) { 
+            console.error('导入解析错误:', err);
+            showToast('导入失败：文件格式错误', true); 
+        }
     };
     reader.readAsText(file);
 }
@@ -878,13 +896,46 @@ async function doImport() {
 }
 
 async function exportData() {
+    // 确保 token 存在
+    if (!token) token = localStorage.getItem('token');
+    if (!token) {
+        showToast('登录已过期，请重新登录', true);
+        setTimeout(() => doLogout(), 500);
+        return;
+    }
+    
     try {
-        const res = await fetch(API + '/export', { headers: { Authorization: 'Bearer ' + token } });
+        const res = await fetch(API + '/export', { headers: { 'Authorization': 'Bearer ' + token } });
+        
+        if (res.status === 401) {
+            showToast('登录已过期，请重新登录', true);
+            setTimeout(() => doLogout(), 500);
+            return;
+        }
+        
+        if (!res.ok) {
+            showToast('导出失败', true);
+            return;
+        }
+        
         const data = await res.json();
+        
+        // 检查是否是有效的备份数据
+        if (!data.accounts || data.detail) {
+            showToast('导出失败: ' + (data.detail || '无效数据'), true);
+            return;
+        }
+        
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-        const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `accounts_backup_${new Date().toISOString().slice(0,10)}.json`; a.click();
-        showToast('导出成功');
-    } catch { showToast('导出失败', true); }
+        const a = document.createElement('a'); 
+        a.href = URL.createObjectURL(blob); 
+        a.download = `accounts_backup_${new Date().toISOString().slice(0,10)}.json`; 
+        a.click();
+        showToast(`导出成功，共 ${data.accounts.length} 个账号`);
+    } catch (e) { 
+        console.error('导出错误:', e);
+        showToast('导出失败', true); 
+    }
 }
 
 // 工具
