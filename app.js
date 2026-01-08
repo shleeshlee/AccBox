@@ -988,7 +988,13 @@ async function batchDelete() {
     for (const id of selectedAccounts) {
         try {
             const res = await fetch(API + `/accounts/${id}`, { method: 'DELETE', headers: { Authorization: 'Bearer ' + token } });
-            if (res.ok) { accounts = accounts.filter(a => a.id !== id); ok++; } else fail++;
+            // 200 成功删除，404 表示已不存在（也算删除成功）
+            if (res.ok || res.status === 404) { 
+                accounts = accounts.filter(a => a.id !== id); 
+                ok++; 
+            } else {
+                fail++;
+            }
         } catch { fail++; }
     }
     selectedAccounts.clear(); batchMode = false;
