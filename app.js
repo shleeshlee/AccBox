@@ -771,13 +771,15 @@ function openTypeManager() { renderTypeEditor(); document.getElementById('typeMo
 function closeTypeManager() { document.getElementById('typeModal').classList.remove('show'); }
 
 function renderTypeEditor() {
-    let html = '<div class="hint-box"><p>设置平台图标、背景色和登录链接。</p></div><div class="editor-group"><div class="editor-values">';
+    let html = '<div class="hint-box"><p>点击图标可更换背景色。</p></div><div class="editor-group"><div class="editor-values">';
     accountTypes.forEach(t => {
         const color = t.color || '#8b5cf6';
         html += `<div class="value-row">
-            <span class="type-preview" style="background:${color};width:32px;height:32px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0">${escapeHtml(t.icon)}</span>
+            <label class="type-color-picker" style="background:${color};width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:1.1rem;flex-shrink:0;cursor:pointer;position:relative">
+                ${escapeHtml(t.icon)}
+                <input type="color" value="${color}" style="position:absolute;opacity:0;width:100%;height:100%;cursor:pointer" onchange="updateType(${t.id}, 'color', this.value);this.parentElement.style.background=this.value">
+            </label>
             <input type="text" value="${escapeHtml(t.icon)}" style="width:50px;text-align:center" onchange="updateType(${t.id}, 'icon', this.value)" title="图标">
-            <input type="color" value="${color}" style="width:36px;height:32px;padding:2px;cursor:pointer;border-radius:4px" onchange="updateType(${t.id}, 'color', this.value)" title="背景色">
             <input type="text" value="${escapeHtml(t.name)}" onchange="updateType(${t.id}, 'name', this.value)" placeholder="类型名称">
             <input type="text" value="${escapeHtml(t.login_url || '')}" style="flex:2" placeholder="登录链接(可选)" onchange="updateType(${t.id}, 'login_url', this.value)">
             <button class="btn-del" onclick="deleteType(${t.id})">✕</button>
@@ -791,7 +793,7 @@ async function addType() {
     const name = prompt('类型名称:'); 
     if (!name) return; 
     const icon = prompt('图标:', '🔑') || '🔑'; 
-    const color = '#22c55e'; // 默认绿色，比紫色好看
+    const color = '#22c55e';
     try { 
         await fetch(API + '/account-types', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ name, icon, color, login_url: '' }) }); 
         await loadAccountTypes(); 
