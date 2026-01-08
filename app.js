@@ -771,13 +771,35 @@ function openTypeManager() { renderTypeEditor(); document.getElementById('typeMo
 function closeTypeManager() { document.getElementById('typeModal').classList.remove('show'); }
 
 function renderTypeEditor() {
-    let html = '<div class="hint-box"><p>设置平台图标和登录链接。</p></div><div class="editor-group"><div class="editor-values">';
-    accountTypes.forEach(t => html += `<div class="value-row"><input type="text" value="${escapeHtml(t.icon)}" style="width:40px;text-align:center" onchange="updateType(${t.id}, 'icon', this.value)"><input type="text" value="${escapeHtml(t.name)}" onchange="updateType(${t.id}, 'name', this.value)"><input type="text" value="${escapeHtml(t.login_url)}" style="flex:2" placeholder="登录链接" onchange="updateType(${t.id}, 'login_url', this.value)"><button class="btn-del" onclick="deleteType(${t.id})">✕</button></div>`);
+    let html = '<div class="hint-box"><p>设置平台图标、背景色和登录链接。</p></div><div class="editor-group"><div class="editor-values">';
+    accountTypes.forEach(t => {
+        const color = t.color || '#8b5cf6';
+        html += `<div class="value-row">
+            <span class="type-preview" style="background:${color};width:32px;height:32px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0">${escapeHtml(t.icon)}</span>
+            <input type="text" value="${escapeHtml(t.icon)}" style="width:50px;text-align:center" onchange="updateType(${t.id}, 'icon', this.value)" title="图标">
+            <input type="color" value="${color}" style="width:36px;height:32px;padding:2px;cursor:pointer;border-radius:4px" onchange="updateType(${t.id}, 'color', this.value)" title="背景色">
+            <input type="text" value="${escapeHtml(t.name)}" onchange="updateType(${t.id}, 'name', this.value)" placeholder="类型名称">
+            <input type="text" value="${escapeHtml(t.login_url || '')}" style="flex:2" placeholder="登录链接(可选)" onchange="updateType(${t.id}, 'login_url', this.value)">
+            <button class="btn-del" onclick="deleteType(${t.id})">✕</button>
+        </div>`;
+    });
     html += '<button class="btn-add-row" onclick="addType()">+ 添加类型</button></div></div>';
     document.getElementById('typeEditorBody').innerHTML = html;
 }
 
-async function addType() { const name = prompt('类型名称:'); if (!name) return; const icon = prompt('图标:', '🔑') || '🔑'; try { await fetch(API + '/account-types', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ name, icon, color: '#8b5cf6', login_url: '' }) }); await loadAccountTypes(); renderTypeEditor(); renderSidebar(); } catch {} }
+async function addType() { 
+    const name = prompt('类型名称:'); 
+    if (!name) return; 
+    const icon = prompt('图标:', '🔑') || '🔑'; 
+    const color = '#22c55e'; // 默认绿色，比紫色好看
+    try { 
+        await fetch(API + '/account-types', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ name, icon, color, login_url: '' }) }); 
+        await loadAccountTypes(); 
+        renderTypeEditor(); 
+        renderSidebar(); 
+        showToast('添加成功');
+    } catch {} 
+}
 async function updateType(id, field, value) { try { await fetch(API + `/account-types/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ [field]: value }) }); await loadAccountTypes(); renderSidebar(); renderCards(); } catch {} }
 async function deleteType(id) { if (!confirm('删除此类型?')) return; try { await fetch(API + `/account-types/${id}`, { method: 'DELETE', headers: { Authorization: 'Bearer ' + token } }); await loadAccountTypes(); renderTypeEditor(); renderSidebar(); } catch {} }
 
