@@ -715,6 +715,7 @@ def export_data(user: dict = Depends(get_current_user)):
                 "country": row["country"],
                 "customName": row["custom_name"] or "",
                 "properties": json.loads(row["properties"] or "{}"),
+                "combos": json.loads(row["combos"] if "combos" in row.keys() and row["combos"] else "[]"),
                 "tags": json.loads(row["tags"] or "[]"),
                 "notes": row["notes"] or "",
                 "is_favorite": bool(row["is_favorite"]),
@@ -743,8 +744,8 @@ def import_data(data: dict, user: dict = Depends(get_current_user)):
             try:
                 conn.execute(f"""
                     INSERT INTO user_{user['id']}_accounts 
-                    (type_id, email, password, country, custom_name, properties, tags, notes, is_favorite, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (type_id, email, password, country, custom_name, properties, combos, tags, notes, is_favorite, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     acc.get("type_id"),
                     acc.get("email", ""),
@@ -752,6 +753,7 @@ def import_data(data: dict, user: dict = Depends(get_current_user)):
                     acc.get("country", "🌍"),
                     acc.get("customName", ""),
                     json.dumps(acc.get("properties", {})),
+                    json.dumps(acc.get("combos", [])),
                     json.dumps(acc.get("tags", []), ensure_ascii=False),
                     acc.get("notes", ""),
                     1 if acc.get("is_favorite") else 0,
