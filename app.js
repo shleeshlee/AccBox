@@ -1007,19 +1007,54 @@ function toggleSelectAll() {
 
 async function batchDelete() {
     if (selectedAccounts.size === 0) { showToast('请先选择账号', true); return; }
+    
+    // 调试：打印当前 token
+    console.log('当前 token:', token);
+    console.log('localStorage token:', localStorage.getItem('token'));
+    
+    // 如果内存中 token 丢失，尝试从 localStorage 恢复
+    if (!token) {
+        token = localStorage.getItem('token');
+        console.log('从 localStorage 恢复 token:', token);
+    }
+    
+    if (!token) {
+        showToast('登录已过期，请重新登录', true);
+        setTimeout(() => doLogout(), 500);
+        return;
+    }
+    
     if (!confirm(`确定删除 ${selectedAccounts.size} 个账号?`)) return;
+    
     let ok = 0, fail = 0;
     for (const id of selectedAccounts) {
         try {
-            const res = await fetch(API + `/accounts/${id}`, { method: 'DELETE', headers: { Authorization: 'Bearer ' + token } });
+            const res = await fetch(API + `/accounts/${id}`, { 
+                method: 'DELETE', 
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+            
+            console.log(`删除 ${id} 响应:`, res.status);
+            
+            // 401 表示认证失败，直接退出登录
+            if (res.status === 401) {
+                showToast('登录已过期，请重新登录', true);
+                setTimeout(() => doLogout(), 500);
+                return;
+            }
+            
             // 200 成功删除，404 表示已不存在（也算删除成功）
             if (res.ok || res.status === 404) { 
                 accounts = accounts.filter(a => a.id !== id); 
                 ok++; 
             } else {
                 fail++;
+                console.error('删除失败:', id, res.status);
             }
-        } catch { fail++; }
+        } catch (e) { 
+            fail++; 
+            console.error('删除异常:', id, e);
+        }
     }
     selectedAccounts.clear(); batchMode = false;
     updateBatchUI(); renderSidebar(); renderCards();
