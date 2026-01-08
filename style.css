@@ -992,9 +992,9 @@ body {
 .batch-checkbox { display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; cursor: pointer; flex-shrink: 0; margin-right: 6px; }
 .batch-checkbox input { display: none; }
 .batch-checkbox .checkmark { width: 18px; height: 18px; border: 2px solid var(--border-light); border-radius: 4px; background: var(--bg-card); display: flex; align-items: center; justify-content: center; }
-.batch-checkbox input:checked ~ .checkmark { background: var(--accent); border-color: var(--accent); }
+.batch-checkbox input:checked + .checkmark { background: var(--accent); border-color: var(--accent); }
 .batch-checkbox .checkmark::after { content: '✓'; color: white; font-size: 12px; display: none; }
-.batch-checkbox input:checked ~ .checkmark::after { display: block; }
+.batch-checkbox input:checked + .checkmark::after { display: block; }
 .account-card.selected { border-color: var(--accent); background: var(--accent-dim); }
 
 /* 导入重复确认模态框 */
