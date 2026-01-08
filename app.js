@@ -301,7 +301,7 @@ function renderCards() {
 
         // 批量选择复选框（点击框或卡片都可以勾选）
         const isChecked = selectedAccounts.has(acc.id);
-        const checkboxHtml = batchMode ? `<label class="batch-checkbox" onclick="event.stopPropagation(); toggleAccountSelection(${acc.id}, event)"><input type="checkbox" ${isChecked ? 'checked' : ''}><span class="checkmark"></span></label>` : '';
+        const checkboxHtml = batchMode ? `<div class="batch-checkbox" onclick="event.stopPropagation(); toggleAccountSelection(${acc.id}, event)"><input type="checkbox" ${isChecked ? 'checked' : ''}><span class="checkmark"></span></div>` : '';
 
         // 收藏状态通过卡片类名控制（紫色高亮）
         const favoriteClass = acc.is_favorite ? 'favorite' : '';
