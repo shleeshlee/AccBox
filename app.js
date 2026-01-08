@@ -420,7 +420,13 @@ function setView(view) {
 function filterByType(typeId) {
     const key = 'type_' + typeId;
     const t = accountTypes.find(t => t.id === typeId);
-    // 切换选中状态：如果已选中则取消，否则添加
+    
+    // 账号类型互斥：先清除所有已选的账号类型
+    Object.keys(currentFilters).forEach(k => {
+        if (k.startsWith('type_')) delete currentFilters[k];
+    });
+    
+    // 如果点的是同一个，就取消；否则选中新的
     if (currentFilters[key]) {
         delete currentFilters[key];
         lastClickedFilter = null;
