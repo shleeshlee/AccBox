@@ -180,12 +180,12 @@
             <div class="modal-body">
                 <div class="import-section">
                     <div class="import-section-title">📁 从JSON文件导入（完整备份）</div>
-                    <div class="hint-box"><p>选择之前导出的JSON备份文件，包含所有账号信息。</p></div>
+                    <div class="hint-box"><p>选择或拖拽JSON备份文件到下方区域</p></div>
                     <div class="form-group">
-                        <label class="import-file-label" for="importFile">
+                        <label class="import-file-label drop-zone" id="dropZone" for="importFile">
                             <span class="import-file-icon">📄</span>
-                            <span class="import-file-text">选择JSON文件</span>
-                            <span class="import-file-hint">选择后自动导入</span>
+                            <span class="import-file-text">点击选择 或 拖拽文件到这里</span>
+                            <span class="import-file-hint">支持 .json 备份文件</span>
                         </label>
                         <input type="file" class="import-file-input" id="importFile" accept=".json" onchange="handleImportFile(event)">
                     </div>
