@@ -386,11 +386,43 @@ body {
 
 /* 列表视图（Excel风格 - 表格格式） */
 .cards-grid.list-view { display: flex; flex-direction: column; gap: 0; }
-.cards-grid.list-view .account-card { border-radius: 0; border-bottom: 1px solid var(--border); border-left: 1px solid var(--border); border-right: 1px solid var(--border); }
+.cards-grid.list-view .account-card { border-radius: 0; border-bottom: 1px solid var(--border); border-left: 1px solid var(--border); border-right: 1px solid var(--border); overflow: visible; position: relative; }
 .cards-grid.list-view .account-card:first-child { border-top: 1px solid var(--border); border-radius: 6px 6px 0 0; }
 .cards-grid.list-view .account-card:last-child { border-radius: 0 0 6px 6px; }
 .cards-grid.list-view .account-card:only-child { border-radius: 6px; }
 .cards-grid.list-view .account-card:hover { transform: none; box-shadow: none; background: var(--bg-hover); }
+.cards-grid.list-view .card-menu-dropdown { z-index: 1000; }
+
+/* 列表模式：三点菜单改为emoji横排，显示在上方 */
+.cards-grid.list-view .card-menu-dropdown {
+    top: auto;
+    bottom: 100%;
+    margin-top: 0;
+    margin-bottom: 4px;
+    min-width: auto;
+    display: none;
+    flex-direction: row;
+    padding: 4px;
+    gap: 2px;
+}
+.cards-grid.list-view .card-menu.open .card-menu-dropdown {
+    display: flex;
+}
+.cards-grid.list-view .menu-item {
+    padding: 6px 8px;
+    font-size: 1rem;
+    border-radius: 6px;
+}
+/* 只显示emoji，隐藏文字 */
+.cards-grid.list-view .menu-item {
+    font-size: 0;
+}
+.cards-grid.list-view .menu-item::before {
+    font-size: 1rem;
+}
+.cards-grid.list-view .menu-item:nth-child(1)::before { content: '❤️'; }
+.cards-grid.list-view .menu-item:nth-child(2)::before { content: '✏️'; }
+.cards-grid.list-view .menu-item:nth-child(3)::before { content: '🗑️'; }
 .cards-grid.list-view .card-body { padding: 10px 0; }
 .cards-grid.list-view .card-header { margin-bottom: 0; align-items: center; flex-wrap: nowrap; gap: 0; }
 
