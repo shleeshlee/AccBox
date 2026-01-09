@@ -361,8 +361,8 @@ body {
 .card-favorite.active { opacity: 1; }
 
 /* 三点菜单 */
-.card-menu { position: relative; }
-.btn-menu-dots { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; background: transparent; border: 1px solid var(--border); border-radius: 6px; color: var(--text-muted); cursor: pointer; font-size: 1rem; letter-spacing: 1px; }
+.card-menu { position: relative; z-index: 15; /* 确保在收藏角标(z-index:10,11)之上 */ }
+.btn-menu-dots { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; background: transparent; border: 1px solid var(--border); border-radius: 6px; color: var(--text-muted); cursor: pointer; font-size: 1rem; letter-spacing: 1px; position: relative; z-index: 15; }
 .btn-menu-dots:hover { border-color: var(--accent); color: var(--accent); }
 .card-menu-dropdown { display: none; position: absolute; top: 100%; right: 0; margin-top: 4px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 100; min-width: 100px; overflow: hidden; }
 .card-menu.open .card-menu-dropdown { display: block; }
@@ -386,11 +386,14 @@ body {
 
 /* 列表视图（Excel风格 - 表格格式） */
 .cards-grid.list-view { display: flex; flex-direction: column; gap: 0; }
-.cards-grid.list-view .account-card { border-radius: 0; border-bottom: 1px solid var(--border); border-left: 1px solid var(--border); border-right: 1px solid var(--border); overflow: visible; position: relative; }
+.cards-grid.list-view .account-card { border-radius: 0; border-bottom: 1px solid var(--border); border-left: 1px solid var(--border); border-right: 1px solid var(--border); overflow: visible; position: relative; z-index: 1; }
 .cards-grid.list-view .account-card:first-child { border-top: 1px solid var(--border); border-radius: 6px 6px 0 0; }
 .cards-grid.list-view .account-card:last-child { border-radius: 0 0 6px 6px; }
 .cards-grid.list-view .account-card:only-child { border-radius: 6px; }
-.cards-grid.list-view .account-card:hover { transform: none; box-shadow: none; background: var(--bg-hover); }
+.cards-grid.list-view .account-card:hover { transform: none; box-shadow: none; background: var(--bg-hover); z-index: 2; }
+/* 当菜单打开时，卡片需要更高的z-index来确保下拉菜单不被遮挡 */
+.cards-grid.list-view .account-card:has(.card-menu.open) { z-index: 100; }
+.cards-grid.list-view .account-card.menu-active { z-index: 100; } /* 备选：JS添加的类 */
 .cards-grid.list-view .card-menu-dropdown { z-index: 1000; }
 
 /* 列表模式：三点菜单改为emoji横排，显示在上方 */
@@ -1008,8 +1011,8 @@ body {
     .cards-grid.list-view .btn-menu-dots { width: 22px; height: 22px; font-size: 0.85rem; }
     
     /* 收藏便签更小 */
-    .cards-grid.list-view .account-card.favorite::before { border-width: 0 20px 20px 0; }
-    .cards-grid.list-view .account-card.favorite::after { font-size: 0.5rem; top: 1px; right: 1px; }
+    .cards-grid.list-view .account-card.favorite::before { border-width: 0 20px 20px 0; pointer-events: none; }
+    .cards-grid.list-view .account-card.favorite::after { font-size: 0.5rem; top: 1px; right: 1px; pointer-events: none; }
 }
 
 /* 批量操作样式 */
@@ -1062,7 +1065,7 @@ body {
 .import-section-title { font-size: 0.9rem; font-weight: 600; color: var(--text-primary); margin-bottom: 12px; display: flex; align-items: center; gap: 6px; }
 .import-divider { display: flex; align-items: center; justify-content: center; margin: 20px 0; position: relative; }
 .import-divider span { padding: 0 16px; background: var(--bg-card); color: var(--text-muted); font-size: 0.8rem; position: relative; z-index: 1; }
-.import-divider::before { content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: var(--border); z-index: 0; }
+.import-divider::before { content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: var(--border); z-index: 0; pointer-events: none; /* 不拦截点击事件 */ }
 
 .import-file-label { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px 16px; background: var(--bg-dark); border: 2px dashed var(--border); border-radius: 12px; cursor: pointer; transition: all 0.2s; }
 .import-file-label:hover { border-color: var(--accent); background: var(--accent-dim); }
@@ -1213,6 +1216,7 @@ body {
     border-width: 0 32px 32px 0;
     border-color: transparent var(--fav-color, var(--accent)) transparent transparent;
     z-index: 10;
+    pointer-events: none; /* 修复：不拦截点击事件，确保三点菜单可点击 */
 }
 .account-card.favorite::after {
     content: var(--fav-icon, '♥');
@@ -1222,16 +1226,19 @@ body {
     font-size: 0.7rem;
     color: white;
     z-index: 11;
+    pointer-events: none; /* 修复：不拦截点击事件，确保三点菜单可点击 */
 }
 
 /* 列表视图收藏角标 - 更小巧 */
 .cards-grid.list-view .account-card.favorite::before {
     border-width: 0 24px 24px 0;
+    pointer-events: none; /* 继承：不拦截点击事件 */
 }
 .cards-grid.list-view .account-card.favorite::after {
     top: 2px;
     right: 2px;
     font-size: 0.55rem;
+    pointer-events: none; /* 继承：不拦截点击事件 */
 }
 
 /* 收藏样式选择器 - 精美设计 */
@@ -1280,6 +1287,7 @@ body {
     height: 0;
     border-style: solid;
     border-width: 0 20px 20px 0;
+    pointer-events: none; /* 不拦截点击事件 */
 }
 .fav-style-preview::after {
     position: absolute;
@@ -1287,6 +1295,7 @@ body {
     right: 2px;
     font-size: 0.55rem;
     color: white;
+    pointer-events: none; /* 不拦截点击事件 */
 }
 .fav-style-name {
     font-size: 0.75rem;

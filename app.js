@@ -986,16 +986,23 @@ function toggleCardMenu(id) {
     const menu = card?.querySelector('.card-menu');
     if (!menu) return;
     
-    // 先关闭所有其他菜单
+    // 先关闭所有其他菜单，移除其他卡片的menu-active类
     document.querySelectorAll('.card-menu.open').forEach(m => {
-        if (m !== menu) m.classList.remove('open');
+        if (m !== menu) {
+            m.classList.remove('open');
+            m.closest('.account-card')?.classList.remove('menu-active');
+        }
     });
     
     menu.classList.toggle('open');
+    card.classList.toggle('menu-active', menu.classList.contains('open'));
 }
 
 function closeAllMenus() {
-    document.querySelectorAll('.card-menu.open').forEach(m => m.classList.remove('open'));
+    document.querySelectorAll('.card-menu.open').forEach(m => {
+        m.classList.remove('open');
+        m.closest('.account-card')?.classList.remove('menu-active');
+    });
 }
 
 // 点击页面其他地方关闭菜单
