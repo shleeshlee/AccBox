@@ -733,27 +733,203 @@ def export_data(user: dict = Depends(get_current_user)):
 
 @app.post("/api/import")
 def import_data(data: dict, user: dict = Depends(get_current_user)):
+    """
+    完整导入功能，支持：
+    - 导入账号类型（按名称匹配，避免重复）
+    - 导入属性组和属性值（按名称匹配，避免重复）
+    - 导入账号（支持 skip/overwrite/all 模式）
+    - 自动映射旧ID到新ID
+    """
     if "accounts" not in data:
         raise HTTPException(status_code=400, detail="无效的导入数据")
     
     now = datetime.now().isoformat()
+    import_mode = data.get("import_mode", "all")  # all, skip, overwrite
+    
     imported_accounts = 0
+    updated_accounts = 0
+    skipped_accounts = 0
+    imported_types = 0
+    imported_groups = 0
+    imported_values = 0
+    
+    # ID映射表：旧ID -> 新ID
+    type_id_map = {}
+    value_id_map = {}
     
     with get_db() as conn:
+        # ========== 步骤1：导入账号类型（按名称匹配或新建） ==========
+        if "account_types" in data:
+            # 获取现有类型
+            existing_types = {}
+            cursor = conn.execute(f"SELECT id, name FROM user_{user['id']}_account_types")
+            for row in cursor.fetchall():
+                existing_types[row["name"].lower()] = row["id"]
+            
+            for old_type in data["account_types"]:
+                old_id = old_type.get("id")
+                name = old_type.get("name", "")
+                name_lower = name.lower()
+                
+                if name_lower in existing_types:
+                    # 已存在同名类型，复用
+                    type_id_map[old_id] = existing_types[name_lower]
+                else:
+                    # 新建类型
+                    cursor = conn.execute(f"""
+                        INSERT INTO user_{user['id']}_account_types (name, icon, color, login_url, sort_order)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (
+                        name,
+                        old_type.get("icon", "🔑"),
+                        old_type.get("color", "#8b5cf6"),
+                        old_type.get("login_url", ""),
+                        old_type.get("sort_order", 0)
+                    ))
+                    new_id = cursor.lastrowid
+                    type_id_map[old_id] = new_id
+                    existing_types[name_lower] = new_id
+                    imported_types += 1
+        
+        # ========== 步骤2：导入属性组和属性值（按名称匹配或新建） ==========
+        if "property_groups" in data:
+            # 获取现有属性组
+            existing_groups = {}
+            cursor = conn.execute(f"SELECT id, name FROM user_{user['id']}_property_groups")
+            for row in cursor.fetchall():
+                existing_groups[row["name"].lower()] = row["id"]
+            
+            # 获取现有属性值（按组ID分组）
+            existing_values = {}  # {group_id: {name_lower: value_id}}
+            cursor = conn.execute(f"SELECT id, group_id, name FROM user_{user['id']}_property_values")
+            for row in cursor.fetchall():
+                gid = row["group_id"]
+                if gid not in existing_values:
+                    existing_values[gid] = {}
+                existing_values[gid][row["name"].lower()] = row["id"]
+            
+            for old_group in data["property_groups"]:
+                old_group_id = old_group.get("id")
+                group_name = old_group.get("name", "")
+                group_name_lower = group_name.lower()
+                
+                if group_name_lower in existing_groups:
+                    # 已存在同名组，复用
+                    new_group_id = existing_groups[group_name_lower]
+                else:
+                    # 新建组
+                    cursor = conn.execute(f"""
+                        INSERT INTO user_{user['id']}_property_groups (name, sort_order)
+                        VALUES (?, ?)
+                    """, (group_name, old_group.get("sort_order", 0)))
+                    new_group_id = cursor.lastrowid
+                    existing_groups[group_name_lower] = new_group_id
+                    existing_values[new_group_id] = {}
+                    imported_groups += 1
+                
+                # 导入该组的属性值
+                for old_value in old_group.get("values", []):
+                    old_value_id = old_value.get("id")
+                    value_name = old_value.get("name", "")
+                    value_name_lower = value_name.lower()
+                    
+                    group_values = existing_values.get(new_group_id, {})
+                    if value_name_lower in group_values:
+                        # 已存在同名值，复用
+                        value_id_map[old_value_id] = group_values[value_name_lower]
+                    else:
+                        # 新建值
+                        cursor = conn.execute(f"""
+                            INSERT INTO user_{user['id']}_property_values (group_id, name, color, sort_order)
+                            VALUES (?, ?, ?, ?)
+                        """, (
+                            new_group_id,
+                            value_name,
+                            old_value.get("color", "#8b5cf6"),
+                            old_value.get("sort_order", 0)
+                        ))
+                        new_value_id = cursor.lastrowid
+                        value_id_map[old_value_id] = new_value_id
+                        if new_group_id not in existing_values:
+                            existing_values[new_group_id] = {}
+                        existing_values[new_group_id][value_name_lower] = new_value_id
+                        imported_values += 1
+        
+        # ========== 步骤3：获取现有账号（用于重复检测） ==========
+        existing_accounts = {}
+        if import_mode in ("skip", "overwrite"):
+            cursor = conn.execute(f"SELECT id, email FROM user_{user['id']}_accounts WHERE email != ''")
+            for row in cursor.fetchall():
+                existing_accounts[row["email"].lower()] = row["id"]
+        
+        # ========== 步骤4：导入账号 ==========
         for acc in data["accounts"]:
             try:
+                email = acc.get("email", "")
+                email_lower = email.lower() if email else ""
+                existing_id = existing_accounts.get(email_lower) if email_lower else None
+                
+                # 映射 type_id（如果有映射表则转换，否则保持原值）
+                old_type_id = acc.get("type_id")
+                new_type_id = type_id_map.get(old_type_id, old_type_id) if old_type_id else None
+                
+                # 映射 combos 中的属性值ID
+                old_combos = acc.get("combos", [])
+                new_combos = []
+                for combo in old_combos:
+                    if isinstance(combo, list):
+                        new_combo = [value_id_map.get(vid, vid) for vid in combo]
+                        new_combos.append(new_combo)
+                
+                # 映射 properties 中的属性值ID（旧格式兼容）
+                old_properties = acc.get("properties", {})
+                new_properties = {}
+                for k, v in old_properties.items():
+                    new_k = str(k)  # key可能是字符串
+                    new_properties[new_k] = value_id_map.get(v, v)
+                
+                if existing_id:
+                    # 账号已存在
+                    if import_mode == "skip":
+                        skipped_accounts += 1
+                        continue
+                    elif import_mode == "overwrite":
+                        # 更新现有账号
+                        conn.execute(f"""
+                            UPDATE user_{user['id']}_accounts SET
+                            type_id = ?, password = ?, country = ?, custom_name = ?,
+                            properties = ?, combos = ?, tags = ?, notes = ?,
+                            is_favorite = ?, updated_at = ?
+                            WHERE id = ?
+                        """, (
+                            new_type_id,
+                            encrypt_password(acc.get("password", "")),
+                            acc.get("country", "🌍"),
+                            acc.get("customName", ""),
+                            json.dumps(new_properties),
+                            json.dumps(new_combos),
+                            json.dumps(acc.get("tags", []), ensure_ascii=False),
+                            acc.get("notes", ""),
+                            1 if acc.get("is_favorite") else 0,
+                            now,
+                            existing_id
+                        ))
+                        updated_accounts += 1
+                        continue
+                
+                # 新建账号
                 conn.execute(f"""
                     INSERT INTO user_{user['id']}_accounts 
                     (type_id, email, password, country, custom_name, properties, combos, tags, notes, is_favorite, created_at, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
-                    acc.get("type_id"),
-                    acc.get("email", ""),
+                    new_type_id,
+                    email,
                     encrypt_password(acc.get("password", "")),
                     acc.get("country", "🌍"),
                     acc.get("customName", ""),
-                    json.dumps(acc.get("properties", {})),
-                    json.dumps(acc.get("combos", [])),
+                    json.dumps(new_properties),
+                    json.dumps(new_combos),
                     json.dumps(acc.get("tags", []), ensure_ascii=False),
                     acc.get("notes", ""),
                     1 if acc.get("is_favorite") else 0,
@@ -763,9 +939,34 @@ def import_data(data: dict, user: dict = Depends(get_current_user)):
                 imported_accounts += 1
             except Exception as e:
                 print(f"导入账号失败: {e}")
+        
         conn.commit()
     
-    return {"message": f"成功导入 {imported_accounts} 个账号"}
+    # 构建返回消息
+    parts = []
+    if imported_types > 0:
+        parts.append(f"类型 {imported_types} 个")
+    if imported_groups > 0:
+        parts.append(f"属性组 {imported_groups} 个")
+    if imported_values > 0:
+        parts.append(f"属性值 {imported_values} 个")
+    if imported_accounts > 0:
+        parts.append(f"新增账号 {imported_accounts} 个")
+    if updated_accounts > 0:
+        parts.append(f"覆盖账号 {updated_accounts} 个")
+    if skipped_accounts > 0:
+        parts.append(f"跳过 {skipped_accounts} 个")
+    
+    message = "成功导入：" + "，".join(parts) if parts else "没有数据被导入"
+    return {
+        "message": message, 
+        "imported_types": imported_types,
+        "imported_groups": imported_groups,
+        "imported_values": imported_values,
+        "imported": imported_accounts, 
+        "updated": updated_accounts, 
+        "skipped": skipped_accounts
+    }
 
 @app.post("/api/import-csv")
 def import_csv(data: dict, user: dict = Depends(get_current_user)):
