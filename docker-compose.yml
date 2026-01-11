@@ -1,13 +1,18 @@
 version: '3.8'
 
 services:
-  account-manager:
+  accbox:
     build: .
-    container_name: account-manager
+    container_name: accbox-v5
     ports:
-      - "9111:80"  # 主机端口:容器端口，访问 http://localhost:9111
+      - "9111:80"
     volumes:
-      - ./data:/app/data  # 数据持久化（数据库和加密密钥）
+      - ./data:/app/data
     restart: unless-stopped
     environment:
       - TZ=Asia/Shanghai
+      - DATA_DIR=/app/data
+      # ⚠️ 安全配置：请修改为您自己的密钥！
+      # 生成方法: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+      # 注意: 使用默认密钥时系统会显示安全警告
+      - APP_MASTER_KEY=DEFAULT_INSECURE_KEY_CHANGE_ME_IMMEDIATELY

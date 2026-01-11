@@ -1,120 +1,158 @@
-# 🍯 AccBox (通用账号管家)
+# 🍯 AccBox - 通用账号管家
 
-一个简洁的多用户账号管理系统，支持自定义分类、属性标签、收藏等功能。
+一个安全、简洁的多用户账号管理系统，支持 **完整 2FA 验证码生成**、**二维码扫描导入**、**Steam Guard** 等功能。
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![Version](https://img.shields.io/badge/version-5.0-green.svg)
+![Docker](https://img.shields.io/badge/docker-ready-blue.svg)
+
+## 📦 版本选择
+
+| 版本 | 定位 | 获取方式 |
+|------|------|----------|
+| **v5.0** (当前) | 🚀 主推版本，功能完整 | `git clone` 默认获取 |
+| v4.0 | 📦 简洁版，代码重构 | [切换到 v4 分支](../../tree/v4) |
+
+### 版本功能对比
+
+| 功能 | v5.0 ✅ | v4.0 |
+|------|---------|------|
+| 标准 TOTP (6/8位) | ✅ | ✅ |
+| Steam Guard (5位字母) | ✅ | ✅ |
+| 二维码扫描导入 | ✅ | ✅ |
+| 多算法 (SHA1/256/512) | ✅ | ✅ |
+| **时间偏移校正** | ✅ | ❌ |
+| **备份码管理** | ✅ | ❌ |
+| 安全中间件 | ✅ | ✅ |
+| 环境变量密钥 | ✅ | ✅ |
+
+> 💡 **推荐使用 v5.0**，功能更完整。v4.0 适合追求极简代码的开发者。
+
+---
 
 ## ✨ 功能特性
 
-- 🌙 日间/夜间主题切换
-- 📁 自定义账号类型（Google、Microsoft、Discord等）
-- 🎨 账号类型自定义图标和背景色
-- 🏷️ 自定义属性组和标签
-- ⭐ 收藏功能（多种收藏样式可选）
-- 🕐 最近使用记录
-- 🔍 搜索和多条件筛选
-- 📥 JSON/CSV 导入导出
-- ✅ 批量选择和删除
-- 🃏 卡片/列表两种视图模式
-- 👤 用户头像自定义
-- 🔐 多用户数据隔离
-- 📱 响应式设计，支持移动端
+### 🛡️ 完整 2FA 支持
+- **标准 TOTP** - 支持 6/8 位数字验证码
+- **Steam Guard** - Steam 专用 5 位字母验证码
+- **多算法** - SHA1 / SHA256 / SHA512
+- **二维码扫描** - 上传或拖拽图片自动识别
+- **URI 导入** - 支持 `otpauth://` 链接
+- **时间校正** - 服务器时间差修正
+- **动画倒计时** - 验证码过期可视化
+
+### 🔐 安全特性
+- **Fernet 加密** - 密码加密存储
+- **环境变量密钥** - 支持 `APP_MASTER_KEY` 配置
+- **安全中间件** - 阻止访问敏感文件
+- **前端警告** - 不安全配置时显示警告
+- **多用户隔离** - 独立数据空间
+
+### 📁 账号管理
+- 自定义账号类型（图标、颜色、登录链接）
+- 组合标签系统
+- 收藏功能（多种样式）
+- 批量操作
+- JSON/CSV 导入导出
+
+### 🎨 界面体验
+- 日间/夜间主题
+- 卡片/列表视图
+- 响应式设计
+- 自定义头像
+
+---
 
 ## 🚀 快速部署
 
-### 方式一：Docker 一键部署（推荐）
-
-**前提：已安装 Docker 和 Docker Compose**
+### Docker 一键部署（推荐）
 
 ```bash
 # 1. 克隆项目
 git clone https://github.com/shleeshlee/account-manager.git
 cd account-manager
 
-# 2. 启动服务
+# 2. 生成安全密钥（重要！）
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+
+# 3. 修改 docker-compose.yml 中的 APP_MASTER_KEY
+
+# 4. 启动
 docker-compose up -d
 
-# 3. 访问
-# 浏览器打开 http://localhost:9111
+# 5. 访问 http://localhost:9111
 ```
 
-**停止服务：**
-```bash
-docker-compose down
-```
+### 手动部署
 
-**查看日志：**
 ```bash
-docker-compose logs -f
+pip install fastapi uvicorn cryptography pydantic
+export APP_MASTER_KEY="your-secure-key"
+python main.py
 ```
 
 ---
 
-### 方式二：手动部署
+## 🔐 安全配置
 
-#### 1. 安装依赖
+### 密钥模式
 
-```bash
-# Python 3.8+
-pip install fastapi uvicorn cryptography pydantic
+| 模式 | 安全级别 | 说明 |
+|------|---------|------|
+| 环境变量 | ⭐⭐⭐ 推荐 | `APP_MASTER_KEY` |
+| 文件密钥 | ⭐⭐ | 自动生成 `data/.encryption_key` |
+| 默认密钥 | ❌ 危险 | 会显示红色警告 |
+
+### 生成密钥
+
+```python
+from cryptography.fernet import Fernet
+print(Fernet.generate_key().decode())
+# 输出类似: gAAAAABk...
 ```
 
-#### 2. 启动后端
+⚠️ **警告**：使用默认密钥时，系统会显示安全警告。请在存入数据前配置正式密钥！
 
-```bash
-python main.py
-# 后端运行在 http://localhost:9111
-```
+---
 
-#### 3. 配置 Nginx
+## 📷 二维码扫描
 
-```nginx
-server {
-    listen 80;
-    server_name your-domain.com;
-    
-    root /path/to/account-manager;
-    index index.html;
-    
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-    
-    # API 反向代理
-    location /api {
-        proxy_pass http://127.0.0.1:9111;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    }
-}
-```
+支持直接扫描 2FA 二维码图片：
 
-#### 4. 使用 systemd 管理（可选）
+1. 点击 **🛡️ 配置 2FA**
+2. 上传或拖拽二维码截图
+3. 自动识别并填充配置
 
-```bash
-# 创建服务文件
-sudo cat > /etc/systemd/system/account-manager.service << 'EOF'
-[Unit]
-Description=Account Manager API
-After=network.target
+支持：Google Authenticator、Microsoft Authenticator、Authy、1Password 等
 
-[Service]
-Type=simple
-WorkingDirectory=/path/to/account-manager
-ExecStart=/usr/bin/python3 main.py
-Restart=always
-RestartSec=5
+---
 
-[Install]
-WantedBy=multi-user.target
-EOF
+## 🎮 Steam Guard
 
-# 启动服务
-sudo systemctl daemon-reload
-sudo systemctl enable account-manager
-sudo systemctl start account-manager
-```
+1. 获取 Steam `shared_secret`（Base64格式）
+2. 点击账号的 **🛡️ 2FA** 按钮
+3. 选择类型 **Steam Guard**
+4. 粘贴密钥并保存
+5. 即可生成 5 位字母验证码
+
+---
+
+## 📝 API 接口
+
+访问 `http://localhost:9111/docs` 查看完整 API 文档。
+
+### 主要接口
+
+| 接口 | 方法 | 说明 |
+|------|------|------|
+| `/api/register` | POST | 用户注册 |
+| `/api/login` | POST | 用户登录 |
+| `/api/accounts` | GET/POST | 账号列表/创建 |
+| `/api/accounts/{id}/totp` | GET/POST/DELETE | 2FA 配置 |
+| `/api/accounts/{id}/totp/generate` | GET | 生成验证码 |
+| `/api/export` | GET | 导出数据 |
+| `/api/import` | POST | 导入数据 |
+| `/api/health` | GET | 健康检查 |
 
 ---
 
@@ -126,79 +164,40 @@ account-manager/
 ├── style.css           # 样式文件
 ├── app.js              # 前端逻辑
 ├── flags.js            # 国家旗帜
-├── main.py             # 后端 API (FastAPI)
-├── Dockerfile          # Docker 镜像构建
-├── docker-compose.yml  # Docker Compose 配置
-├── docker/
-│   ├── nginx.conf      # Nginx 配置
-│   └── supervisord.conf # 进程管理配置
-└── data/               # 数据目录（自动创建）
-    ├── accounts.db     # SQLite 数据库
-    └── .encryption_key # 加密密钥
+├── main.py             # 后端 API
+├── Dockerfile          
+├── docker-compose.yml  
+├── nginx.conf          
+└── data/               # 数据目录
+    ├── accounts.db
+    └── .encryption_key
 ```
 
-## ⚙️ 配置说明
-
-### 修改端口
-
-**Docker 方式：** 修改 `docker-compose.yml` 中的端口映射：
-```yaml
-ports:
-  - "你的端口:80"
-```
-
-**手动部署：** 设置环境变量或修改 `main.py`：
-```bash
-PORT=8080 python main.py
-```
-
-### 数据持久化
-
-- 数据库文件：`accounts.db`
-- 加密密钥：`.encryption_key`
-
-⚠️ **重要：** `.encryption_key` 文件是解密账号密码的密钥，请妥善备份！
-
-## 🛠️ 常见问题
-
-### API 返回 404？
-
-确保 Nginx 配置了 `/api` 反向代理到后端端口（默认 9111）。
-
-### 忘记密码？
-
-数据库中密码是加密的，无法恢复。可以删除数据库文件重新开始，或直接操作 SQLite 删除用户。
-
-### Docker 启动失败？
-
-```bash
-# 查看详细日志
-docker-compose logs -f
-
-# 重新构建
-docker-compose build --no-cache
-docker-compose up -d
-```
-
-## 📝 API 文档
-
-启动后访问 `http://localhost:9111/docs` 查看 Swagger API 文档。
-
-## 🖼️ 截图预览
-
-> 可在此处添加应用截图
+---
 
 ## 🔄 更新日志
 
-### v11.6
-- 新增：账号类型支持自定义背景色（点击图标即可更换）
-- 新增：批量选择/删除功能
-- 新增：卡片/列表视图切换
-- 新增：收藏样式自定义（紫/粉/金/红/蓝/绿）
-- 新增：用户头像选择
-- 优化：空状态页面居中显示
-- 优化：类型管理界面布局
-- 修复：批量删除时已不存在的账号也计为成功
+### v5.0
+- ✨ 二维码扫描导入 2FA
+- ✨ 后端验证码生成（支持 Steam Guard）
+- ✨ 算法选择（SHA1/SHA256/SHA512）
+- ✨ 时间偏移校正
+- 🔒 安全中间件 + 环境变量密钥
+
+### v4.0
+- 🔧 代码重构整理
+- ✨ 二维码扫描
+- ✨ 完整 2FA 支持
+
+### v3.0
+- 🔒 安全中间件
+- ✨ 2FA 基础功能
+
+---
+
+## 🤝 贡献
+
+欢迎提交 Issue 和 Pull Request！
 
 ## 📄 License
 

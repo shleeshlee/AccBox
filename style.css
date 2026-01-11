@@ -1349,3 +1349,320 @@ body {
 
 /* 去掉侧边栏底部（已移到用户面板） */
 .sidebar-footer { display: none; }
+
+/* ==================== v12.0 新增：2FA 弹窗样式 ==================== */
+.totp-popup {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.totp-popup-content {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px;
+    min-width: 280px;
+    text-align: center;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.totp-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+}
+
+.totp-issuer {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+}
+
+.totp-close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 1.2rem;
+}
+
+.totp-code-wrapper {
+    position: relative;
+    display: inline-block;
+    margin: 20px 0;
+}
+
+.totp-code {
+    font-family: 'JetBrains Mono', 'Consolas', monospace;
+    font-size: 2.5rem;
+    font-weight: 600;
+    letter-spacing: 4px;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: all 0.3s;
+    padding: 10px 20px;
+    border-radius: 8px;
+    background: var(--bg-dark);
+}
+
+.totp-code.blurred {
+    filter: blur(8px);
+    user-select: none;
+}
+
+.totp-code.expiring {
+    animation: blink 0.5s infinite;
+    color: var(--red);
+}
+
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+.totp-timer {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 140px;
+    height: 140px;
+    pointer-events: none;
+}
+
+.totp-timer-bg {
+    fill: none;
+    stroke: var(--border);
+    stroke-width: 2;
+}
+
+.totp-timer-progress {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 3;
+    stroke-linecap: round;
+    stroke-dasharray: 100, 100;
+    transform: rotate(-90deg);
+    transform-origin: center;
+    transition: stroke-dasharray 1s linear, stroke 0.3s;
+}
+
+.totp-actions {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    margin-top: 16px;
+}
+
+.totp-copy-btn {
+    padding: 10px 20px;
+    background: var(--accent);
+    border: none;
+    border-radius: 8px;
+    color: white;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.totp-copy-btn:hover {
+    background: var(--accent-light);
+}
+
+.totp-remaining {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+}
+
+/* 随机密码生成按钮 */
+.password-input-wrapper {
+    position: relative;
+}
+
+.password-input-wrapper .form-input {
+    padding-right: 44px;
+}
+
+.btn-generate-pwd {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    font-size: 1.3rem;
+    cursor: pointer;
+    opacity: 0.6;
+    transition: opacity 0.2s, transform 0.2s;
+    padding: 4px;
+}
+
+.btn-generate-pwd:hover {
+    opacity: 1;
+    transform: translateY(-50%) scale(1.15);
+}
+
+/* 2FA 徽章 */
+.twofa-badge {
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: transform 0.2s;
+    margin-left: 4px;
+}
+
+.twofa-badge:hover {
+    transform: scale(1.2);
+}
+
+/* 2FA 配置模态框按钮 */
+.btn-danger {
+    background: var(--red) !important;
+    color: white !important;
+    border: none !important;
+    margin-right: auto !important;
+}
+
+/* 2FA 配置按钮 */
+.btn-2fa-config {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    background: var(--bg-hover);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    margin-right: auto;
+    transition: all 0.2s;
+}
+
+.btn-2fa-config:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--accent-dim);
+}
+
+/* 卡片底部 2FA 按钮 */
+.btn-action.btn-2fa {
+    background: linear-gradient(135deg, rgba(139, 92, 246, 0.15), rgba(59, 130, 246, 0.15));
+    border-color: rgba(139, 92, 246, 0.3);
+}
+
+.btn-action.btn-2fa:hover {
+    background: linear-gradient(135deg, rgba(139, 92, 246, 0.25), rgba(59, 130, 246, 0.25));
+    border-color: var(--accent);
+}
+
+/* ==================== v5.0 新增：二维码上传区域样式 ==================== */
+
+.qr-upload-zone {
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    padding: 30px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    background: var(--bg-secondary);
+}
+
+.qr-upload-zone:hover,
+.qr-upload-zone.drag-over {
+    border-color: var(--accent);
+    background: rgba(139, 92, 246, 0.05);
+}
+
+.qr-upload-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+
+.qr-upload-icon {
+    font-size: 2.5rem;
+}
+
+.qr-upload-text {
+    font-size: 0.95rem;
+    color: var(--text);
+}
+
+.qr-upload-hint {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.qr-scan-result {
+    margin-top: 12px;
+    padding: 10px 15px;
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    font-size: 0.9rem;
+}
+
+.import-divider {
+    display: flex;
+    align-items: center;
+    margin: 20px 0;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+.import-divider::before,
+.import-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+}
+
+.import-divider span {
+    padding: 0 15px;
+}
+
+/* 2FA 配置模态框优化 */
+#twoFAConfigModal .form-row {
+    display: flex;
+    gap: 15px;
+}
+
+#twoFAConfigModal .form-row .form-group {
+    flex: 1;
+}
+
+#twoFAConfigModal .modal-footer {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.btn-danger {
+    background: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    padding: 8px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-danger:hover {
+    background: rgba(239, 68, 68, 0.2);
+}

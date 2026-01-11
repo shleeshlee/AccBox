@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-通用账号管家 - 后端API v4.0
-新增: 自定义属性组系统、自定义账号类型、优化的数据结构
+通用账号管家 - 后端API v5.0
+新增: 自定义属性组系统、自定义账号类型、完整2FA TOTP支持(含Steam Guard)
+安全: 环境变量密钥、安全中间件
 """
 
 import os
@@ -10,16 +11,20 @@ import json
 import sqlite3
 import hashlib
 import secrets
+import base64
+import time
 from datetime import datetime, timedelta
 from contextlib import contextmanager
-from fastapi import FastAPI, HTTPException, Depends, Header
+from fastapi import FastAPI, HTTPException, Depends, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from cryptography.fernet import Fernet
 import uvicorn
 
 # 配置 - 支持环境变量覆盖
+UNSAFE_DEFAULT_KEY = "DEFAULT_INSECURE_KEY_CHANGE_ME_IMMEDIATELY"
 DATA_DIR = os.environ.get("DATA_DIR", os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(DATA_DIR, "accounts.db")
 ENCRYPTION_KEY_FILE = os.path.join(DATA_DIR, ".encryption_key")
@@ -28,7 +33,22 @@ ENCRYPTION_KEY_FILE = os.path.join(DATA_DIR, ".encryption_key")
 MAX_LOGIN_ATTEMPTS = 5
 LOCKOUT_MINUTES = 15
 
-app = FastAPI(title="通用账号管家 API v4.0")
+app = FastAPI(title="通用账号管家 API v5.0")
+
+# ==================== 安全中间件 ====================
+@app.middleware("http")
+async def security_middleware(request: Request, call_next):
+    """阻止访问敏感文件"""
+    path = request.url.path.lower()
+    if (
+        path.endswith(".py") or 
+        path.endswith(".db") or 
+        path.endswith(".key") or 
+        "/data/" in path or
+        "/." in path
+    ):
+        return JSONResponse(status_code=403, content={"detail": "🚫 禁止访问敏感资源"})
+    return await call_next(request)
 
 app.add_middleware(
     CORSMiddleware,
@@ -41,15 +61,26 @@ app.add_middleware(
 # ==================== 加密模块 ====================
 
 def get_or_create_encryption_key():
+    """获取密钥，优先级: 环境变量 > 文件 > 自动生成"""
+    # 1. 优先从环境变量读取
+    env_key = os.environ.get("APP_MASTER_KEY")
+    if env_key and env_key != UNSAFE_DEFAULT_KEY:
+        return env_key.encode()
+    
+    # 2. 从文件读取
     if os.path.exists(ENCRYPTION_KEY_FILE):
         with open(ENCRYPTION_KEY_FILE, 'rb') as f:
             return f.read()
-    else:
-        key = Fernet.generate_key()
-        with open(ENCRYPTION_KEY_FILE, 'wb') as f:
-            f.write(key)
+    
+    # 3. 自动生成
+    key = Fernet.generate_key()
+    with open(ENCRYPTION_KEY_FILE, 'wb') as f:
+        f.write(key)
+    try:
         os.chmod(ENCRYPTION_KEY_FILE, 0o600)
-        return key
+    except:
+        pass
+    return key
 
 ENCRYPTION_KEY = get_or_create_encryption_key()
 cipher = Fernet(ENCRYPTION_KEY)
@@ -569,6 +600,12 @@ def get_accounts(user: dict = Depends(get_current_user)):
     
     accounts = []
     for row in rows:
+        # 检查是否有 totp_secret 字段（2FA）
+        has_2fa = False
+        try:
+            has_2fa = bool(row["totp_secret"]) if "totp_secret" in row.keys() else False
+        except:
+            pass
         accounts.append({
             "id": row["id"],
             "type_id": row["type_id"],
@@ -581,6 +618,7 @@ def get_accounts(user: dict = Depends(get_current_user)):
             "tags": json.loads(row["tags"] or "[]"),
             "notes": row["notes"] or "",
             "is_favorite": bool(row["is_favorite"]),
+            "has_2fa": has_2fa,
             "last_used": row["last_used"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"]
@@ -1005,18 +1043,211 @@ def import_csv(data: dict, user: dict = Depends(get_current_user)):
     
     return {"message": f"成功导入 {imported} 个账号", "count": imported, "errors": errors[:10]}
 
+# ==================== v5.0 新增：2FA TOTP API ====================
+import hmac
+import struct
+import re
+
+STEAM_CHARS = "23456789BCDFGHJKMNPQRTVWXY"
+
+def generate_totp(secret: str, time_offset: int = 0, digits: int = 6, period: int = 30, algorithm: str = "SHA1") -> str:
+    """生成标准 TOTP 验证码"""
+    try:
+        import hashlib
+        key = base64.b32decode(secret.upper().replace(" ", "") + "=" * ((8 - len(secret) % 8) % 8))
+        counter = (int(time.time()) + time_offset) // period
+        counter_bytes = struct.pack(">Q", counter)
+        hash_func = {"SHA256": hashlib.sha256, "SHA512": hashlib.sha512}.get(algorithm.upper(), hashlib.sha1)
+        h = hmac.new(key, counter_bytes, hash_func).digest()
+        offset = h[-1] & 0x0F
+        code = struct.unpack(">I", h[offset:offset + 4])[0] & 0x7FFFFFFF
+        return str(code % (10 ** digits)).zfill(digits)
+    except:
+        return ""
+
+def generate_steam_code(secret: str, time_offset: int = 0) -> str:
+    """生成 Steam Guard 验证码"""
+    try:
+        key = base64.b64decode(secret)
+        counter = (int(time.time()) + time_offset) // 30
+        h = hmac.new(key, struct.pack(">Q", counter), hashlib.sha1).digest()
+        offset = h[-1] & 0x0F
+        code = struct.unpack(">I", h[offset:offset + 4])[0] & 0x7FFFFFFF
+        return "".join(STEAM_CHARS[code // (len(STEAM_CHARS) ** i) % len(STEAM_CHARS)] for i in range(5))
+    except:
+        return ""
+
+def parse_otpauth_uri(uri: str) -> dict:
+    """解析 otpauth:// URI"""
+    try:
+        match = re.match(r'otpauth://(totp|hotp)/([^?]+)\?(.+)', uri)
+        if not match:
+            return None
+        params = dict(p.split('=', 1) for p in match.group(3).split('&') if '=' in p)
+        return {
+            "type": match.group(1),
+            "label": match.group(2),
+            "secret": params.get("secret", ""),
+            "issuer": params.get("issuer", ""),
+            "algorithm": params.get("algorithm", "SHA1").upper(),
+            "digits": int(params.get("digits", 6)),
+            "period": int(params.get("period", 30))
+        }
+    except:
+        return None
+
+class TOTPCreate(BaseModel):
+    secret: str
+    issuer: str = ""
+    totp_type: str = "totp"
+    algorithm: str = "SHA1"
+    digits: int = 6
+    period: int = 30
+    backup_codes: List[str] = []
+
+# 数据库迁移：添加 2FA 字段
+def migrate_add_2fa_columns():
+    """为现有用户表添加 2FA 相关字段"""
+    with get_db() as conn:
+        users = conn.execute("SELECT id FROM users").fetchall()
+        for user in users:
+            user_id = user['id']
+            table = f"user_{user_id}_accounts"
+            for col, typ in [
+                ("totp_secret", "TEXT DEFAULT ''"),
+                ("totp_issuer", "TEXT DEFAULT ''"),
+                ("totp_type", "TEXT DEFAULT ''"),
+                ("totp_algorithm", "TEXT DEFAULT 'SHA1'"),
+                ("totp_digits", "INTEGER DEFAULT 6"),
+                ("totp_period", "INTEGER DEFAULT 30"),
+                ("backup_codes", "TEXT DEFAULT '[]'"),
+                ("time_offset", "INTEGER DEFAULT 0")
+            ]:
+                try:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
+                except:
+                    pass
+        conn.commit()
+
+@app.post("/api/accounts/{account_id}/totp")
+def set_account_totp(account_id: int, data: TOTPCreate, user: dict = Depends(get_current_user)):
+    """配置账号的 2FA"""
+    with get_db() as conn:
+        row = conn.execute(f"SELECT id FROM user_{user['id']}_accounts WHERE id = ?", (account_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="账号不存在")
+        conn.execute(f"""UPDATE user_{user['id']}_accounts 
+            SET totp_secret=?, totp_issuer=?, totp_type=?, totp_algorithm=?, totp_digits=?, totp_period=?, backup_codes=?, updated_at=?
+            WHERE id=?""",
+            (encrypt_password(data.secret), data.issuer, data.totp_type, data.algorithm, data.digits, data.period, 
+             json.dumps(data.backup_codes), datetime.now().isoformat(), account_id))
+        conn.commit()
+    return {"message": "2FA 配置已保存"}
+
+@app.get("/api/accounts/{account_id}/totp")
+def get_account_totp(account_id: int, user: dict = Depends(get_current_user)):
+    """获取账号的 2FA 配置（解密密钥供前端生成验证码）"""
+    with get_db() as conn:
+        row = conn.execute(f"""SELECT totp_secret, totp_issuer, totp_type, totp_algorithm, totp_digits, totp_period, backup_codes, time_offset 
+            FROM user_{user['id']}_accounts WHERE id = ?""", (account_id,)).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="账号不存在")
+    if not row["totp_secret"]:
+        return {"secret": None}
+    return {
+        "secret": decrypt_password(row["totp_secret"]),
+        "issuer": row["totp_issuer"],
+        "type": row["totp_type"],
+        "algorithm": row["totp_algorithm"],
+        "digits": row["totp_digits"],
+        "period": row["totp_period"],
+        "backup_codes": json.loads(row["backup_codes"] or "[]"),
+        "time_offset": row["time_offset"]
+    }
+
+@app.get("/api/accounts/{account_id}/totp/generate")
+def generate_totp_code(account_id: int, user: dict = Depends(get_current_user)):
+    """生成当前 2FA 验证码（支持标准TOTP和Steam Guard）"""
+    with get_db() as conn:
+        row = conn.execute(f"""SELECT totp_secret, totp_type, totp_algorithm, totp_digits, totp_period, time_offset 
+            FROM user_{user['id']}_accounts WHERE id = ?""", (account_id,)).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="账号不存在")
+    
+    secret = decrypt_password(row["totp_secret"]) if row["totp_secret"] else None
+    if not secret:
+        raise HTTPException(status_code=404, detail="未配置 2FA")
+    
+    totp_type = row["totp_type"] or "totp"
+    time_offset = row["time_offset"] or 0
+    period = row["totp_period"] or 30
+    
+    if totp_type == "steam":
+        code = generate_steam_code(secret, time_offset)
+    else:
+        code = generate_totp(
+            secret,
+            time_offset=time_offset,
+            digits=row["totp_digits"] or 6,
+            period=period,
+            algorithm=row["totp_algorithm"] or "SHA1"
+        )
+    
+    remaining = period - ((int(time.time()) + time_offset) % period)
+    
+    return {
+        "code": code,
+        "type": totp_type,
+        "remaining": remaining,
+        "period": period
+    }
+
+@app.delete("/api/accounts/{account_id}/totp")
+def delete_account_totp(account_id: int, user: dict = Depends(get_current_user)):
+    """删除账号的 2FA 配置"""
+    with get_db() as conn:
+        conn.execute(f"""UPDATE user_{user['id']}_accounts 
+            SET totp_secret='', totp_issuer='', totp_type='', backup_codes='[]', updated_at=?
+            WHERE id=?""", (datetime.now().isoformat(), account_id))
+        conn.commit()
+    return {"message": "2FA 配置已删除"}
+
+@app.post("/api/accounts/{account_id}/totp/parse")
+def parse_totp_uri(account_id: int, data: dict, user: dict = Depends(get_current_user)):
+    """从 otpauth:// URI 导入 2FA 配置"""
+    parsed = parse_otpauth_uri(data.get("uri", ""))
+    if not parsed:
+        raise HTTPException(status_code=400, detail="无效的 otpauth URI")
+    with get_db() as conn:
+        conn.execute(f"""UPDATE user_{user['id']}_accounts 
+            SET totp_secret=?, totp_issuer=?, totp_type=?, totp_algorithm=?, totp_digits=?, totp_period=?, updated_at=?
+            WHERE id=?""",
+            (encrypt_password(parsed["secret"]), parsed["issuer"] or parsed["label"], parsed["type"], 
+             parsed["algorithm"], parsed["digits"], parsed["period"], datetime.now().isoformat(), account_id))
+        conn.commit()
+    return {"message": "2FA 配置已从 URI 导入", "parsed": {k: v for k, v in parsed.items() if k != "secret"}}
+
 @app.get("/api/health")
 def health_check():
-    return {"status": "ok", "version": "4.0", "time": datetime.now().isoformat()}
+    current_key = os.environ.get("APP_MASTER_KEY", "")
+    if not current_key:
+        key_status = "file_based"
+    elif current_key == UNSAFE_DEFAULT_KEY:
+        key_status = "unsafe_default"
+    else:
+        key_status = "secure"
+    return {"status": "ok", "version": "5.0", "key_status": key_status, "time": datetime.now().isoformat()}
 
 @app.get("/")
 def root():
-    return {"message": "通用账号管家 API v4.0", "docs": "/docs"}
+    return {"message": "通用账号管家 API v5.0", "docs": "/docs"}
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 9111))
-    print(f"🔐 通用账号管家 API 启动中... 端口: {port}")
+    key_mode = "ENV" if os.environ.get("APP_MASTER_KEY") else "FILE"
+    print(f"🔐 通用账号管家 API v5.0 启动中... 端口: {port} | 密钥: {key_mode}")
     print(f"📁 数据库路径: {DB_PATH}")
     init_db()
     migrate_add_combos_column()  # 数据库迁移
+    migrate_add_2fa_columns()    # 2FA字段迁移
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
