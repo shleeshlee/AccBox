@@ -19,8 +19,8 @@ COPY app.js /var/www/html/
 COPY flags.js /var/www/html/
 
 # 复制配置文件
-COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
-COPY docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
 # 创建数据目录
 RUN mkdir -p /app/data

@@ -15,6 +15,36 @@ let selectedAccounts = new Set();
 let pendingImportData = null;
 let duplicateAccounts = [];
 
+// ==================== 补丁：核心 API 请求函数 ====================
+async function apiRequest(endpoint, options = {}) {
+    const url = API + endpoint;
+    
+    // 自动携带 Token 和 Content-Type
+    const defaultHeaders = {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token
+    };
+
+    const config = {
+        ...options,
+        headers: {
+            ...defaultHeaders,
+            ...options.headers
+        }
+    };
+
+    const response = await fetch(url, config);
+
+    // 如果 Token 过期 (401)，自动跳转登录
+    if (response.status === 401) {
+        handleAuthError();
+        throw new Error('登录已过期');
+    }
+
+    return response;
+}
+// ==================== 补丁结束 ====================
+
 // 国家代码映射（使用区域指示符号组合）
 const COUNTRY_MAP = {
     'US': '\u{1F1FA}\u{1F1F8}',  // 🇺🇸
