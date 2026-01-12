@@ -45,6 +45,58 @@ async function apiRequest(endpoint, options = {}) {
 }
 // ==================== 补丁结束 ====================
 
+// ==================== HTTP 兼容：剪贴板操作 ====================
+// navigator.clipboard 需要安全上下文(HTTPS)，HTTP 环境下回退到 execCommand
+async function copyToClipboard(text) {
+    // 优先尝试现代 Clipboard API
+    if (navigator.clipboard && window.isSecureContext) {
+        try {
+            await navigator.clipboard.writeText(text);
+            return true;
+        } catch (err) {
+            console.warn('Clipboard API 失败，尝试回退方案:', err);
+        }
+    }
+    
+    // 回退方案：使用 execCommand (兼容 HTTP 和老浏览器)
+    try {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0';
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        
+        // 尝试选中全部内容（兼容某些移动端）
+        textarea.setSelectionRange(0, textarea.value.length);
+        
+        const success = document.execCommand('copy');
+        document.body.removeChild(textarea);
+        
+        if (!success) throw new Error('execCommand 返回 false');
+        return true;
+    } catch (err) {
+        console.error('复制失败:', err);
+        // 最后的回退：提示用户手动复制
+        showToast('⚠️ 自动复制失败，请手动复制', true);
+        return false;
+    }
+}
+
+// 清空剪贴板（用于安全场景，如 TOTP 过期清除）
+async function clearClipboard() {
+    try {
+        if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText('');
+        }
+        // execCommand 无法"清空"剪贴板，只能写入空字符串模拟
+        // 由于安全原因，HTTP 下这个操作可能无效，静默失败即可
+    } catch (err) {
+        // 静默失败
+    }
+}
+// ==================== 剪贴板兼容结束 ====================
+
 // 国家代码映射（使用区域指示符号组合）
 const COUNTRY_MAP = {
     'US': '\u{1F1FA}\u{1F1F8}',  // 🇺🇸
@@ -289,7 +341,7 @@ function renderSidebar() {
     accountTypes.forEach(t => {
         const count = accounts.filter(a => a.type_id === t.id).length;
         const isSelected = currentFilters['type_' + t.id];
-        typesHtml += `<div class="nav-item${isSelected ? ' active' : ''}" onclick="filterByType(${t.id})"><span class="nav-icon" style="color:${t.color}">${t.icon}</span><span class="nav-label">${t.name}</span><span class="nav-count">${count}</span></div>`;
+        typesHtml += `<div class="nav-item${isSelected ? ' active' : ''}" onclick="filterByType(${t.id})"><span class="nav-icon" style="color:${escapeAttr(t.color)}">${escapeHtml(t.icon)}</span><span class="nav-label">${escapeHtml(t.name)}</span><span class="nav-count">${count}</span></div>`;
     });
     typesHtml += '</div></div>';
     document.getElementById('sidebarTypes').innerHTML = typesHtml;
@@ -297,7 +349,7 @@ function renderSidebar() {
     let propsHtml = '';
     propertyGroups.forEach(g => {
         
-        propsHtml += `<div class="collapsible-group"><div class="group-header" onclick="toggleGroup(this)"><span class="group-arrow">▼</span><span>${g.name}</span><span class="group-actions"><button class="btn-tiny" onclick="event.stopPropagation();openPropertyManager()">⚙</button></span></div><div class="group-content">`;
+        propsHtml += `<div class="collapsible-group"><div class="group-header" onclick="toggleGroup(this)"><span class="group-arrow">▼</span><span>${escapeHtml(g.name)}</span><span class="group-actions"><button class="btn-tiny" onclick="event.stopPropagation();openPropertyManager()">⚙</button></span></div><div class="group-content">`;
         (g.values || []).forEach(v => {
             // 统计包含此属性值的账号数量（遍历combos数组，处理类型不一致）
             const count = accounts.filter(a => {
@@ -308,7 +360,7 @@ function renderSidebar() {
                 });
             }).length;
             const isSelected = currentFilters['propval_' + v.id];
-            propsHtml += `<div class="prop-item${isSelected ? ' active' : ''}" onclick="filterByProperty(${g.id},${v.id})"><span class="prop-dot" style="background:${v.color}"></span><span class="prop-label">${v.name}</span><span class="prop-count">${count}</span></div>`;
+            propsHtml += `<div class="prop-item${isSelected ? ' active' : ''}" onclick="filterByProperty(${g.id},${v.id})"><span class="prop-dot" style="background:${escapeAttr(v.color)}"></span><span class="prop-label">${escapeHtml(v.name)}</span><span class="prop-count">${count}</span></div>`;
         });
         propsHtml += '</div></div>';
     });
@@ -584,7 +636,7 @@ function renderFiltersBar() {
         if (key.startsWith('type_')) {
             const typeId = currentFilters[key];
             const t = accountTypes.find(t => t.id === typeId);
-            if (t) html += `<div class="filter-tag"><span class="dot" style="background:${t.color}"></span>${t.name}<span class="remove" onclick="removeFilter('${key}')">✕</span></div>`;
+            if (t) html += `<div class="filter-tag"><span class="dot" style="background:${escapeAttr(t.color)}"></span>${escapeHtml(t.name)}<span class="remove" onclick="removeFilter('${key}')">✕</span></div>`;
         }
     });
     
@@ -594,7 +646,7 @@ function renderFiltersBar() {
             const groupId = currentFilters[key];
             const g = propertyGroups.find(g => g.id === groupId);
             if (g) {
-                html += `<div class="filter-tag"><span class="dot" style="background:#9ca3af"></span>${g.name} - 未设置<span class="remove" onclick="removeFilter('${key}')">✕</span></div>`;
+                html += `<div class="filter-tag"><span class="dot" style="background:#9ca3af"></span>${escapeHtml(g.name)} - 未设置<span class="remove" onclick="removeFilter('${key}')">✕</span></div>`;
             }
         }
         if (key.startsWith('propval_')) {
@@ -602,7 +654,7 @@ function renderFiltersBar() {
             for (const g of propertyGroups) {
                 const v = (g.values || []).find(v => v.id === valueId);
                 if (v) {
-                    html += `<div class="filter-tag"><span class="dot" style="background:${v.color}"></span>${v.name}<span class="remove" onclick="removeFilter('${key}')">✕</span></div>`;
+                    html += `<div class="filter-tag"><span class="dot" style="background:${escapeAttr(v.color)}"></span>${escapeHtml(v.name)}<span class="remove" onclick="removeFilter('${key}')">✕</span></div>`;
                     break;
                 }
             }
@@ -669,15 +721,15 @@ async function toggleFavorite(id) {
     try { const res = await fetch(API + `/accounts/${id}/favorite`, { method: 'POST', headers: { Authorization: 'Bearer ' + token } }); if (res.ok) { const data = await res.json(); const acc = accounts.find(a => a.id === id); if (acc) acc.is_favorite = data.is_favorite; renderSidebar(); renderCards(); } } catch {}
 }
 
-function copyEmail(email) { navigator.clipboard.writeText(email); showToast('📋 邮箱已复制'); }
+function copyEmail(email) { copyToClipboard(email).then(ok => ok && showToast('📋 邮箱已复制')); }
 
 // 复制密码
 async function copyPassword(accountId) {
     const acc = accounts.find(a => a.id === accountId);
     if (!acc) return;
     if (!acc.password) { showToast('该账号未设置密码', true); return; }
-    await navigator.clipboard.writeText(acc.password);
-    showToast('🔑 密码已复制');
+    const ok = await copyToClipboard(acc.password);
+    if (ok) showToast('🔑 密码已复制');
     // 标记使用时间
     apiRequest(`/accounts/${accountId}/use`, { method: 'POST' }).catch(() => {});
 }
@@ -686,7 +738,7 @@ async function loginTest(id) {
     const acc = accounts.find(a => a.id === id);
     if (!acc) return;
     try { await fetch(API + `/accounts/${id}/use`, { method: 'POST', headers: { Authorization: 'Bearer ' + token } }); acc.last_used = new Date().toISOString(); } catch {}
-    navigator.clipboard.writeText(acc.email); showToast('已复制邮箱');
+    copyToClipboard(acc.email).then(ok => ok && showToast('已复制邮箱'));
     const type = accountTypes.find(t => t.id === acc.type_id);
     if (type?.login_url) { let url = type.login_url; if (url.includes('Email=')) url += encodeURIComponent(acc.email); setTimeout(() => window.open(url, '_blank'), 300); }
 }
@@ -700,7 +752,7 @@ async function deleteAccount(id) {
 function openAddModal() {
     editingAccountId = null; editingTags = []; editingCombos = [];
     document.getElementById('accountModalTitle').textContent = '添加账号';
-    document.getElementById('accType').innerHTML = accountTypes.map(t => `<option value="${t.id}">${t.icon} ${t.name}</option>`).join('');
+    document.getElementById('accType').innerHTML = accountTypes.map(t => `<option value="${t.id}">${escapeHtml(t.icon)} ${escapeHtml(t.name)}</option>`).join('');
     ['accName', 'accEmail', 'accPassword', 'accNotes'].forEach(id => document.getElementById(id).value = '');
     document.getElementById('accCountry').value = '🌍';
     // 隐藏 2FA 按钮（添加时不显示）
@@ -715,7 +767,7 @@ function openEditModal(id) {
     if (!acc) return;
     editingAccountId = id; editingTags = [...(acc.tags || [])]; editingCombos = [...(acc.combos || [])];
     document.getElementById('accountModalTitle').textContent = '编辑账号';
-    document.getElementById('accType').innerHTML = accountTypes.map(t => `<option value="${t.id}" ${t.id === acc.type_id ? 'selected' : ''}>${t.icon} ${t.name}</option>`).join('');
+    document.getElementById('accType').innerHTML = accountTypes.map(t => `<option value="${t.id}" ${t.id === acc.type_id ? 'selected' : ''}>${escapeHtml(t.icon)} ${escapeHtml(t.name)}</option>`).join('');
     document.getElementById('accName').value = acc.customName || '';
     document.getElementById('accEmail').value = acc.email || '';
     document.getElementById('accPassword').value = acc.password || '';
@@ -771,12 +823,12 @@ function openComboSelector() {
     
     let html = '<div id="comboSelectorOverlay" class="combo-overlay"><div class="combo-dialog"><div class="combo-dialog-header"><span>选择服务状态</span><button class="combo-close" onclick="cancelComboSelector()">✕</button></div><div class="combo-dialog-body">';
     propertyGroups.forEach(g => {
-        html += `<div class="combo-group"><div class="combo-group-name">${g.name}</div><div class="combo-group-options">`;
+        html += `<div class="combo-group"><div class="combo-group-name">${escapeHtml(g.name)}</div><div class="combo-group-options">`;
         if ((g.values || []).length === 0) {
             html += `<span class="combo-empty">暂无属性值</span>`;
         }
         (g.values || []).forEach(v => {
-            html += `<div class="combo-option" data-vid="${v.id}" data-color="${v.color}" onclick="toggleComboOption(this)"><span class="combo-check-dot" style="background:${v.color}"></span>${v.name}</div>`;
+            html += `<div class="combo-option" data-vid="${v.id}" data-color="${escapeAttr(v.color)}" onclick="toggleComboOption(this)"><span class="combo-check-dot" style="background:${escapeAttr(v.color)}"></span>${escapeHtml(v.name)}</div>`;
         });
         html += '</div></div>';
     });
@@ -1067,6 +1119,7 @@ function toggleSidebar() { const s = document.getElementById('sidebar'); s.class
 function toggleGroup(el) { el.closest('.collapsible-group').classList.toggle('collapsed'); }
 function showToast(msg, isError = false) { const t = document.getElementById('toast'); t.textContent = msg; t.className = 'toast show' + (isError ? ' error' : ''); setTimeout(() => t.classList.remove('show'), 2000); }
 function escapeHtml(str) { return str ? str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') : ''; }
+function escapeAttr(str) { return str ? str.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;') : ''; }
 function hexToRgba(hex, alpha) { const r = parseInt(hex.slice(1,3), 16), g = parseInt(hex.slice(3,5), 16), b = parseInt(hex.slice(5,7), 16); return `rgba(${r},${g},${b},${alpha})`; }
 function adjustColor(hex, amount) { const num = parseInt(hex.slice(1), 16); return '#' + (0x1000000 + Math.min(255, Math.max(0, (num >> 16) + amount))*0x10000 + Math.min(255, Math.max(0, ((num >> 8) & 0xFF) + amount))*0x100 + Math.min(255, Math.max(0, (num & 0xFF) + amount))).toString(16).slice(1); }
 
@@ -1190,14 +1243,9 @@ function toggleSelectAll() {
 async function batchDelete() {
     if (selectedAccounts.size === 0) { showToast('请先选择账号', true); return; }
     
-    // 调试：打印当前 token
-    console.log('当前 token:', token);
-    console.log('localStorage token:', localStorage.getItem('token'));
-    
     // 如果内存中 token 丢失，尝试从 localStorage 恢复
     if (!token) {
         token = localStorage.getItem('token');
-        console.log('从 localStorage 恢复 token:', token);
     }
     
     if (!token) {
@@ -1215,8 +1263,6 @@ async function batchDelete() {
                 method: 'DELETE', 
                 headers: { 'Authorization': 'Bearer ' + token }
             });
-            
-            console.log(`删除 ${id} 响应:`, res.status);
             
             // 401 表示认证失败，直接退出登录
             if (res.status === 401) {
@@ -1433,8 +1479,8 @@ function generateAndFillPassword() {
         input.type = 'text';
         setTimeout(() => input.type = 'password', 3000);
     }
-    navigator.clipboard.writeText(pwd).then(() => {
-        showToast('🎲 已生成16位强密码并复制');
+    copyToClipboard(pwd).then(ok => {
+        if (ok) showToast('🎲 已生成16位强密码并复制');
     });
 }
 
@@ -1593,10 +1639,12 @@ function toggleTOTPBlur(accountId) {
 function copyTOTPCode(accountId) {
     const codeEl = document.getElementById(`totp-code-${accountId}`);
     if (!codeEl) return;
-    navigator.clipboard.writeText(codeEl.dataset.code || '').then(() => {
-        showToast('✓ 验证码已复制 (60秒后清除)');
-        if (clipboardTimeout) clearTimeout(clipboardTimeout);
-        clipboardTimeout = setTimeout(() => navigator.clipboard.writeText('').catch(() => {}), 60000);
+    copyToClipboard(codeEl.dataset.code || '').then(ok => {
+        if (ok) {
+            showToast('✓ 验证码已复制 (60秒后清除)');
+            if (clipboardTimeout) clearTimeout(clipboardTimeout);
+            clipboardTimeout = setTimeout(() => clearClipboard(), 60000);
+        }
     });
 }
 

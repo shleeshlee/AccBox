@@ -23,10 +23,10 @@
                 <div class="form-group"><label class="form-label">密码</label><input type="password" class="form-input" id="loginPassword" required></div>
                 <button type="submit" class="btn-submit">登录</button>
             </form>
-            <form class="login-form" id="registerForm" onsubmit="handleRegister(event)">
-                <div class="form-group"><label class="form-label">用户名</label><input type="text" class="form-input" id="regUsername" required></div>
-                <div class="form-group"><label class="form-label">密码</label><input type="password" class="form-input" id="regPassword" required></div>
-                <div class="form-group"><label class="form-label">确认密码</label><input type="password" class="form-input" id="regPassword2" required></div>
+            <form class="login-form" id="registerForm" onsubmit="handleRegister(event)" autocomplete="off">
+                <div class="form-group"><label class="form-label">用户名</label><input type="text" class="form-input" id="regUsername" required autocomplete="off" name="reg-user-new"></div>
+                <div class="form-group"><label class="form-label">密码</label><input type="password" class="form-input" id="regPassword" required autocomplete="new-password"></div>
+                <div class="form-group"><label class="form-label">确认密码</label><input type="password" class="form-input" id="regPassword2" required autocomplete="new-password"></div>
                 <button type="submit" class="btn-submit">注册</button>
             </form>
         </div>
@@ -84,7 +84,7 @@
                     <button class="btn-batch-delete" onclick="batchDelete()">删除</button>
                 </div>
                 <!-- 搜索框 -->
-                <div class="search-box"><span class="search-icon">🔍</span><input type="text" id="searchInput" placeholder="搜索..." oninput="filterAccounts()"></div>
+                <div class="search-box"><span class="search-icon">🔍</span><input type="search" id="searchInput" placeholder="搜索..." oninput="filterAccounts()" autocomplete="off" name="account-search-nofill"></div>
                 <!-- 视图切换 -->
                 <div class="view-toggle">
                     <button class="view-btn active" data-view="card" onclick="setViewMode('card')" title="卡片视图">🃏</button>
@@ -150,12 +150,12 @@
                         <option value="CN">🇨🇳 CN</option>
                     </select></div>
                 </div>
-                <div class="form-group"><label class="form-label">自定义名称</label><input type="text" class="form-input" id="accName" placeholder="如：API主力号"></div>
+                <div class="form-group"><label class="form-label">自定义名称</label><input type="text" class="form-input" id="accName" placeholder="如：API主力号" autocomplete="off"></div>
                 <div class="form-row">
-                    <div class="form-group"><label class="form-label">邮箱/账号</label><input type="text" class="form-input" id="accEmail"></div>
+                    <div class="form-group"><label class="form-label">邮箱/账号</label><input type="text" class="form-input" id="accEmail" autocomplete="off" name="acc-email-nofill"></div>
                     <div class="form-group"><label class="form-label">密码（可选）</label>
                         <div class="password-input-wrapper">
-                            <input type="text" class="form-input" id="accPassword">
+                            <input type="password" class="form-input" id="accPassword" autocomplete="new-password" name="acc-pwd-nofill">
                             <button type="button" class="btn-generate-pwd" onclick="generateAndFillPassword()" title="生成16位随机密码">🎲</button>
                         </div>
                     </div>
@@ -288,7 +288,7 @@
                 <!-- 手动配置 -->
                 <div class="form-group">
                     <label class="form-label">🔑 密钥 (Secret)</label>
-                    <input type="text" class="form-input" id="totp2FASecret" placeholder="Base32 密钥，如 JBSWY3DPEHPK3PXP">
+                    <input type="text" class="form-input" id="totp2FASecret" placeholder="Base32 密钥，如 JBSWY3DPEHPK3PXP" autocomplete="off" name="totp-secret-nofill">
                 </div>
                 <div class="form-row">
                     <div class="form-group">
