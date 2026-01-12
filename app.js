@@ -1476,12 +1476,29 @@ function generateAndFillPassword() {
     const input = document.getElementById('accPassword');
     if (input) {
         input.value = pwd;
-        input.type = 'text';
-        setTimeout(() => input.type = 'password', 3000);
+        input.type = 'text'; // 生成后显示
+        updateTogglePwdBtn(true);
+        setTimeout(() => {
+            input.type = 'password';
+            updateTogglePwdBtn(false);
+        }, 3000);
     }
     copyToClipboard(pwd).then(ok => {
         if (ok) showToast('🎲 已生成16位强密码并复制');
     });
+}
+
+function togglePasswordVisibility() {
+    const input = document.getElementById('accPassword');
+    if (!input) return;
+    const isVisible = input.type === 'text';
+    input.type = isVisible ? 'password' : 'text';
+    updateTogglePwdBtn(!isVisible);
+}
+
+function updateTogglePwdBtn(isVisible) {
+    const btn = document.querySelector('.btn-toggle-pwd');
+    if (btn) btn.textContent = isVisible ? '🙈' : '👁️';
 }
 
 // ==================== v12.0 新增：2FA TOTP 模块 ====================
