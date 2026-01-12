@@ -174,13 +174,13 @@ function toggleTimeBadge() {
     localStorage.setItem('showTimeBadge', showTimeBadge);
     updateTimeBadgeUI();
     renderCards(); // 重新渲染卡片
-    showToast(showTimeBadge ? '💤 时间提醒已开启' : '💤 时间提醒已关闭');
+    showToast(showTimeBadge ? '⏰️ 时间提醒已开启' : '😴 时间提醒已关闭');
 }
 
 function updateTimeBadgeUI() {
     const icon = document.getElementById('timeBadgeIcon');
     const status = document.getElementById('timeBadgeStatus');
-    if (icon) icon.textContent = showTimeBadge ? '💤' : '😴';
+    if (icon) icon.textContent = showTimeBadge ? '⏰️' : '😴';
     if (status) {
         status.textContent = showTimeBadge ? '开' : '关';
         status.className = 'toggle-status ' + (showTimeBadge ? 'on' : 'off');
