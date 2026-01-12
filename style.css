@@ -281,6 +281,17 @@ body {
     cursor: pointer; 
 }
 .btn-batch-delete:hover { filter: brightness(1.1); }
+.btn-batch-props {
+    padding: 6px 12px;
+    background: var(--accent-dim);
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    color: var(--accent);
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.btn-batch-props:hover { background: var(--accent); color: white; }
 .btn-batch-cancel { 
     padding: 6px 12px;
     background: var(--bg-card); 
@@ -962,6 +973,17 @@ body {
 
 /* 移动端样式 */
 @media (max-width: 768px) {
+    /* 修复移动端点击灰色幻影 */
+    * {
+        -webkit-tap-highlight-color: transparent;
+        -webkit-touch-callout: none;
+    }
+    
+    button, .btn-action, .nav-item, .prop-item, .account-card, .batch-checkbox, .combo-option {
+        -webkit-tap-highlight-color: transparent;
+        outline: none;
+    }
+    
     /* 侧边栏默认收起 */
     .sidebar { transform: translateX(-260px); }
     .sidebar.open { transform: translateX(0); }
@@ -973,12 +995,12 @@ body {
     .sidebar-content { flex: 1; overflow-y: auto; min-height: 0; }
     
     /* 工具栏 */
-    .toolbar { left: 0; padding: 8px 12px; gap: 8px; height: 56px; }
+    .toolbar { left: 0; padding: 8px 12px; gap: 6px; height: 56px; }
     .btn-menu { display: flex; width: 34px; height: 34px; }
     .page-title { display: none; }
     
-    /* 搜索框紧凑 */
-    .search-box { width: auto; flex: 1; min-width: 80px; }
+    /* 搜索框拉长 */
+    .search-box { width: auto; flex: 1; min-width: 100px; max-width: none; }
     .search-box input { padding: 8px 10px 8px 32px; font-size: 0.8rem; }
     .search-icon { left: 10px; }
     
@@ -986,9 +1008,33 @@ body {
     .view-toggle { flex-shrink: 0; }
     .view-btn { padding: 6px 10px; font-size: 0.9rem; }
     
-    /* 移动端批量操作 */
-    .batch-actions { padding: 4px 10px; gap: 8px; }
-    .batch-count { font-size: 0.8rem; }
+    /* 移动端批量操作栏适配 */
+    .batch-actions { 
+        padding: 4px 8px; 
+        gap: 6px; 
+    }
+    .batch-count { font-size: 0.75rem; }
+    .btn-batch-select { font-size: 0.75rem; padding: 5px 8px; }
+    .btn-batch-props { font-size: 0.9rem; padding: 5px 8px; min-width: auto; }
+    .btn-batch-delete { font-size: 0.9rem; padding: 5px 8px; min-width: auto; }
+    
+    /* 移动端勾选框适配 - 更大触控区域 */
+    .batch-checkbox {
+        width: 32px;
+        height: 32px;
+        margin-right: 4px;
+    }
+    .batch-checkbox .checkmark {
+        width: 20px;
+        height: 20px;
+    }
+    
+    /* 移动端工具栏按钮更紧凑 */
+    .btn-toolbar-sm {
+        padding: 6px 8px;
+        font-size: 1rem;
+        min-width: 36px;
+    }
     
     /* 卡片单列 */
     .cards-grid { grid-template-columns: 1fr; }
@@ -1013,6 +1059,10 @@ body {
     /* 收藏便签更小 */
     .cards-grid.list-view .account-card.favorite::before { border-width: 0 20px 20px 0; pointer-events: none; }
     .cards-grid.list-view .account-card.favorite::after { font-size: 0.5rem; top: 1px; right: 1px; pointer-events: none; }
+    
+    /* 移动端卡片底部按钮更紧凑 */
+    .card-footer { padding: 8px 12px; gap: 4px; }
+    .btn-action { padding: 6px 8px; font-size: 0.75rem; }
 }
 
 /* 批量操作样式 */
@@ -1718,4 +1768,250 @@ body {
 
 .btn-danger:hover {
     background: rgba(239, 68, 68, 0.2);
+}
+
+/* ==================== HTTP 安全警告栏 ==================== */
+.http-warning {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 8px 16px;
+    background: linear-gradient(135deg, rgba(234, 179, 8, 0.15), rgba(234, 179, 8, 0.1));
+    border-top: 1px solid rgba(234, 179, 8, 0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-size: 0.8rem;
+    color: var(--yellow);
+    z-index: 1000;
+    backdrop-filter: blur(8px);
+}
+
+.http-warning-icon {
+    font-size: 0.9rem;
+    flex-shrink: 0;
+}
+
+.http-warning-text {
+    text-align: center;
+}
+
+.http-warning-close {
+    position: absolute;
+    right: 12px;
+    background: none;
+    border: none;
+    color: var(--yellow);
+    cursor: pointer;
+    font-size: 0.9rem;
+    opacity: 0.6;
+    padding: 4px 8px;
+    transition: opacity 0.2s;
+}
+
+.http-warning-close:hover {
+    opacity: 1;
+}
+
+/* ==================== 空状态可爱插画 ==================== */
+.empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-muted);
+}
+
+.empty-state .empty-illustration {
+    width: 180px;
+    height: 180px;
+    margin-bottom: 20px;
+    opacity: 0.8;
+}
+
+.empty-state .empty-icon {
+    font-size: 4rem;
+    margin-bottom: 16px;
+    opacity: 0.6;
+}
+
+.empty-state .empty-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+}
+
+.empty-state .empty-text {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    max-width: 280px;
+    line-height: 1.5;
+}
+
+.empty-state .empty-action {
+    margin-top: 20px;
+    padding: 10px 24px;
+    background: var(--accent);
+    border: none;
+    border-radius: 8px;
+    color: white;
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.empty-state .empty-action:hover {
+    background: var(--accent-light);
+    transform: translateY(-2px);
+}
+
+/* ==================== 卡片过期/时间提示徽章 ==================== */
+.card-time-badge {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 0.65rem;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    z-index: 5;
+}
+
+.card-time-badge.warning {
+    background: rgba(234, 179, 8, 0.15);
+    color: var(--yellow);
+    border: 1px solid rgba(234, 179, 8, 0.3);
+}
+
+.card-time-badge.danger {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--red);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    animation: pulse-badge 2s infinite;
+}
+
+.card-time-badge.muted {
+    background: var(--bg-hover);
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+}
+
+@keyframes pulse-badge {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
+/* ==================== 列表视图等宽字体优化 ==================== */
+.cards-grid.list-view .card-email,
+.cards-grid.list-view .card-name {
+    font-family: 'JetBrains Mono', monospace;
+}
+
+/* ==================== 侧边栏手风琴折叠动画 ==================== */
+.collapsible-group .group-content {
+    overflow: hidden;
+    transition: max-height 0.25s ease, opacity 0.2s ease;
+    max-height: 1000px;
+    opacity: 1;
+}
+
+.collapsible-group.collapsed .group-content {
+    max-height: 0;
+    opacity: 0;
+    padding: 0;
+    display: block !important; /* 覆盖原来的 display:none */
+}
+
+.collapsible-group .group-arrow {
+    transition: transform 0.25s ease;
+}
+
+.collapsible-group.collapsed .group-arrow {
+    transform: rotate(-90deg);
+}
+
+/* 侧边栏折叠按钮样式 */
+.group-header {
+    user-select: none;
+    transition: background 0.15s;
+    border-radius: 6px;
+    margin: 0 8px;
+}
+
+.group-header:hover {
+    background: var(--bg-hover);
+}
+
+/* ==================== 移动端勾选按钮带文字 ==================== */
+.mobile-btn-text {
+    font-size: 0.7rem;
+    margin-left: 2px;
+}
+
+@media (max-width: 768px) {
+    /* 移动端勾选按钮 */
+    #btnBatchModeMobile {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        padding: 6px 10px;
+    }
+    
+    /* HTTP 警告栏移动端适配 */
+    .http-warning {
+        padding: 10px 40px 10px 12px;
+        font-size: 0.75rem;
+    }
+    
+    .http-warning-text {
+        text-align: left;
+    }
+    
+    .http-warning-close {
+        right: 8px;
+    }
+    
+    /* 空状态适配 */
+    .empty-state .empty-illustration {
+        width: 140px;
+        height: 140px;
+    }
+}
+
+/* ==================== 卡片相对定位（为时间徽章准备） ==================== */
+.account-card {
+    position: relative;
+}
+
+/* ==================== 更多设置菜单emoji优化 ==================== */
+.tools-menu-wrapper .btn-toolbar-sm {
+    font-size: 1.1rem;
+}
+
+/* ==================== 用户面板开关状态 ==================== */
+.toggle-status {
+    margin-left: auto;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 0.7rem;
+    font-weight: 500;
+}
+
+.toggle-status.on {
+    background: rgba(34, 197, 94, 0.15);
+    color: var(--green);
+}
+
+.toggle-status.off {
+    background: var(--bg-hover);
+    color: var(--text-muted);
 }

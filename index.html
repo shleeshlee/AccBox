@@ -49,6 +49,7 @@
                     <div class="user-panel-body">
                         <div class="user-panel-item" onclick="openAvatarPicker()">🎨 更换头像</div>
                         <div class="user-panel-item" onclick="openFavStylePicker()">💌 收藏样式</div>
+                        <div class="user-panel-item" onclick="toggleTimeBadge()"><span id="timeBadgeIcon">⏰️</span> 时间提醒 <span class="toggle-status" id="timeBadgeStatus">开</span></div>
                         <div class="user-panel-item" onclick="openPasswordReset()">🔑 重置密码</div>
                         <div class="user-panel-item" onclick="toggleTheme()"><span id="themeBtn">🌙</span> 切换主题</div>
                         <a class="user-panel-item" href="https://github.com/shleeshlee/account-manager" target="_blank" style="text-decoration:none;color:inherit;">🌻 1one/GitHub</a>
@@ -81,7 +82,8 @@
                 <div class="batch-actions" id="batchActions">
                     <span class="batch-count" id="batchCount">已选 0 项</span>
                     <button class="btn-batch-select" onclick="toggleSelectAll()">全选</button>
-                    <button class="btn-batch-delete" onclick="batchDelete()">删除</button>
+                    <button class="btn-batch-props" onclick="openBatchPropsModal()"><span class="pc-only">🏷️ 修改属性</span><span class="mobile-only">🏷️</span></button>
+                    <button class="btn-batch-delete" onclick="batchDelete()"><span class="pc-only">删除</span><span class="mobile-only">🗑️</span></button>
                 </div>
                 <!-- 搜索框 -->
                 <div class="search-box"><span class="search-icon">🔍</span><input type="search" id="searchInput" placeholder="搜索..." oninput="filterAccounts()" autocomplete="off" name="account-search-nofill"></div>
@@ -95,10 +97,10 @@
                 <button class="btn-toolbar pc-only" onclick="openImportModal()" title="导入数据">📥 导入</button>
                 <button class="btn-toolbar pc-only" onclick="exportData()" title="导出数据">📤 导出</button>
                 <button class="btn-primary pc-only" onclick="openAddModal()">➕ 添加账号</button>
-                <!-- 移动端按钮（带简要文字） -->
-                <button class="btn-toolbar-sm mobile-only" id="btnBatchModeMobile" onclick="toggleBatchMode()" title="勾选">✅ 勾选</button>
+                <!-- 移动端按钮（纯emoji） -->
+                <button class="btn-toolbar-sm mobile-only" id="btnBatchModeMobile" onclick="toggleBatchMode()" title="勾选">✅ <span class="mobile-btn-text">勾选</span></button>
                 <div class="tools-menu-wrapper mobile-only">
-                    <button class="btn-toolbar-sm" onclick="toggleToolsMenu()" title="更多">⚙️ 更多</button>
+                    <button class="btn-toolbar-sm" onclick="toggleToolsMenu()" title="更多">⚙️</button>
                     <div class="tools-menu" id="toolsMenu">
                         <div class="tools-menu-item" onclick="openAddModal();closeToolsMenu()">➕ 添加账号</div>
                         <div class="tools-menu-item" onclick="openImportModal();closeToolsMenu()">📥 导入数据</div>
@@ -336,6 +338,13 @@
     </div>
 
     <div class="toast" id="toast"></div>
+    
+    <!-- HTTP安全提示栏 -->
+    <div class="http-warning" id="httpWarning" style="display:none;">
+        <span class="http-warning-icon">⚠️</span>
+        <span class="http-warning-text">当前处于 HTTP 不安全模式，数据可能被窃听。建议尽快配置 HTTPS。</span>
+        <button class="http-warning-close" onclick="dismissHttpWarning()">✕</button>
+    </div>
     
     <!-- jsQR 二维码识别库 -->
     <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>

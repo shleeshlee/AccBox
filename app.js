@@ -7,6 +7,7 @@ let currentView = 'all', currentSort = 'recent', currentFilters = {};
 let currentSortDir = 'desc'; // 排序方向: 'asc' 或 'desc'
 let lastClickedFilter = null; // 记录最后点击的筛选项 {type: 'type'|'propval'|'noprop', id: xxx, name: xxx}
 let currentViewMode = localStorage.getItem('viewMode') || 'card'; // 卡片/列表视图
+let showTimeBadge = localStorage.getItem('showTimeBadge') !== 'false'; // 时间提醒开关，默认开启
 let editingAccountId = null, editingTags = [], editingCombos = [];
 
 // v10 新增：批量操作和导入重复检测
@@ -127,8 +128,63 @@ function init() {
     initTheme();
     initViewMode();
     initFavStyle();
+    initTimeBadge(); // 初始化时间提醒开关
     if (token && user) { showApp(); loadData(); }
     checkSecurity(); // 安全检查
+    checkHttpWarning(); // HTTP不安全警告
+}
+
+// ==================== HTTP 不安全警告 ====================
+function checkHttpWarning() {
+    // 检测是否为HTTP且非localhost
+    const isHttp = window.location.protocol === 'http:';
+    const isLocalhost = window.location.hostname === 'localhost' || 
+                        window.location.hostname === '127.0.0.1' ||
+                        window.location.hostname.endsWith('.local');
+    
+    // 检查用户是否已经关闭过警告（本次会话）
+    const dismissed = sessionStorage.getItem('httpWarningDismissed');
+    
+    if (isHttp && !isLocalhost && !dismissed) {
+        const warning = document.getElementById('httpWarning');
+        if (warning) {
+            warning.style.display = 'flex';
+            // 给内容区域添加底部padding
+            document.querySelector('.content')?.style.setProperty('padding-bottom', '60px');
+        }
+    }
+}
+
+function dismissHttpWarning() {
+    const warning = document.getElementById('httpWarning');
+    if (warning) {
+        warning.style.display = 'none';
+        sessionStorage.setItem('httpWarningDismissed', 'true');
+        document.querySelector('.content')?.style.removeProperty('padding-bottom');
+    }
+}
+
+// ==================== 时间提醒开关 ====================
+function initTimeBadge() {
+    updateTimeBadgeUI();
+}
+
+function toggleTimeBadge() {
+    showTimeBadge = !showTimeBadge;
+    localStorage.setItem('showTimeBadge', showTimeBadge);
+    updateTimeBadgeUI();
+    renderCards(); // 重新渲染卡片
+    showToast(showTimeBadge ? '💤 时间提醒已开启' : '💤 时间提醒已关闭');
+}
+
+function updateTimeBadgeUI() {
+    const icon = document.getElementById('timeBadgeIcon');
+    const status = document.getElementById('timeBadgeStatus');
+    if (icon) icon.textContent = showTimeBadge ? '💤' : '😴';
+    if (status) {
+        status.textContent = showTimeBadge ? '开' : '关';
+        status.className = 'toggle-status ' + (showTimeBadge ? 'on' : 'off');
+    }
 }
 
 // ==================== 安全检查 ====================
@@ -337,6 +393,13 @@ async function loadPropertyGroups() {
 
 // 侧边栏
 function renderSidebar() {
+    // 保存当前折叠状态
+    const collapsedGroups = new Set();
+    document.querySelectorAll('.collapsible-group.collapsed').forEach(el => {
+        const header = el.querySelector('.group-header span:nth-child(2)');
+        if (header) collapsedGroups.add(header.textContent);
+    });
+    
     let typesHtml = `<div class="collapsible-group"><div class="group-header" onclick="toggleGroup(this)"><span class="group-arrow">▼</span><span>账号类型</span><span class="group-actions"><button class="btn-tiny" onclick="event.stopPropagation();openTypeManager()">⚙</button></span></div><div class="group-content">`;
     accountTypes.forEach(t => {
         const count = accounts.filter(a => a.type_id === t.id).length;
@@ -347,9 +410,13 @@ function renderSidebar() {
     document.getElementById('sidebarTypes').innerHTML = typesHtml;
 
     let propsHtml = '';
-    propertyGroups.forEach(g => {
+    propertyGroups.forEach((g, idx) => {
+        // 第一个属性组默认展开，其他默认折叠（除非之前手动展开过）
+        const wasCollapsed = collapsedGroups.has(g.name);
+        const shouldCollapse = idx > 0 && !wasCollapsed && !document.querySelector(`[data-group-id="${g.id}"]`);
+        const collapsedClass = (wasCollapsed || shouldCollapse) ? ' collapsed' : '';
         
-        propsHtml += `<div class="collapsible-group"><div class="group-header" onclick="toggleGroup(this)"><span class="group-arrow">▼</span><span>${escapeHtml(g.name)}</span><span class="group-actions"><button class="btn-tiny" onclick="event.stopPropagation();openPropertyManager()">⚙</button></span></div><div class="group-content">`;
+        propsHtml += `<div class="collapsible-group${collapsedClass}" data-group-id="${g.id}"><div class="group-header" onclick="toggleGroup(this)"><span class="group-arrow">▼</span><span>${escapeHtml(g.name)}</span><span class="group-actions"><button class="btn-tiny" onclick="event.stopPropagation();openPropertyManager()">⚙</button></span></div><div class="group-content">`;
         (g.values || []).forEach(v => {
             // 统计包含此属性值的账号数量（遍历combos数组，处理类型不一致）
             const count = accounts.filter(a => {
@@ -375,7 +442,37 @@ function renderSidebar() {
 // 卡片渲染
 function renderCards() {
     const filtered = getFilteredAccounts(), sorted = sortAccounts(filtered);
-    if (sorted.length === 0) { document.getElementById('cardsList').innerHTML = `<div class="empty-state"><div class="icon">📭</div><div>暂无账号</div></div>`; return; }
+    if (sorted.length === 0) { 
+        // 可爱的空状态插画
+        document.getElementById('cardsList').innerHTML = `
+            <div class="empty-state">
+                <svg class="empty-illustration" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+                    <!-- 蜂蜜罐 -->
+                    <ellipse cx="100" cy="170" rx="60" ry="12" fill="var(--border)" opacity="0.3"/>
+                    <path d="M60 80 L60 140 Q60 160 80 165 L120 165 Q140 160 140 140 L140 80 Q140 70 130 70 L70 70 Q60 70 60 80Z" fill="var(--bg-card)" stroke="var(--border)" stroke-width="2"/>
+                    <path d="M65 85 L65 135 Q65 150 80 155 L120 155 Q135 150 135 135 L135 85" fill="var(--accent-dim)" opacity="0.5"/>
+                    <ellipse cx="100" cy="70" rx="35" ry="8" fill="var(--bg-hover)" stroke="var(--border)" stroke-width="2"/>
+                    <text x="100" y="125" text-anchor="middle" font-size="40">🍯</text>
+                    
+                    <!-- 小熊 -->
+                    <circle cx="160" cy="90" r="25" fill="var(--text-muted)" opacity="0.2"/>
+                    <circle cx="150" cy="80" r="8" fill="var(--text-muted)" opacity="0.25"/>
+                    <circle cx="170" cy="80" r="8" fill="var(--text-muted)" opacity="0.25"/>
+                    <circle cx="155" cy="88" r="3" fill="var(--bg-dark)"/>
+                    <circle cx="165" cy="88" r="3" fill="var(--bg-dark)"/>
+                    <ellipse cx="160" cy="95" rx="4" ry="3" fill="var(--bg-dark)"/>
+                    <path d="M152 100 Q160 106 168 100" stroke="var(--bg-dark)" stroke-width="2" fill="none" stroke-linecap="round"/>
+                    
+                    <!-- 问号 -->
+                    <text x="45" cy="60" font-size="24" fill="var(--text-muted)" opacity="0.4">?</text>
+                    <text x="155" cy="130" font-size="18" fill="var(--text-muted)" opacity="0.3">?</text>
+                </svg>
+                <div class="empty-title">这里空空如也~</div>
+                <div class="empty-text">小熊找不到蜂蜜啦！快去添加你的第一个账号吧 🐻</div>
+                <button class="empty-action" onclick="openAddModal()">➕ 添加账号</button>
+            </div>`;
+        return; 
+    }
 
     // 建立值ID到值对象的映射，方便查找
     const valueMap = {};
@@ -428,8 +525,23 @@ function renderCards() {
         
         // 勾选模式下点击卡片即可勾选
         const cardClickHandler = batchMode ? `onclick="toggleAccountSelection(${acc.id}, event)"` : '';
+        
+        // 最近使用时间徽章（根据开关状态显示）
+        let timeBadgeHtml = '';
+        if (showTimeBadge && acc.last_used) {
+            const lastUsedTime = new Date(acc.last_used).getTime();
+            const now = Date.now();
+            const daysDiff = Math.floor((now - lastUsedTime) / (1000 * 60 * 60 * 24));
+            
+            if (daysDiff > 90) {
+                timeBadgeHtml = `<div class="card-time-badge danger">💤 ${daysDiff}天未使用</div>`;
+            } else if (daysDiff > 30) {
+                timeBadgeHtml = `<div class="card-time-badge warning">⏰ ${daysDiff}天前</div>`;
+            }
+        }
 
         return `<div class="${cardClass} ${favoriteClass}" data-id="${acc.id}" ${cardClickHandler}>
+            ${timeBadgeHtml}
             <div class="card-body">
                 <div class="card-header">
                     ${checkboxHtml}
@@ -859,8 +971,29 @@ function confirmComboSelector() {
     cancelComboSelector();
 }
 
+// 修改 app.js 中的 renderTagsBox 函数
 function renderTagsBox() {
-    document.getElementById('accTagsBox').innerHTML = editingTags.map(t => `<span class="tag-badge">${escapeHtml(t)}<span class="remove" onclick="removeTag('${escapeHtml(t)}')">✕</span></span>`).join('') + '<input type="text" class="tag-input" id="accTagInput" placeholder="回车添加" onkeydown="handleTagInput(event)">';
+    // 1. 渲染现有的标签
+    const tagsHtml = editingTags.map(t => 
+        `<span class="tag-badge">${escapeHtml(t)}<span class="remove" onclick="removeTag('${escapeHtml(t)}')">✕</span></span>`
+    ).join('');
+    
+    // 2. 渲染输入框
+    const inputFormHtml = `
+    <form action="javascript:void(0)" onsubmit="handleTagSubmit(event)" style="display:contents">
+        <input type="search" class="tag-input" id="accTagInput" 
+               placeholder="回车添加" autocomplete="off" enterkeyhint="done">
+        <input type="submit" style="display:none"/> 
+    </form>`;
+    
+    document.getElementById('accTagsBox').innerHTML = tagsHtml + inputFormHtml;
+    
+    // 自动聚焦逻辑（保持不变）
+    setTimeout(() => {
+        const input = document.getElementById('accTagInput');
+        const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+        if(input && !isMobile) input.focus();
+    }, 0);
 }
 
 function handleTagInput(e) { if (e.key === 'Enter') { e.preventDefault(); const val = e.target.value.trim(); if (val && !editingTags.includes(val)) { editingTags.push(val); renderTagsBox(); } e.target.value = ''; } }
@@ -1896,4 +2029,154 @@ async function delete2FA(accountId) {
     await delete2FAFromModal();
 }
 
+// ==================== 批量修改属性功能 ====================
+let batchPropsToAdd = [];
+let batchPropsToRemove = [];
+
+function openBatchPropsModal() {
+    if (selectedAccounts.size === 0) {
+        showToast('请先选择账号', true);
+        return;
+    }
+    
+    batchPropsToAdd = [];
+    batchPropsToRemove = [];
+    
+    const existing = document.getElementById('batchPropsOverlay');
+    if (existing) existing.remove();
+    
+    let html = `
+    <div id="batchPropsOverlay" class="combo-overlay">
+        <div class="combo-dialog" style="max-width:500px">
+            <div class="combo-dialog-header">
+                <span>🏷️ 批量修改属性</span>
+                <button class="combo-close" onclick="closeBatchPropsModal()">✕</button>
+            </div>
+            <div class="combo-dialog-body">
+                <div class="hint-box" style="margin-bottom:16px">
+                    <p>已选择 <b>${selectedAccounts.size}</b> 个账号。点击属性切换：<span style="color:#22c55e">添加(绿)</span> → <span style="color:#ef4444">移除(红)</span> → 取消</p>
+                </div>`;
+    
+    propertyGroups.forEach(g => {
+        html += `<div class="combo-group">
+            <div class="combo-group-name">${escapeHtml(g.name)}</div>
+            <div class="combo-group-options">`;
+        (g.values || []).forEach(v => {
+            html += `<div class="combo-option" data-vid="${v.id}" onclick="toggleBatchProp(this, ${v.id})">
+                <span class="combo-check-dot" style="background:${escapeAttr(v.color)}"></span>
+                ${escapeHtml(v.name)}
+            </div>`;
+        });
+        html += '</div></div>';
+    });
+    
+    html += `
+            </div>
+            <div class="combo-dialog-footer">
+                <button class="combo-btn" onclick="closeBatchPropsModal()">取消</button>
+                <button class="combo-btn primary" onclick="applyBatchProps()">应用更改</button>
+            </div>
+        </div>
+    </div>`;
+    
+    document.body.insertAdjacentHTML('beforeend', html);
+}
+
+function closeBatchPropsModal() {
+    const overlay = document.getElementById('batchPropsOverlay');
+    if (overlay) overlay.remove();
+}
+
+function toggleBatchProp(el, vid) {
+    const isAdd = batchPropsToAdd.includes(vid);
+    const isRemove = batchPropsToRemove.includes(vid);
+    
+    if (!isAdd && !isRemove) {
+        // 第一次点击：添加（绿色）
+        batchPropsToAdd.push(vid);
+        el.style.borderColor = '#22c55e';
+        el.style.background = 'rgba(34, 197, 94, 0.15)';
+        el.style.color = '#22c55e';
+        el.style.textDecoration = '';
+    } else if (isAdd) {
+        // 第二次点击：移除（红色+删除线）
+        batchPropsToAdd = batchPropsToAdd.filter(v => v !== vid);
+        batchPropsToRemove.push(vid);
+        el.style.borderColor = '#ef4444';
+        el.style.background = 'rgba(239, 68, 68, 0.15)';
+        el.style.color = '#ef4444';
+        el.style.textDecoration = 'line-through';
+    } else {
+        // 第三次点击：取消（恢复原样）
+        batchPropsToRemove = batchPropsToRemove.filter(v => v !== vid);
+        el.style.borderColor = '';
+        el.style.background = '';
+        el.style.color = '';
+        el.style.textDecoration = '';
+    }
+}
+
+async function applyBatchProps() {
+    if (batchPropsToAdd.length === 0 && batchPropsToRemove.length === 0) {
+        showToast('未选择任何属性变更', true);
+        return;
+    }
+    
+    const selectedIds = Array.from(selectedAccounts);
+    let successCount = 0;
+    
+    for (const accId of selectedIds) {
+        const acc = accounts.find(a => a.id === accId);
+        if (!acc) continue;
+        
+        let newCombos = [...(acc.combos || [])];
+        
+        // 添加属性
+        batchPropsToAdd.forEach(vid => {
+            const hasIt = newCombos.some(combo => Array.isArray(combo) && combo.includes(vid));
+            if (!hasIt) newCombos.push([vid]);
+        });
+        
+        // 移除属性
+        batchPropsToRemove.forEach(vid => {
+            newCombos = newCombos.map(combo => {
+                if (!Array.isArray(combo)) return combo;
+                return combo.filter(v => v !== vid);
+            }).filter(combo => Array.isArray(combo) && combo.length > 0);
+        });
+        
+        try {
+            const res = await fetch(API + `/accounts/${accId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+                body: JSON.stringify({ combos: newCombos })
+            });
+            if (res.ok) successCount++;
+        } catch (e) {
+            console.error('批量修改属性失败:', accId, e);
+        }
+    }
+    
+    closeBatchPropsModal();
+    await loadAccounts();
+    renderSidebar();
+    renderCards();
+    showToast(`✅ 已更新 ${successCount} 个账号的属性`);
+}
+
 init();
+
+// 新增：专门处理标签输入框的回车提交
+function handleTagSubmit(e) {
+    e.preventDefault(); // 阻止刷新
+    const input = document.getElementById('accTagInput');
+    if (!input) return;
+    
+    const val = input.value.trim();
+    if (val && !editingTags.includes(val)) {
+        editingTags.push(val); // 添加标签
+        renderTagsBox();       // 重新渲染
+    }
+    // 手机端提交后，通常建议让输入框失去焦点，收起键盘，不然用户会困惑
+    input.blur(); 
+}
