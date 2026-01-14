@@ -1,34 +1,64 @@
+/* ============================================
+   AccBox 赛博金库主题 (Cyber Vault)
+   完整CSS替换文件
+   ============================================ */
+
 :root {
-    --bg-dark: #09090b;
-    --bg-card: #18181b;
-    --bg-hover: #27272a;
-    --bg-sidebar: #0f0f12;
-    --border: #27272a;
-    --border-light: #3f3f46;
-    --text-primary: #fafafa;
-    --text-secondary: #a1a1aa;
-    --text-muted: #52525b;
+    /* 深色模式 - 赛博金库配色 */
+    --bg-dark: #0a0e17;
+    --bg-card: #111827;
+    --bg-hover: #1a2332;
+    --bg-sidebar: #0c1018;
+    --bg-input: #0d1219;
+    --border: #1e293b;
+    --border-light: #334155;
+    --text-primary: #f1f5f9;
+    --text-secondary: #94a3b8;
+    --text-muted: #64748b;
     --accent: #8b5cf6;
     --accent-light: #a78bfa;
+    --accent-dark: #6d28d9;
     --accent-dim: rgba(139, 92, 246, 0.15);
+    --accent-glow: rgba(139, 92, 246, 0.5);
+    --gold: #f59e0b;
+    --gold-glow: rgba(245, 158, 11, 0.4);
     --green: #22c55e;
     --yellow: #eab308;
     --red: #ef4444;
     --sidebar-width: 260px;
+    
+    /* 霓虹效果变量 */
+    --neon-purple: 0 0 5px rgba(139, 92, 246, 0.5),
+                   0 0 20px rgba(139, 92, 246, 0.3),
+                   0 0 40px rgba(139, 92, 246, 0.2);
+    --neon-gold: 0 0 5px rgba(245, 158, 11, 0.5),
+                 0 0 20px rgba(245, 158, 11, 0.3);
+    --neon-mixed: 0 0 5px rgba(139, 92, 246, 0.6),
+                  0 0 15px rgba(139, 92, 246, 0.4),
+                  0 0 30px rgba(245, 158, 11, 0.3);
 }
+
 [data-theme="light"] {
-    --bg-dark: #f5f5f7;
+    --bg-dark: #f8fafc;
     --bg-card: #ffffff;
-    --bg-hover: #f0f0f2;
+    --bg-hover: #f1f5f9;
     --bg-sidebar: #fafafa;
-    --border: #e4e4e7;
-    --border-light: #d4d4d8;
-    --text-primary: #18181b;
-    --text-secondary: #52525b;
-    --text-muted: #a1a1aa;
+    --bg-input: #f1f5f9;
+    --border: #e2e8f0;
+    --border-light: #cbd5e1;
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --text-muted: #94a3b8;
     --accent: #7c3aed;
-    --accent-light: #a78bfa;
+    --accent-light: #8b5cf6;
+    --accent-dark: #6d28d9;
     --accent-dim: rgba(124, 58, 237, 0.1);
+    --accent-glow: rgba(124, 58, 237, 0.3);
+    
+    /* 浅色模式关闭霓虹 */
+    --neon-purple: 0 2px 10px rgba(124, 58, 237, 0.15);
+    --neon-gold: 0 2px 10px rgba(245, 158, 11, 0.15);
+    --neon-mixed: 0 4px 15px rgba(124, 58, 237, 0.15);
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -41,7 +71,6 @@
 .sidebar-content::-webkit-scrollbar { width: 4px; }
 .sidebar-content::-webkit-scrollbar-thumb { background: var(--border); }
 .sidebar-content::-webkit-scrollbar-thumb:hover { background: var(--border-light); }
-/* Firefox滚动条 */
 * { scrollbar-width: thin; scrollbar-color: var(--border-light) transparent; }
 
 body {
@@ -49,40 +78,637 @@ body {
     background: var(--bg-dark);
     color: var(--text-primary);
     min-height: 100vh;
-    transition: background 0.3s, color 0.3s;
 }
 
-/* 登录页 */
-.login-container { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
-.login-box { background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; padding: 36px; width: 100%; max-width: 360px; position: relative; }
-.login-logo { text-align: center; margin-bottom: 28px; }
-.login-logo h1 { font-size: 1.4rem; font-weight: 600; }
-.login-logo p { color: var(--text-secondary); font-size: 0.85rem; margin-top: 6px; }
-.login-tabs { display: flex; background: var(--bg-dark); border-radius: 8px; padding: 4px; margin-bottom: 24px; }
-.login-tab { flex: 1; padding: 10px; text-align: center; border-radius: 6px; cursor: pointer; color: var(--text-secondary); font-weight: 500; font-size: 0.9rem; }
-.login-tab.active { background: var(--accent-light); color: white; }
-.login-form { display: none; }
-.login-form.active { display: block; }
-.form-group { margin-bottom: 16px; }
-.form-label { display: block; color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 6px; }
-.form-input { width: 100%; padding: 11px 14px; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-size: 0.95rem; }
-.form-input:focus { outline: none; border-color: var(--accent); }
-.btn-submit { width: 100%; padding: 12px; background: var(--accent-light); border: none; border-radius: 8px; color: white; font-size: 0.95rem; font-weight: 600; cursor: pointer; }
-.btn-submit:hover { filter: brightness(1.1); }
-.theme-toggle-login { position: absolute; top: 16px; right: 16px; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: transparent; border: 1px solid var(--border); border-radius: 6px; color: var(--text-muted); cursor: pointer; }
+/* 主题切换时禁用所有过渡动画 - 瞬间切换 */
+body.theme-switching,
+body.theme-switching *,
+body.theme-switching *::before,
+body.theme-switching *::after {
+    transition: none !important;
+    animation-duration: 0.001s !important;
+}
 
+/* ============================================
+   主题切换动画
+   ============================================ */
+.pulse-ring {
+    position: fixed;
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 99999;
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0);
+}
+
+.pulse-ring.burst {
+    animation: pulseBurst 0.4s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes pulseBurst {
+    0% { opacity: 1; transform: translate(-50%, -50%) scale(0); }
+    100% { opacity: 0; transform: translate(-50%, -50%) scale(1); }
+}
+
+.flash-overlay {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: 99998;
+    opacity: 0;
+}
+
+.flash-overlay.flash {
+    animation: flashPulse 0.35s ease-out forwards;
+}
+
+@keyframes flashPulse {
+    0% { opacity: 0.5; }
+    100% { opacity: 0; }
+}
+
+.flash-overlay.to-light {
+    background: radial-gradient(circle at var(--cx) var(--cy), rgba(251, 191, 36, 0.3) 0%, transparent 60%);
+}
+
+.flash-overlay.to-dark {
+    background: radial-gradient(circle at var(--cx) var(--cy), rgba(139, 92, 246, 0.4) 0%, transparent 60%);
+}
+
+/* 主题切换按钮图标动画 */
+.theme-toggle-login .icon,
+.theme-toggle .icon {
+    display: inline-block;
+    transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.theme-toggle-login.switching .icon,
+.theme-toggle.switching .icon {
+    transform: rotate(360deg) scale(1.2);
+}
+
+/* ============================================
+   赛博背景
+   ============================================ */
+.cyber-bg {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: -1;
+    overflow: hidden;
+    transition: opacity 0.2s ease;
+}
+
+.cyber-bg::before {
+    content: '';
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    background: 
+        radial-gradient(ellipse 80% 50% at 50% -20%, rgba(139, 92, 246, 0.12) 0%, transparent 50%),
+        radial-gradient(ellipse 60% 40% at 100% 50%, rgba(139, 92, 246, 0.06) 0%, transparent 40%),
+        radial-gradient(ellipse 60% 40% at 0% 80%, rgba(245, 158, 11, 0.04) 0%, transparent 40%);
+    transition: opacity 0.2s ease;
+}
+
+[data-theme="light"] .cyber-bg::before {
+    background: 
+        radial-gradient(ellipse 80% 50% at 50% 0%, rgba(139, 92, 246, 0.06) 0%, transparent 50%);
+}
+
+.cyber-grid {
+    position: absolute;
+    width: 200%;
+    height: 200%;
+    top: -50%;
+    left: -50%;
+    background-image: 
+        linear-gradient(rgba(139, 92, 246, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(139, 92, 246, 0.03) 1px, transparent 1px);
+    background-size: 60px 60px;
+    transform: perspective(500px) rotateX(60deg);
+    animation: gridMove 20s linear infinite;
+    transition: opacity 0.2s ease;
+}
+
+[data-theme="light"] .cyber-grid {
+    background-image: 
+        linear-gradient(rgba(124, 58, 237, 0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(124, 58, 237, 0.04) 1px, transparent 1px);
+}
+
+@keyframes gridMove {
+    0% { transform: perspective(500px) rotateX(60deg) translateY(0); }
+    100% { transform: perspective(500px) rotateX(60deg) translateY(60px); }
+}
+
+.particle {
+    position: absolute;
+    width: 4px;
+    height: 4px;
+    background: var(--accent);
+    border-radius: 50%;
+    opacity: 0.3;
+    animation: float 15s infinite ease-in-out;
+    transition: background 0.2s ease;
+}
+
+.particle:nth-child(2) { left: 10%; top: 20%; animation-delay: 0s; }
+.particle:nth-child(3) { left: 20%; top: 80%; animation-delay: -2s; }
+.particle:nth-child(4) { left: 60%; top: 30%; animation-delay: -4s; }
+.particle:nth-child(5) { left: 80%; top: 70%; animation-delay: -6s; }
+.particle:nth-child(6) { left: 90%; top: 10%; animation-delay: -8s; }
+.particle:nth-child(7) { left: 40%; top: 60%; animation-delay: -10s; }
+
+@keyframes float {
+    0%, 100% { transform: translateY(0) translateX(0); opacity: 0.3; }
+    25% { transform: translateY(-30px) translateX(10px); opacity: 0.6; }
+    50% { transform: translateY(-15px) translateX(-15px); opacity: 0.4; }
+    75% { transform: translateY(-40px) translateX(5px); opacity: 0.5; }
+}
+
+/* 扫描线效果 - 深色模式 */
+.scanline {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: 1000;
+    background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0, 0, 0, 0.03) 2px,
+        rgba(0, 0, 0, 0.03) 4px
+    );
+    opacity: 0.4;
+    transition: opacity 0.35s ease;
+}
+
+[data-theme="light"] .scanline { opacity: 0; }
+
+/* ============================================
+   登录页 - 赛博金库效果
+   ============================================ */
 /* 主应用 */
 .app { display: none; min-height: 100vh; }
 .app.show { display: flex; }
 
-/* 侧边栏 */
-.sidebar { width: var(--sidebar-width); background: var(--bg-sidebar); border-right: 1px solid var(--border); display: flex; flex-direction: column; position: fixed; height: 100vh; z-index: 100; transition: transform 0.3s ease; }
+/* ============================================
+   登录页 - 赛博金库效果
+   ============================================ */
+.login-container { 
+    min-height: 100vh; 
+    display: flex; 
+    align-items: center; 
+    justify-content: center; 
+    padding: 20px;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 100;
+}
+
+.login-box { 
+    background: var(--bg-card); 
+    border: 1px solid var(--border); 
+    border-radius: 20px; 
+    padding: 40px; 
+    width: 100%; 
+    max-width: 400px; 
+    position: relative;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+[data-theme="light"] .login-box {
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+/* 登录框边框光效 */
+html:not([data-theme="light"]) .login-box::before {
+    content: '';
+    position: absolute;
+    top: -1px; left: -1px; right: -1px; bottom: -1px;
+    border-radius: 21px;
+    background: linear-gradient(135deg, rgba(139, 92, 246, 0.3) 0%, transparent 30%, transparent 70%, rgba(245, 158, 11, 0.2) 100%);
+    z-index: -1;
+    opacity: 0;
+    transition: opacity 0.5s;
+}
+
+html:not([data-theme="light"]) .login-box:hover::before { opacity: 1; }
+[data-theme="light"] .login-box::before { display: none; }
+
+.login-logo { text-align: center; margin-bottom: 32px; }
+.login-logo h1 { 
+    font-family: 'Orbitron', 'Noto Sans SC', sans-serif;
+    font-size: 1.8rem; 
+    font-weight: 700;
+    letter-spacing: 2px;
+    background: linear-gradient(135deg, var(--text-primary) 0%, var(--accent-light) 50%, var(--gold) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+}
+
+/* 蜂蜜图标 - 带光晕动画 */
+.login-logo h1 .honey-icon {
+    font-size: 2rem;
+    -webkit-text-fill-color: initial;
+    filter: drop-shadow(0 0 8px rgba(245, 158, 11, 0.5));
+    animation: honeyGlow 3s ease-in-out infinite;
+}
+
+/* 副标题 */
+.login-logo p { 
+    font-size: 0.9rem; 
+    margin-top: 8px;
+    color: var(--text-secondary);
+    letter-spacing: 1px;
+    transition: color 0.35s ease;
+}
+
+[data-theme="light"] .login-logo h1 .honey-icon {
+    animation: none;
+    filter: drop-shadow(0 2px 4px rgba(245, 158, 11, 0.3));
+}
+
+[data-theme="light"] .login-logo p {
+    color: var(--text-secondary);
+}
+
+.login-tabs { 
+    display: flex; 
+    background: var(--bg-input); 
+    border-radius: 12px; 
+    padding: 4px; 
+    margin-bottom: 28px;
+    border: 1px solid var(--border);
+    transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.login-tab { 
+    flex: 1; 
+    padding: 12px; 
+    text-align: center; 
+    border-radius: 10px; 
+    cursor: pointer; 
+    color: var(--text-secondary); 
+    font-weight: 500; 
+    font-size: 0.95rem;
+    transition: color 0.2s ease, background-color 0.2s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.login-tab::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-light) 100%);
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.login-tab.active { 
+    color: white;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.login-tab.active::before { opacity: 1; }
+.login-tab span { position: relative; z-index: 1; }
+
+.login-tab:not(.active):hover {
+    color: var(--text-primary);
+    background: var(--bg-hover);
+}
+
+.login-form { display: none; }
+.login-form.active { 
+    display: block;
+    animation: formFadeIn 0.4s ease-out;
+}
+
+@keyframes formFadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.form-group { margin-bottom: 20px; position: relative; }
+.form-label { 
+    display: block; 
+    color: var(--text-secondary); 
+    font-size: 0.85rem; 
+    margin-bottom: 8px; 
+    font-weight: 500;
+    transition: color 0.35s ease;
+}
+
+/* 输入框包装器 */
+.input-wrapper { position: relative; }
+
+/* 输入框 - 霓虹聚焦效果 */
+.form-input { 
+    width: 100%; 
+    padding: 14px 18px;
+    padding-right: 40px;
+    background: var(--bg-input); 
+    border: 1px solid var(--border); 
+    border-radius: 12px; 
+    color: var(--text-primary); 
+    font-size: 1rem;
+    font-family: 'JetBrains Mono', monospace;
+    transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.form-input::placeholder {
+    color: var(--text-muted);
+    font-family: 'Noto Sans SC', sans-serif;
+}
+
+.form-input:focus { 
+    outline: none; 
+    border-color: var(--accent);
+    background: var(--bg-card);
+    box-shadow: 0 0 0 3px var(--accent-dim), var(--neon-purple);
+}
+
+[data-theme="light"] .form-input:focus {
+    box-shadow: 0 0 0 3px var(--accent-dim), 0 2px 10px rgba(124, 58, 237, 0.15);
+}
+
+/* 输入框聚焦指示点 */
+.input-wrapper::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    right: 16px;
+    width: 8px;
+    height: 8px;
+    background: var(--accent);
+    border-radius: 50%;
+    transform: translateY(-50%) scale(0);
+    transition: all 0.3s;
+    box-shadow: 0 0 10px var(--accent-glow);
+}
+
+.input-wrapper:focus-within::after {
+    transform: translateY(-50%) scale(1);
+    animation: inputPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes inputPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+[data-theme="light"] .input-wrapper::after {
+    box-shadow: none;
+}
+
+/* 登录按钮 - 金库效果 */
+.btn-submit { 
+    width: 100%; 
+    padding: 16px; 
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%);
+    border: none; 
+    border-radius: 12px; 
+    color: white; 
+    font-size: 1rem; 
+    font-weight: 600; 
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    letter-spacing: 1px;
+    margin-top: 8px;
+}
+
+.btn-submit::before {
+    content: '';
+    position: absolute;
+    top: 0; left: -100%;
+    width: 100%; height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+    transition: left 0.4s;
+}
+
+.btn-submit:hover { 
+    transform: translateY(-2px);
+    box-shadow: var(--neon-mixed);
+}
+
+.btn-submit:hover::before { left: 100%; }
+
+/* 按钮悬停金色光晕效果 */
+.btn-submit::after {
+    content: '';
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 0; height: 0;
+    background: radial-gradient(circle, var(--gold-glow) 0%, transparent 70%);
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    transition: all 0.5s ease;
+    opacity: 0;
+}
+
+.btn-submit:hover::after {
+    width: 300px;
+    height: 300px;
+    opacity: 1;
+}
+
+.btn-submit span {
+    position: relative;
+    z-index: 1;
+}
+
+[data-theme="light"] .btn-submit:hover {
+    box-shadow: 0 8px 25px rgba(124, 58, 237, 0.3);
+}
+
+[data-theme="light"] .btn-submit::after { display: none; }
+
+.btn-submit:active { transform: translateY(0); }
+
+/* 主题切换按钮 */
+.theme-toggle-login { 
+    position: absolute; 
+    top: 20px; 
+    right: 20px; 
+    width: 44px; 
+    height: 44px; 
+    display: flex; 
+    align-items: center; 
+    justify-content: center; 
+    background: transparent; 
+    border: 1px solid var(--border); 
+    border-radius: 12px; 
+    color: var(--text-muted);
+    font-size: 1.2rem;
+    cursor: pointer;
+    transition: border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+    overflow: hidden;
+}
+
+.theme-toggle-login:hover { 
+    border-color: var(--accent); 
+    color: var(--accent);
+    box-shadow: var(--neon-purple);
+    transform: scale(1.05);
+}
+
+.theme-toggle-login:active { transform: scale(0.95); }
+
+[data-theme="light"] .theme-toggle-login:hover {
+    box-shadow: 0 2px 10px rgba(124, 58, 237, 0.2);
+}
+
+/* ============================================
+   侧边栏 - Logo霓虹 + 头像呼吸光圈
+   ============================================ */
+.sidebar { 
+    width: var(--sidebar-width); 
+    background: var(--bg-sidebar); 
+    border-right: 1px solid var(--border); 
+    display: flex; 
+    flex-direction: column; 
+    position: fixed; 
+    height: 100vh; 
+    z-index: 100; 
+    transition: transform 0.3s ease, background-color 0.2s ease;
+}
+
 .sidebar.collapsed { transform: translateX(calc(-1 * var(--sidebar-width))); }
-.sidebar-header { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
-.logo { font-size: 1rem; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+
+.sidebar-header { 
+    padding: 16px 20px; 
+    border-bottom: 1px solid var(--border); 
+    display: flex; 
+    align-items: center; 
+    justify-content: space-between;
+    position: relative;
+}
+
+/* Logo霓虹灯效果 */
+.logo { 
+    font-size: 1.1rem; 
+    font-weight: 600; 
+    display: flex; 
+    align-items: center; 
+    gap: 8px; 
+}
+
+/* Logo文字 - Orbitron科技字体 + 渐变色 */
+.logo span:last-child {
+    font-family: 'Orbitron', 'Noto Sans SC', sans-serif;
+    font-weight: 600;
+    letter-spacing: 1px;
+    background: linear-gradient(135deg, var(--text-primary) 0%, var(--accent-light) 50%, var(--gold) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+/* 深色模式Logo发光效果 */
+html:not([data-theme="light"]) .logo span:last-child {
+    filter: drop-shadow(0 0 8px rgba(139, 92, 246, 0.4));
+    animation: logoGlow 4s ease-in-out infinite;
+}
+
+@keyframes logoGlow {
+    0%, 100% { filter: drop-shadow(0 0 8px rgba(139, 92, 246, 0.4)); }
+    50% { filter: drop-shadow(0 0 12px rgba(139, 92, 246, 0.6)); }
+}
+
+/* 蜂蜜图标金色微光 */
+html:not([data-theme="light"]) .logo span:first-child {
+    filter: drop-shadow(0 0 6px rgba(245, 158, 11, 0.5));
+    animation: honeyGlow 3s ease-in-out infinite;
+}
+
+@keyframes honeyGlow {
+    0%, 100% { filter: drop-shadow(0 0 6px rgba(245, 158, 11, 0.5)); }
+    50% { filter: drop-shadow(0 0 10px rgba(245, 158, 11, 0.7)); }
+}
+
+[data-theme="light"] .logo span:last-child { filter: none; animation: none; }
+[data-theme="light"] .logo span:first-child { filter: none; animation: none; }
+
 .header-btns { display: flex; gap: 6px; }
-.btn-header { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: transparent; border: 1px solid var(--border); border-radius: 6px; color: var(--text-muted); cursor: pointer; }
+
+.btn-header { 
+    width: 32px; 
+    height: 32px; 
+    display: flex; 
+    align-items: center; 
+    justify-content: center; 
+    background: transparent; 
+    border: 1px solid var(--border); 
+    border-radius: 6px; 
+    color: var(--text-muted); 
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
 .btn-header:hover { border-color: var(--accent); color: var(--accent); }
+
+html:not([data-theme="light"]) .btn-header:hover {
+    box-shadow: 0 0 10px rgba(139, 92, 246, 0.3);
+}
+
+/* 头像按钮 - 呼吸灯光圈 */
+.btn-avatar { 
+    font-size: 1.1rem; 
+    position: relative; 
+}
+
+.btn-avatar::before {
+    content: '';
+    position: absolute;
+    top: -4px; left: -4px; right: -4px; bottom: -4px;
+    border-radius: 10px;
+    border: 2px solid rgba(139, 92, 246, 0.4);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    box-shadow: 0 0 8px rgba(139, 92, 246, 0.4), 0 0 16px rgba(139, 92, 246, 0.2);
+    animation: avatarBreath 3s ease-in-out infinite;
+}
+
+@keyframes avatarBreath {
+    0%, 100% {
+        box-shadow: 0 0 8px rgba(139, 92, 246, 0.4), 0 0 16px rgba(139, 92, 246, 0.2);
+        border-color: rgba(139, 92, 246, 0.4);
+    }
+    50% {
+        box-shadow: 0 0 12px rgba(139, 92, 246, 0.6), 0 0 24px rgba(139, 92, 246, 0.3);
+        border-color: rgba(139, 92, 246, 0.6);
+    }
+}
+
+html:not([data-theme="light"]) .btn-avatar::before { opacity: 1; }
+
+html:not([data-theme="light"]) .btn-avatar:hover::before {
+    border-color: rgba(139, 92, 246, 0.8);
+    box-shadow: 0 0 15px rgba(139, 92, 246, 0.7), 0 0 30px rgba(139, 92, 246, 0.4);
+}
+
+.btn-avatar:hover { transform: scale(1.05); }
+
+[data-theme="light"] .btn-avatar::before { display: none; }
+
 .sidebar-content { flex: 1; overflow-y: auto; padding: 12px 0; }
 .sidebar-footer { padding: 12px 16px; border-top: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
 .user-info { font-size: 0.85rem; color: var(--text-secondary); }
@@ -639,7 +1265,8 @@ body {
     text-transform: uppercase;
     letter-spacing: 0.5px;
 }
-.form-input {
+/* 模态框内的表单输入 - 不影响登录页 */
+.modal .form-input {
     width: 100%;
     padding: 12px 14px;
     background: var(--bg-dark);
@@ -649,7 +1276,7 @@ body {
     font-size: 0.9rem;
     transition: all 0.2s;
 }
-.form-input:focus {
+.modal .form-input:focus {
     outline: none;
     border-color: var(--accent);
     box-shadow: 0 0 0 3px var(--accent-dim);
@@ -1183,6 +1810,19 @@ body {
     overflow: hidden;
     animation: slideUp 0.2s ease;
 }
+
+@keyframes slideUp {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+html:not([data-theme="light"]) .user-panel {
+    border-color: rgba(139, 92, 246, 0.3);
+    box-shadow: 
+        0 12px 40px rgba(0, 0, 0, 0.4),
+        0 0 20px rgba(139, 92, 246, 0.1);
+}
+
 .user-panel.show { display: block; }
 .user-panel-header { 
     padding: 20px; 
@@ -1201,8 +1841,39 @@ body {
     align-items: center; 
     justify-content: center; 
     font-size: 1.8rem;
-    box-shadow: 0 4px 12px rgba(139, 92, 246, 0.2);
+    position: relative;
+    transition: all 0.3s ease;
 }
+
+/* 大头像呼吸光圈 */
+.user-avatar-large::before {
+    content: '';
+    position: absolute;
+    top: -6px;
+    left: -6px;
+    right: -6px;
+    bottom: -6px;
+    border-radius: 50%;
+    border: 2px solid rgba(139, 92, 246, 0.5);
+    opacity: 0;
+    box-shadow: 
+        0 0 12px rgba(139, 92, 246, 0.5),
+        0 0 24px rgba(139, 92, 246, 0.3);
+    animation: avatarBreath 3s ease-in-out infinite;
+    transition: opacity 0.3s ease;
+}
+
+html:not([data-theme="light"]) .user-avatar-large::before {
+    opacity: 1;
+}
+
+html:not([data-theme="light"]) .user-avatar-large {
+    box-shadow: 0 0 15px rgba(139, 92, 246, 0.3);
+}
+
+[data-theme="light"] .user-avatar-large::before { display: none; }
+[data-theme="light"] .user-avatar-large { box-shadow: 0 4px 12px rgba(124, 58, 237, 0.15); }
+
 .user-name { 
     font-size: 0.95rem; 
     font-weight: 600; 

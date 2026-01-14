@@ -5,33 +5,80 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AccBox</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text x='50' y='50' dominant-baseline='central' text-anchor='middle' font-size='80'>🍯</text></svg>">
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600&family=JetBrains+Mono&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600&family=JetBrains+Mono&family=Orbitron:wght@500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" id="mainStyle">
     <script>document.getElementById('mainStyle').href = 'style.css?v=' + Date.now();</script>
 </head>
 <body>
+    <!-- 赛博背景 -->
+    <div class="cyber-bg">
+        <div class="cyber-grid"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+    </div>
+    
+    <!-- 扫描线效果 -->
+    <div class="scanline"></div>
+    
+    <!-- 主题切换动画层 -->
+    <div class="flash-overlay" id="flashOverlay"></div>
+    
     <div class="login-container" id="loginContainer">
         <div class="login-box">
-            <button class="theme-toggle-login" onclick="toggleTheme()" id="themeBtn2">🌙</button>
-            <div class="login-logo"><h1>🍯 AccBox</h1><p>安全管理您的账号小金库~</p></div>
+            <button class="theme-toggle-login" onclick="toggleTheme(event)" id="themeBtn2"><span class="icon">🌙</span></button>
+            <div class="login-logo">
+                <h1>
+                    <span class="honey-icon">🍯</span>
+                    <span>AccBox</span>
+                </h1>
+                <p>安全管理您的账号小金库</p>
+            </div>
             <div class="login-tabs">
-                <div class="login-tab active" onclick="switchLoginTab('login')">登录</div>
-                <div class="login-tab" onclick="switchLoginTab('register')">注册</div>
+                <div class="login-tab active" onclick="switchLoginTab('login')"><span>登录</span></div>
+                <div class="login-tab" onclick="switchLoginTab('register')"><span>注册</span></div>
             </div>
             <form class="login-form active" id="loginForm" onsubmit="handleLogin(event)">
-                <div class="form-group"><label class="form-label">用户名</label><input type="text" class="form-input" id="loginUsername" required></div>
-                <div class="form-group"><label class="form-label">密码</label><input type="password" class="form-input" id="loginPassword" required></div>
-                <button type="submit" class="btn-submit">登录</button>
+                <div class="form-group">
+                    <label class="form-label">用户名</label>
+                    <div class="input-wrapper">
+                        <input type="text" class="form-input" id="loginUsername" placeholder="输入您的用户名" required>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">密码</label>
+                    <div class="input-wrapper">
+                        <input type="password" class="form-input" id="loginPassword" placeholder="输入您的密码" required>
+                    </div>
+                </div>
+                <button type="submit" class="btn-submit"><span>🔓 解锁金库</span></button>
             </form>
             <form class="login-form" id="registerForm" onsubmit="handleRegister(event)" autocomplete="off">
-                <div class="form-group"><label class="form-label">用户名</label><input type="text" class="form-input" id="regUsername" required autocomplete="off" name="reg-user-new"></div>
-                <div class="form-group"><label class="form-label">密码</label><input type="password" class="form-input" id="regPassword" required autocomplete="new-password"></div>
-                <div class="form-group"><label class="form-label">确认密码</label><input type="password" class="form-input" id="regPassword2" required autocomplete="new-password"></div>
-                <button type="submit" class="btn-submit">注册</button>
+                <div class="form-group">
+                    <label class="form-label">用户名</label>
+                    <div class="input-wrapper">
+                        <input type="text" class="form-input" id="regUsername" placeholder="创建您的用户名" required autocomplete="off" name="reg-user-new">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">密码</label>
+                    <div class="input-wrapper">
+                        <input type="password" class="form-input" id="regPassword" placeholder="设置安全密码" required autocomplete="new-password">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">确认密码</label>
+                    <div class="input-wrapper">
+                        <input type="password" class="form-input" id="regPassword2" placeholder="再次输入密码" required autocomplete="new-password">
+                    </div>
+                </div>
+                <button type="submit" class="btn-submit"><span>🔐 创建金库</span></button>
             </form>
         </div>
     </div>
-
     <div class="app" id="app">
         <aside class="sidebar" id="sidebar">
             <div class="sidebar-header">
@@ -51,7 +98,7 @@
                         <div class="user-panel-item" onclick="openFavStylePicker()">💌 收藏样式</div>
                         <div class="user-panel-item" onclick="toggleTimeBadge()"><span id="timeBadgeIcon">⏰️</span> 时间提醒 <span class="toggle-status" id="timeBadgeStatus">开</span></div>
                         <div class="user-panel-item" onclick="openPasswordReset()">🔑 重置密码</div>
-                        <div class="user-panel-item" onclick="toggleTheme()"><span id="themeBtn">🌙</span> 切换主题</div>
+                        <div class="user-panel-item" onclick="toggleTheme(event)"><span id="themeBtn">🌙</span> 切换主题</div>
                         <a class="user-panel-item" href="https://github.com/shleeshlee/account-manager" target="_blank" style="text-decoration:none;color:inherit;">🌻 1one/GitHub</a>
                     </div>
                     <div class="user-panel-footer">

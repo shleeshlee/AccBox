@@ -262,17 +262,53 @@ function getCountryDisplay(country) {
     return flag ? `${flag} ${upperCountry}` : country;
 }
 
-// 主题
+
+/* ============================================
+   主题切换 - 赛博金库动画版
+   ============================================ */
 let currentTheme = localStorage.getItem('theme') || 'dark';
+let isThemeSwitching = false;
+
 function initTheme() {
     document.documentElement.setAttribute('data-theme', currentTheme === 'light' ? 'light' : '');
     ['themeBtn', 'themeBtn2'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = currentTheme === 'light' ? '☀️' : '🌙'; });
 }
-function toggleTheme() {
-    currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
+
+function createThemePulseRings(cx, cy, toLight) {
+    const colors = toLight 
+        ? ['rgba(251, 191, 36, 0.5)', 'rgba(124, 58, 237, 0.3)']
+        : ['rgba(139, 92, 246, 0.5)', 'rgba(99, 102, 241, 0.3)'];
+    const sizes = [80, 120];
+    colors.forEach((color, i) => {
+        const ring = document.createElement('div');
+        ring.className = 'pulse-ring';
+        ring.style.cssText = `left:${cx}px;top:${cy}px;width:${sizes[i]}vmax;height:${sizes[i]}vmax;border:2px solid ${color};box-shadow:0 0 20px ${color};`;
+        document.body.appendChild(ring);
+        setTimeout(() => ring.classList.add('burst'), i * 50);
+        setTimeout(() => ring.remove(), 500);
+    });
+}
+
+function toggleTheme(event) {
+    if (isThemeSwitching) return;
+    isThemeSwitching = true;
+    
+    // 立即禁用所有过渡
+    document.body.classList.add('theme-switching');
+    
+    // 立即切换主题
+    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    currentTheme = newTheme;
     localStorage.setItem('theme', currentTheme);
     initTheme();
+    
+    // 短暂延迟后恢复过渡能力
+    setTimeout(() => {
+        document.body.classList.remove('theme-switching');
+        isThemeSwitching = false;
+    }, 50);
 }
+
 
 // 登录注册
 function switchLoginTab(tab) {
