@@ -403,6 +403,7 @@ function renderSidebar() {
     let typesHtml = `<div class="collapsible-group"><div class="group-header" onclick="toggleGroup(this)"><span class="group-arrow">▼</span><span>账号类型</span><span class="group-actions"><button class="btn-tiny" onclick="event.stopPropagation();openTypeManager()">⚙</button></span></div><div class="group-content">`;
     accountTypes.forEach(t => {
         const count = accounts.filter(a => a.type_id === t.id).length;
+        if (count === 0) return; // 跳过没有账号的类型
         const isSelected = currentFilters['type_' + t.id];
         typesHtml += `<div class="nav-item${isSelected ? ' active' : ''}" onclick="filterByType(${t.id})"><span class="nav-icon" style="color:${escapeAttr(t.color)}">${escapeHtml(t.icon)}</span><span class="nav-label">${escapeHtml(t.name)}</span><span class="nav-count">${count}</span></div>`;
     });
@@ -867,6 +868,10 @@ function openAddModal() {
     document.getElementById('accType').innerHTML = accountTypes.map(t => `<option value="${t.id}">${escapeHtml(t.icon)} ${escapeHtml(t.name)}</option>`).join('');
     ['accName', 'accEmail', 'accPassword', 'accNotes'].forEach(id => document.getElementById(id).value = '');
     document.getElementById('accCountry').value = '🌍';
+    // 密码默认隐藏
+    const pwdField = document.getElementById('accPassword');
+    if (pwdField) { pwdField.classList.add('pwd-hidden'); }
+    updateTogglePwdBtn(false);
     // 隐藏 2FA 按钮（添加时不显示）
     const btn2FA = document.getElementById('btn2FAConfig');
     if (btn2FA) btn2FA.style.display = 'none';
@@ -885,6 +890,10 @@ function openEditModal(id) {
     document.getElementById('accPassword').value = acc.password || '';
     document.getElementById('accCountry').value = acc.country || '🌍';
     document.getElementById('accNotes').value = acc.notes || '';
+    // 密码默认隐藏
+    const pwdField = document.getElementById('accPassword');
+    if (pwdField) { pwdField.classList.add('pwd-hidden'); }
+    updateTogglePwdBtn(false);
     // 显示 2FA 按钮（编辑时显示）
     const btn2FA = document.getElementById('btn2FAConfig');
     if (btn2FA) {
@@ -972,32 +981,115 @@ function confirmComboSelector() {
 }
 
 // 修改 app.js 中的 renderTagsBox 函数
+// 获取所有已使用的标签（历史标签）
+function getAllUsedTags() {
+    const tagSet = new Set();
+    accounts.forEach(acc => {
+        (acc.tags || []).forEach(t => tagSet.add(t));
+    });
+    return Array.from(tagSet).sort();
+}
+
+// 标签历史记录 - 保存到localStorage
+function getTagHistory() {
+    try {
+        return JSON.parse(localStorage.getItem('tagHistory') || '[]');
+    } catch { return []; }
+}
+
+function addToTagHistory(tag) {
+    let history = getTagHistory();
+    // 移除已存在的（去重），然后添加到开头
+    history = history.filter(t => t !== tag);
+    history.unshift(tag);
+    // 只保留最近50个
+    history = history.slice(0, 50);
+    localStorage.setItem('tagHistory', JSON.stringify(history));
+}
+
+function removeFromTagHistory(tag) {
+    let history = getTagHistory();
+    history = history.filter(t => t !== tag);
+    localStorage.setItem('tagHistory', JSON.stringify(history));
+    renderTagSuggestions(document.getElementById('accTagInput')?.value || '');
+}
+
+// 渲染标签建议
+function renderTagSuggestions(filter = '') {
+    const suggestionsEl = document.getElementById('tagSuggestions');
+    if (!suggestionsEl) return;
+    
+    const history = getTagHistory();
+    const allTags = getAllUsedTags();
+    // 合并历史和已用标签，历史优先
+    let suggestions = [...history];
+    allTags.forEach(t => { if (!suggestions.includes(t)) suggestions.push(t); });
+    
+    // 过滤掉已添加的和不匹配搜索的
+    const filterLower = filter.toLowerCase();
+    suggestions = suggestions.filter(t => 
+        !editingTags.includes(t) && 
+        (filter === '' || t.toLowerCase().includes(filterLower))
+    );
+    
+    if (suggestions.length === 0) {
+        suggestionsEl.innerHTML = '';
+        suggestionsEl.style.display = 'none';
+        return;
+    }
+    
+    // 只显示前10个
+    suggestions = suggestions.slice(0, 10);
+    
+    suggestionsEl.innerHTML = suggestions.map(t => `
+        <span class="tag-suggestion" onclick="selectTagSuggestion('${escapeHtml(t)}')">
+            ${escapeHtml(t)}
+            <span class="remove-history" onclick="event.stopPropagation(); removeFromTagHistory('${escapeHtml(t)}')" title="从历史中移除">✕</span>
+        </span>
+    `).join('');
+    suggestionsEl.style.display = 'flex';
+}
+
+function selectTagSuggestion(tag) {
+    if (!editingTags.includes(tag)) {
+        editingTags.push(tag);
+        addToTagHistory(tag);
+        renderTagsBox();
+    }
+}
+
 function renderTagsBox() {
     // 1. 渲染现有的标签
     const tagsHtml = editingTags.map(t => 
         `<span class="tag-badge">${escapeHtml(t)}<span class="remove" onclick="removeTag('${escapeHtml(t)}')">✕</span></span>`
     ).join('');
     
-    // 2. 渲染输入框
+    // 2. 渲染输入框和建议区域
     const inputFormHtml = `
     <form action="javascript:void(0)" onsubmit="handleTagSubmit(event)" style="display:contents">
-        <input type="search" class="tag-input" id="accTagInput" 
-               placeholder="回车添加" autocomplete="off" enterkeyhint="done">
+        <input type="text" class="tag-input" id="accTagInput" 
+               placeholder="回车添加" autocomplete="off" data-lpignore="true" data-form-type="other"
+               oninput="renderTagSuggestions(this.value)"
+               onfocus="renderTagSuggestions(this.value)">
         <input type="submit" style="display:none"/> 
-    </form>`;
+    </form>
+    <div class="tag-suggestions" id="tagSuggestions"></div>`;
     
     document.getElementById('accTagsBox').innerHTML = tagsHtml + inputFormHtml;
     
-    // 自动聚焦逻辑（保持不变）
-    setTimeout(() => {
-        const input = document.getElementById('accTagInput');
-        const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-        if(input && !isMobile) input.focus();
-    }, 0);
+    // 只在用户操作标签后才自动聚焦（添加/删除标签），打开模态框时不聚焦
+    if (window._tagJustEdited) {
+        window._tagJustEdited = false;
+        setTimeout(() => {
+            const input = document.getElementById('accTagInput');
+            const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+            if(input && !isMobile) input.focus();
+        }, 0);
+    }
 }
 
-function handleTagInput(e) { if (e.key === 'Enter') { e.preventDefault(); const val = e.target.value.trim(); if (val && !editingTags.includes(val)) { editingTags.push(val); renderTagsBox(); } e.target.value = ''; } }
-function removeTag(tag) { editingTags = editingTags.filter(t => t !== tag); renderTagsBox(); }
+function handleTagInput(e) { if (e.key === 'Enter') { e.preventDefault(); const val = e.target.value.trim(); if (val && !editingTags.includes(val)) { editingTags.push(val); addToTagHistory(val); window._tagJustEdited = true; renderTagsBox(); } e.target.value = ''; } }
+function removeTag(tag) { editingTags = editingTags.filter(t => t !== tag); window._tagJustEdited = true; renderTagsBox(); }
 function closeAccountModal() { document.getElementById('accountModal').classList.remove('show'); }
 
 async function saveAccount() {
@@ -1624,9 +1716,13 @@ function generateAndFillPassword() {
 function togglePasswordVisibility() {
     const input = document.getElementById('accPassword');
     if (!input) return;
-    const isVisible = input.type === 'text';
-    input.type = isVisible ? 'password' : 'text';
-    updateTogglePwdBtn(!isVisible);
+    const isHidden = input.classList.contains('pwd-hidden');
+    if (isHidden) {
+        input.classList.remove('pwd-hidden');
+    } else {
+        input.classList.add('pwd-hidden');
+    }
+    updateTogglePwdBtn(isHidden);
 }
 
 function updateTogglePwdBtn(isVisible) {
@@ -2175,6 +2271,7 @@ function handleTagSubmit(e) {
     const val = input.value.trim();
     if (val && !editingTags.includes(val)) {
         editingTags.push(val); // 添加标签
+        addToTagHistory(val);  // 添加到历史
         renderTagsBox();       // 重新渲染
     }
     // 手机端提交后，通常建议让输入框失去焦点，收起键盘，不然用户会困惑

@@ -86,7 +86,7 @@
                     <button class="btn-batch-delete" onclick="batchDelete()"><span class="pc-only">删除</span><span class="mobile-only">🗑️</span></button>
                 </div>
                 <!-- 搜索框 -->
-                <div class="search-box"><span class="search-icon">🔍</span><input type="search" id="searchInput" placeholder="搜索..." oninput="filterAccounts()" autocomplete="off" name="account-search-nofill"></div>
+                <div class="search-box"><span class="search-icon">🔍</span><input type="search" id="searchInput" placeholder="搜索..." oninput="filterAccounts()" autocomplete="off" data-lpignore="true" data-form-type="other" role="searchbox"></div>
                 <!-- 视图切换 -->
                 <div class="view-toggle">
                     <button class="view-btn active" data-view="card" onclick="setViewMode('card')" title="卡片视图">🃏</button>
@@ -154,10 +154,10 @@
                 </div>
                 <div class="form-group"><label class="form-label">自定义名称</label><input type="text" class="form-input" id="accName" placeholder="如：API主力号"></div>
                 <div class="form-row">
-                    <div class="form-group"><label class="form-label">邮箱/账号</label><input type="text" class="form-input" id="accEmail" autocomplete="off"></div>
+                    <div class="form-group"><label class="form-label">邮箱/账号</label><input type="text" class="form-input" id="accEmail" autocomplete="off" data-lpignore="true" data-form-type="other" readonly onfocus="this.removeAttribute('readonly')"></div>
                     <div class="form-group"><label class="form-label">密码（可选）</label>
                         <div class="password-input-wrapper">
-                            <input type="password" class="form-input" id="accPassword" autocomplete="off">
+                            <input type="text" class="form-input pwd-field" id="accPassword" autocomplete="off" data-lpignore="true" data-form-type="other" readonly onfocus="this.removeAttribute('readonly')">
                             <button type="button" class="btn-toggle-pwd" onclick="togglePasswordVisibility()" title="显示/隐藏密码">👁️</button>
                             <button type="button" class="btn-generate-pwd" onclick="generateAndFillPassword()" title="生成16位随机密码">🎲</button>
                         </div>

@@ -761,6 +761,47 @@ body {
     outline: none; 
 }
 
+/* 标签历史建议 */
+.tag-suggestions {
+    display: none;
+    flex-wrap: wrap;
+    gap: 6px;
+    width: 100%;
+    padding-top: 8px;
+    border-top: 1px dashed var(--border);
+    margin-top: 4px;
+}
+.tag-suggestion {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.tag-suggestion:hover {
+    background: var(--accent-dim);
+    border-color: var(--accent);
+    color: var(--accent);
+}
+.tag-suggestion .remove-history {
+    font-size: 0.65rem;
+    opacity: 0.5;
+    margin-left: 2px;
+    padding: 2px;
+    border-radius: 50%;
+}
+.tag-suggestion .remove-history:hover {
+    opacity: 1;
+    background: rgba(255,100,100,0.2);
+    color: #ff6b6b;
+}
+
 .prop-selector { margin-bottom: 18px; }
 .prop-selector-label { 
     font-size: 0.8rem; 
@@ -1547,6 +1588,13 @@ body {
 
 .password-input-wrapper .form-input {
     padding-right: 80px;
+}
+
+/* 密码隐藏样式 - 使用CSS代替type=password来避免Chrome密码管理器 */
+.password-input-wrapper .pwd-field.pwd-hidden {
+    -webkit-text-security: disc;
+    -moz-text-security: disc;
+    text-security: disc;
 }
 
 .btn-toggle-pwd {
