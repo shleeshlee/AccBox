@@ -253,7 +253,15 @@ def init_user_tables(user_id: int):
                 is_favorite INTEGER DEFAULT 0,
                 last_used TIMESTAMP,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                totp_secret TEXT DEFAULT '',
+                totp_issuer TEXT DEFAULT '',
+                totp_type TEXT DEFAULT '',
+                totp_algorithm TEXT DEFAULT 'SHA1',
+                totp_digits INTEGER DEFAULT 6,
+                totp_period INTEGER DEFAULT 30,
+                backup_codes TEXT DEFAULT '[]',
+                time_offset INTEGER DEFAULT 0
             )
         """)
         
@@ -746,7 +754,7 @@ def export_data(user: dict = Depends(get_current_user)):
         accounts_cursor = conn.execute(f"SELECT * FROM user_{user['id']}_accounts")
         accounts = []
         for row in accounts_cursor.fetchall():
-            accounts.append({
+            account_data = {
                 "type_id": row["type_id"],
                 "email": row["email"],
                 "password": decrypt_password(row["password"]),
@@ -758,7 +766,18 @@ def export_data(user: dict = Depends(get_current_user)):
                 "notes": row["notes"] or "",
                 "is_favorite": bool(row["is_favorite"]),
                 "created_at": row["created_at"]
-            })
+            }
+            # 导出2FA配置
+            if "totp_secret" in row.keys() and row["totp_secret"]:
+                account_data["totp"] = {
+                    "secret": decrypt_password(row["totp_secret"]),
+                    "issuer": row["totp_issuer"] or "" if "totp_issuer" in row.keys() else "",
+                    "type": row["totp_type"] or "totp" if "totp_type" in row.keys() else "totp",
+                    "algorithm": row["totp_algorithm"] or "SHA1" if "totp_algorithm" in row.keys() else "SHA1",
+                    "digits": row["totp_digits"] or 6 if "totp_digits" in row.keys() else 6,
+                    "period": row["totp_period"] or 30 if "totp_period" in row.keys() else 30,
+                }
+            accounts.append(account_data)
     
     return {
         "version": "4.0",
@@ -952,14 +971,32 @@ def import_data(data: dict, user: dict = Depends(get_current_user)):
                             now,
                             existing_id
                         ))
+                        # 导入2FA配置
+                        totp_data = acc.get("totp")
+                        if totp_data and totp_data.get("secret"):
+                            conn.execute(f"""
+                                UPDATE user_{user['id']}_accounts SET
+                                totp_secret = ?, totp_issuer = ?, totp_type = ?,
+                                totp_algorithm = ?, totp_digits = ?, totp_period = ?
+                                WHERE id = ?
+                            """, (
+                                encrypt_password(totp_data.get("secret", "")),
+                                totp_data.get("issuer", ""),
+                                totp_data.get("type", "totp"),
+                                totp_data.get("algorithm", "SHA1"),
+                                totp_data.get("digits", 6),
+                                totp_data.get("period", 30),
+                                existing_id
+                            ))
                         updated_accounts += 1
                         continue
                 
                 # 新建账号
                 conn.execute(f"""
                     INSERT INTO user_{user['id']}_accounts 
-                    (type_id, email, password, country, custom_name, properties, combos, tags, notes, is_favorite, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (type_id, email, password, country, custom_name, properties, combos, tags, notes, is_favorite, created_at, updated_at,
+                     totp_secret, totp_issuer, totp_type, totp_algorithm, totp_digits, totp_period)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     new_type_id,
                     email,
@@ -972,7 +1009,13 @@ def import_data(data: dict, user: dict = Depends(get_current_user)):
                     acc.get("notes", ""),
                     1 if acc.get("is_favorite") else 0,
                     acc.get("created_at", now),
-                    now
+                    now,
+                    encrypt_password(acc.get("totp", {}).get("secret", "")) if acc.get("totp", {}).get("secret") else "",
+                    acc.get("totp", {}).get("issuer", ""),
+                    acc.get("totp", {}).get("type", "totp"),
+                    acc.get("totp", {}).get("algorithm", "SHA1"),
+                    acc.get("totp", {}).get("digits", 6),
+                    acc.get("totp", {}).get("period", 30),
                 ))
                 imported_accounts += 1
             except Exception as e:

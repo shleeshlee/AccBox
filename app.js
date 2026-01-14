@@ -447,29 +447,22 @@ function renderCards() {
         // 可爱的空状态插画
         document.getElementById('cardsList').innerHTML = `
             <div class="empty-state">
-                <svg class="empty-illustration" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
-                    <!-- 蜂蜜罐 -->
-                    <ellipse cx="100" cy="170" rx="60" ry="12" fill="var(--border)" opacity="0.3"/>
-                    <path d="M60 80 L60 140 Q60 160 80 165 L120 165 Q140 160 140 140 L140 80 Q140 70 130 70 L70 70 Q60 70 60 80Z" fill="var(--bg-card)" stroke="var(--border)" stroke-width="2"/>
-                    <path d="M65 85 L65 135 Q65 150 80 155 L120 155 Q135 150 135 135 L135 85" fill="var(--accent-dim)" opacity="0.5"/>
-                    <ellipse cx="100" cy="70" rx="35" ry="8" fill="var(--bg-hover)" stroke="var(--border)" stroke-width="2"/>
-                    <text x="100" y="125" text-anchor="middle" font-size="40">🍯</text>
-                    
-                    <!-- 小熊 -->
-                    <circle cx="160" cy="90" r="25" fill="var(--text-muted)" opacity="0.2"/>
-                    <circle cx="150" cy="80" r="8" fill="var(--text-muted)" opacity="0.25"/>
-                    <circle cx="170" cy="80" r="8" fill="var(--text-muted)" opacity="0.25"/>
-                    <circle cx="155" cy="88" r="3" fill="var(--bg-dark)"/>
-                    <circle cx="165" cy="88" r="3" fill="var(--bg-dark)"/>
-                    <ellipse cx="160" cy="95" rx="4" ry="3" fill="var(--bg-dark)"/>
-                    <path d="M152 100 Q160 106 168 100" stroke="var(--bg-dark)" stroke-width="2" fill="none" stroke-linecap="round"/>
-                    
-                    <!-- 问号 -->
-                    <text x="45" cy="60" font-size="24" fill="var(--text-muted)" opacity="0.4">?</text>
-                    <text x="155" cy="130" font-size="18" fill="var(--text-muted)" opacity="0.3">?</text>
+                <svg class="empty-illustration" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <ellipse cx="100" cy="160" rx="60" ry="15" fill="var(--border)" opacity="0.3"/>
+                    <path d="M60 80 L60 140 Q60 160 100 160 Q140 160 140 140 L140 80 Q140 60 100 60 Q60 60 60 80Z" fill="var(--bg-card)" stroke="var(--border)" stroke-width="2"/>
+                    <path d="M65 80 L65 85 Q65 90 100 90 Q135 90 135 85 L135 80" fill="var(--yellow)" opacity="0.3"/>
+                    <ellipse cx="100" cy="60" rx="40" ry="12" fill="var(--bg-hover)" stroke="var(--border)" stroke-width="2"/>
+                    <path d="M85 90 Q85 110 90 115 Q95 120 95 125" stroke="var(--yellow)" stroke-width="3" stroke-linecap="round" opacity="0.6"/>
+                    <circle cx="100" cy="35" r="25" fill="var(--bg-card)" stroke="var(--border)" stroke-width="2"/>
+                    <circle cx="80" cy="15" r="10" fill="var(--bg-card)" stroke="var(--border)" stroke-width="2"/>
+                    <circle cx="120" cy="15" r="10" fill="var(--bg-card)" stroke="var(--border)" stroke-width="2"/>
+                    <circle cx="92" cy="32" r="3" fill="var(--text-muted)"/>
+                    <circle cx="108" cy="32" r="3" fill="var(--text-muted)"/>
+                    <ellipse cx="100" cy="40" rx="4" ry="3" fill="var(--text-muted)"/>
+                    <text x="150" y="50" font-size="24" fill="var(--accent)" opacity="0.6">?</text>
                 </svg>
                 <div class="empty-title">这里空空如也~</div>
-                <div class="empty-text">小熊找不到蜂蜜啦！快去添加你的第一个账号吧 🐻</div>
+                <div class="empty-text">快去添加第一个账号吧 🍯</div>
                 <button class="empty-action" onclick="openAddModal()">➕ 添加账号</button>
             </div>`;
         return; 
