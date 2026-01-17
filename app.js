@@ -272,10 +272,17 @@ let isThemeSwitching = false;
 
 function initTheme() {
     document.documentElement.setAttribute('data-theme', currentTheme === 'light' ? 'light' : '');
-    ['themeBtn', 'themeBtn2'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = currentTheme === 'light' ? '☀️' : '🌙'; });
+    ['themeBtn', 'themeBtn2'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            const icon = el.querySelector('.icon');
+            if (icon) icon.textContent = currentTheme === 'light' ? '☀️' : '🌙';
+            else el.textContent = currentTheme === 'light' ? '☀️' : '🌙';
+        }
+    });
 }
 
-function createThemePulseRings(cx, cy, toLight) {
+function createPulseRings(cx, cy, toLight) {
     const colors = toLight 
         ? ['rgba(251, 191, 36, 0.5)', 'rgba(124, 58, 237, 0.3)']
         : ['rgba(139, 92, 246, 0.5)', 'rgba(99, 102, 241, 0.3)'];
@@ -290,24 +297,53 @@ function createThemePulseRings(cx, cy, toLight) {
     });
 }
 
-function toggleTheme(event) {
-    if (isThemeSwitching) return;
-    isThemeSwitching = true;
-    
-    // 立即禁用所有过渡
-    document.body.classList.add('theme-switching');
-    
-    // 立即切换主题
-    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-    currentTheme = newTheme;
+// 主界面用：瞬间切换（关灯效果）
+function toggleTheme() {
+    currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
     localStorage.setItem('theme', currentTheme);
     initTheme();
-    
-    // 短暂延迟后恢复过渡能力
+}
+
+// 登录页用：带脉冲动画的主题切换
+function switchThemeWithEffect(event) {
+    if (isThemeSwitching) return;
+    isThemeSwitching = true;
+
+    const btn = event.currentTarget;
+    const rect = btn.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+
+    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    const toLight = newTheme === 'light';
+
+    // 按钮旋转动画
+    btn.classList.add('switching');
+
+    // 创建脉冲环
+    createPulseRings(cx, cy, toLight);
+
+    // 闪光效果
+    const flash = document.getElementById('flashOverlay');
+    if (flash) {
+        flash.style.setProperty('--cx', cx + 'px');
+        flash.style.setProperty('--cy', cy + 'px');
+        flash.className = 'flash-overlay ' + (toLight ? 'to-light' : 'to-dark') + ' flash';
+    }
+
+    // 切换主题
     setTimeout(() => {
-        document.body.classList.remove('theme-switching');
-        isThemeSwitching = false;
+        currentTheme = newTheme;
+        localStorage.setItem('theme', currentTheme);
+        initTheme();
     }, 50);
+
+    // 清理
+    setTimeout(() => {
+        btn.classList.remove('switching');
+        if (flash) flash.className = 'flash-overlay';
+        isThemeSwitching = false;
+    }, 400);
 }
 
 
