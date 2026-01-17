@@ -956,7 +956,6 @@ html:not([data-theme="light"]) .btn-avatar:hover::before {
 .clear-filters { padding: 5px 10px; background: transparent; border: 1px dashed var(--border); border-radius: 16px; font-size: 0.75rem; color: var(--text-muted); cursor: pointer; }
 .clear-filters:hover { border-color: var(--red); color: var(--red); }
 
-.content { padding: 20px 24px; }
 .sort-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; font-size: 0.8rem; color: var(--text-muted); }
 .sort-option { padding: 5px 10px; background: transparent; border: 1px solid transparent; border-radius: 6px; color: var(--text-muted); cursor: pointer; }
 .sort-option:hover { color: var(--text-secondary); }

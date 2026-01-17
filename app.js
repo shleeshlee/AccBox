@@ -1730,10 +1730,12 @@ function generateAndFillPassword() {
     const input = document.getElementById('accPassword');
     if (input) {
         input.value = pwd;
-        input.type = 'text'; // 生成后显示
+        // 生成后显示密码（移除隐藏class）
+        input.classList.remove('pwd-hidden');
         updateTogglePwdBtn(true);
+        // 3秒后自动隐藏（添加隐藏class）
         setTimeout(() => {
-            input.type = 'password';
+            input.classList.add('pwd-hidden');
             updateTogglePwdBtn(false);
         }, 3000);
     }
