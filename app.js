@@ -2313,6 +2313,7 @@ function open2FAConfig(accountId) {
     document.getElementById('totp2FAAlgorithm').value = 'SHA1';
     document.getElementById('totp2FADigits').value = '6';
     document.getElementById('totp2FATimeOffset').value = '0';
+    document.getElementById('totp2FABackupCodes').value = '';
     document.getElementById('qrScanResult').style.display = 'none';
     document.getElementById('qrScanResult').innerHTML = '';
     
@@ -2326,6 +2327,11 @@ function open2FAConfig(accountId) {
     
     // 初始化拖拽上传
     initQRDropZone();
+    initBackupCodesZone();
+    
+    // 重置备份码预览状态
+    document.getElementById('backupCodesPreview').style.display = 'none';
+    document.getElementById('backupCodesZone').style.display = 'block';
     
     modal.classList.add('show');
 }
@@ -2347,11 +2353,112 @@ async function loadExisting2FAConfig(accountId) {
                 document.getElementById('totp2FAAlgorithm').value = data.algorithm || 'SHA1';
                 document.getElementById('totp2FADigits').value = data.digits || 6;
                 document.getElementById('totp2FATimeOffset').value = data.time_offset || 0;
+                // 加载备份码并显示预览
+                const backupCodes = data.backup_codes || [];
+                document.getElementById('totp2FABackupCodes').value = backupCodes.join('\n');
+                if (backupCodes.length > 0) {
+                    updateBackupCodesPreview(true);
+                }
             }
         }
     } catch (e) {
         console.error('加载2FA配置失败', e);
     }
+}
+
+// ==================== 备份码功能 ====================
+function initBackupCodesZone() {
+    const zone = document.getElementById('backupCodesZone');
+    if (!zone || zone.dataset.initialized) return;
+    zone.dataset.initialized = 'true';
+    
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(evt => {
+        zone.addEventListener(evt, e => { e.preventDefault(); e.stopPropagation(); });
+    });
+    
+    ['dragenter', 'dragover'].forEach(evt => {
+        zone.addEventListener(evt, () => zone.classList.add('drag-over'));
+    });
+    
+    ['dragleave', 'drop'].forEach(evt => {
+        zone.addEventListener(evt, () => zone.classList.remove('drag-over'));
+    });
+    
+    zone.addEventListener('drop', handleBackupCodesDrop);
+    
+    // 监听文本变化，更新预览
+    const textarea = document.getElementById('totp2FABackupCodes');
+    textarea.addEventListener('input', () => updateBackupCodesPreview(false));
+}
+
+function handleBackupCodesDrop(e) {
+    const file = e.dataTransfer.files[0];
+    if (!file) return;
+    
+    if (!file.name.endsWith('.txt')) {
+        showToast('请拖拽 .txt 文件', true);
+        return;
+    }
+    
+    const reader = new FileReader();
+    reader.onload = (event) => {
+        const content = event.target.result;
+        // 解析备份码，过滤空行和注释行
+        const codes = content.split('\n')
+            .map(s => s.trim())
+            .filter(s => s && !s.startsWith('#') && !s.startsWith('//'));
+        
+        if (codes.length > 0) {
+            document.getElementById('totp2FABackupCodes').value = codes.join('\n');
+            showToast(`✅ 已导入 ${codes.length} 个备份码`);
+            updateBackupCodesPreview(true);
+        } else {
+            showToast('文件中没有找到备份码', true);
+        }
+    };
+    reader.readAsText(file);
+}
+
+function updateBackupCodesPreview(forceShow) {
+    const textarea = document.getElementById('totp2FABackupCodes');
+    const preview = document.getElementById('backupCodesPreview');
+    const grid = document.getElementById('backupCodesGrid');
+    const zone = document.getElementById('backupCodesZone');
+    
+    const codes = textarea.value.split('\n').map(s => s.trim()).filter(s => s);
+    
+    if (codes.length === 0) {
+        preview.style.display = 'none';
+        zone.style.display = 'block';
+        return;
+    }
+    
+    // 有码时显示预览
+    if (forceShow || codes.length >= 4) {
+        grid.innerHTML = codes.map((code, i) => `
+            <div class="backup-code-item" onclick="copyBackupCode('${escapeHtml(code)}', this)" title="点击复制">
+                <span class="code-num">${i + 1}.</span>
+                <span class="code-text">${escapeHtml(code)}</span>
+                <span class="code-copy">📋</span>
+            </div>
+        `).join('');
+        preview.style.display = 'block';
+        zone.style.display = 'none';
+    }
+}
+
+function copyBackupCode(code, element) {
+    copyToClipboard(code);
+    showToast('✅ 已复制: ' + code);
+    // 添加复制成功的视觉反馈
+    element.classList.add('copied');
+    setTimeout(() => element.classList.remove('copied'), 500);
+}
+
+function editBackupCodes() {
+    document.getElementById('backupCodesPreview').style.display = 'none';
+    document.getElementById('backupCodesZone').style.display = 'block';
+    document.getElementById('totp2FABackupCodes').focus();
 }
 
 // 二维码扫描功能
@@ -2468,6 +2575,10 @@ async function save2FAConfig() {
     if (!secret) { showToast('请输入密钥或扫描二维码', true); return; }
     if (secret.length < 8) { showToast('密钥长度不足', true); return; }
     
+    // 解析备份码（每行一个，过滤空行）
+    const backupCodesText = document.getElementById('totp2FABackupCodes').value;
+    const backupCodes = backupCodesText.split('\n').map(s => s.trim()).filter(s => s);
+    
     const config = {
         secret: secret,
         issuer: document.getElementById('totp2FAIssuer').value.trim(),
@@ -2475,7 +2586,7 @@ async function save2FAConfig() {
         algorithm: document.getElementById('totp2FAAlgorithm').value,
         digits: parseInt(document.getElementById('totp2FADigits').value) || 6,
         period: 30,
-        backup_codes: []
+        backup_codes: backupCodes
     };
     
     try {

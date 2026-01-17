@@ -17,7 +17,8 @@ from datetime import datetime, timedelta
 from contextlib import contextmanager
 from fastapi import FastAPI, HTTPException, Depends, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from cryptography.fernet import Fernet
@@ -776,6 +777,7 @@ def export_data(user: dict = Depends(get_current_user)):
                     "algorithm": row["totp_algorithm"] or "SHA1" if "totp_algorithm" in row.keys() else "SHA1",
                     "digits": row["totp_digits"] or 6 if "totp_digits" in row.keys() else 6,
                     "period": row["totp_period"] or 30 if "totp_period" in row.keys() else 30,
+                    "backup_codes": json.loads(row["backup_codes"] or "[]") if "backup_codes" in row.keys() else [],
                 }
             accounts.append(account_data)
     
@@ -977,7 +979,7 @@ def import_data(data: dict, user: dict = Depends(get_current_user)):
                             conn.execute(f"""
                                 UPDATE user_{user['id']}_accounts SET
                                 totp_secret = ?, totp_issuer = ?, totp_type = ?,
-                                totp_algorithm = ?, totp_digits = ?, totp_period = ?
+                                totp_algorithm = ?, totp_digits = ?, totp_period = ?, backup_codes = ?
                                 WHERE id = ?
                             """, (
                                 encrypt_password(totp_data.get("secret", "")),
@@ -986,6 +988,7 @@ def import_data(data: dict, user: dict = Depends(get_current_user)):
                                 totp_data.get("algorithm", "SHA1"),
                                 totp_data.get("digits", 6),
                                 totp_data.get("period", 30),
+                                json.dumps(totp_data.get("backup_codes", [])),
                                 existing_id
                             ))
                         updated_accounts += 1
@@ -995,8 +998,8 @@ def import_data(data: dict, user: dict = Depends(get_current_user)):
                 conn.execute(f"""
                     INSERT INTO user_{user['id']}_accounts 
                     (type_id, email, password, country, custom_name, properties, combos, tags, notes, is_favorite, created_at, updated_at,
-                     totp_secret, totp_issuer, totp_type, totp_algorithm, totp_digits, totp_period)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     totp_secret, totp_issuer, totp_type, totp_algorithm, totp_digits, totp_period, backup_codes)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     new_type_id,
                     email,
@@ -1016,6 +1019,7 @@ def import_data(data: dict, user: dict = Depends(get_current_user)):
                     acc.get("totp", {}).get("algorithm", "SHA1"),
                     acc.get("totp", {}).get("digits", 6),
                     acc.get("totp", {}).get("period", 30),
+                    json.dumps(acc.get("totp", {}).get("backup_codes", [])),
                 ))
                 imported_accounts += 1
             except Exception as e:
@@ -1281,9 +1285,36 @@ def health_check():
         key_status = "secure"
     return {"status": "ok", "version": "5.0", "key_status": key_status, "time": datetime.now().isoformat()}
 
+# 静态文件目录
+STATIC_DIR = os.path.dirname(os.path.abspath(__file__))
+
 @app.get("/")
 def root():
+    """返回前端页面"""
+    index_path = os.path.join(STATIC_DIR, "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path, media_type="text/html")
     return {"message": "通用账号管家 API v5.0", "docs": "/docs"}
+
+@app.get("/{filename:path}")
+def serve_static(filename: str):
+    """提供静态文件服务"""
+    # 排除 API 路径
+    if filename.startswith("api/"):
+        raise HTTPException(status_code=404, detail="Not found")
+    
+    file_path = os.path.join(STATIC_DIR, filename)
+    if os.path.exists(file_path) and os.path.isfile(file_path):
+        # 根据扩展名设置 content-type
+        if filename.endswith(".css"):
+            return FileResponse(file_path, media_type="text/css")
+        elif filename.endswith(".js"):
+            return FileResponse(file_path, media_type="application/javascript")
+        elif filename.endswith(".html"):
+            return FileResponse(file_path, media_type="text/html")
+        else:
+            return FileResponse(file_path)
+    raise HTTPException(status_code=404, detail="File not found")
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 9111))
