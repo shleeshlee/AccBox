@@ -720,10 +720,13 @@ html:not([data-theme="light"]) .btn-avatar:hover::before {
 .nav-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; color: var(--text-secondary); cursor: pointer; border-radius: 6px; margin: 2px 0; }
 .nav-item:hover { background: var(--bg-hover); color: var(--text-primary); }
 .nav-item.active { background: var(--accent-dim); color: var(--accent); }
+.nav-item.excluded { background: rgba(239, 68, 68, 0.1); color: var(--red); text-decoration: line-through; }
+.nav-item.excluded .nav-label { text-decoration: line-through; }
 .nav-icon { font-size: 0.95rem; width: 22px; text-align: center; }
 .nav-label { flex: 1; font-size: 0.85rem; }
 .nav-count { font-size: 0.7rem; padding: 2px 7px; background: var(--bg-card); border-radius: 10px; color: var(--text-muted); }
 .nav-item.active .nav-count { background: var(--accent); color: white; }
+.nav-item.excluded .nav-count { background: var(--red); color: white; }
 
 .collapsible-group { margin-bottom: 4px; }
 .group-header { display: flex; align-items: center; gap: 6px; padding: 8px 16px; font-size: 0.7rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; cursor: pointer; user-select: none; }
@@ -741,9 +744,12 @@ html:not([data-theme="light"]) .btn-avatar:hover::before {
 .prop-item:hover { background: var(--bg-hover); color: var(--text-primary); }
 .prop-item.selected { background: var(--bg-card); color: var(--text-primary); }
 .prop-item.active { background: var(--accent-dim); color: var(--accent); font-weight: 500; }
+.prop-item.excluded { background: rgba(239, 68, 68, 0.1); color: var(--red); }
+.prop-item.excluded .prop-label { text-decoration: line-through; }
 .prop-dot { width: 8px; height: 8px; border-radius: 50%; }
 .prop-label { flex: 1; }
 .prop-count { font-size: 0.7rem; color: var(--text-muted); }
+.prop-item.excluded .prop-count { color: var(--red); }
 
 .add-group-btn { margin: 8px 16px; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 8px; background: transparent; border: 1px dashed var(--border); border-radius: 6px; color: var(--text-muted); font-size: 0.8rem; cursor: pointer; }
 .add-group-btn:hover { border-color: var(--accent); color: var(--accent); }
@@ -948,8 +954,10 @@ html:not([data-theme="light"]) .btn-avatar:hover::before {
 
 .active-filters { display: none; flex-wrap: wrap; gap: 8px; padding: 0 0 14px; align-items: center; }
 .active-filters.show { display: flex; }
-.active-filters::before { content: '标签'; font-size: 0.8rem; color: var(--text-muted); margin-right: 4px; }
-.filter-tag { display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; background: var(--accent-dim); border: 1px solid var(--accent); border-radius: 16px; font-size: 0.8rem; color: var(--text-primary); }
+.active-filters::before { content: '🏷️'; font-size: 0.9rem; margin-right: 4px; }
+.filter-tag { display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; background: var(--accent-dim); border: 1px solid var(--accent); border-radius: 16px; font-size: 0.8rem; color: var(--accent); }
+.filter-tag.filter-include { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+.filter-tag.filter-exclude { background: rgba(239, 68, 68, 0.1); border-color: var(--red); color: var(--red); text-decoration: line-through; }
 .filter-tag .dot { width: 6px; height: 6px; border-radius: 50%; }
 .filter-tag .remove { margin-left: 2px; cursor: pointer; opacity: 0.6; font-size: 0.7rem; }
 .filter-tag .remove:hover { opacity: 1; }
@@ -1730,6 +1738,51 @@ html:not([data-theme="light"]) .btn-avatar:hover::before {
     /* 移动端卡片底部按钮更紧凑 */
     .card-footer { padding: 8px 12px; gap: 4px; }
     .btn-action { padding: 6px 8px; font-size: 0.75rem; }
+    
+    /* 移动端筛选标签栏适配 */
+    .active-filters { 
+        padding: 0 0 10px; 
+        gap: 6px; 
+    }
+    .active-filters::before { 
+        font-size: 0.8rem; 
+        margin-right: 2px; 
+    }
+    .filter-tag { 
+        padding: 4px 8px; 
+        font-size: 0.75rem; 
+        border-radius: 12px; 
+    }
+    .filter-tag .dot { 
+        width: 5px; 
+        height: 5px; 
+    }
+    .filter-tag .remove { 
+        font-size: 0.65rem; 
+        margin-left: 1px; 
+    }
+    .clear-filters { 
+        padding: 4px 8px; 
+        font-size: 0.7rem; 
+        border-radius: 12px; 
+    }
+    
+    /* 移动端内容区调整 */
+    .content { 
+        padding: 12px 12px; 
+        padding-top: 68px; 
+    }
+    
+    /* 移动端排序栏适配 */
+    .sort-bar {
+        gap: 6px;
+        margin-bottom: 12px;
+        font-size: 0.75rem;
+    }
+    .sort-option {
+        padding: 4px 8px;
+        font-size: 0.75rem;
+    }
 }
 
 /* 批量操作样式 */

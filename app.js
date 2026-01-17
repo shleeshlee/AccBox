@@ -4,6 +4,7 @@ let token = localStorage.getItem('token');
 let user = JSON.parse(localStorage.getItem('user') || 'null');
 let accounts = [], accountTypes = [], propertyGroups = [];
 let currentView = 'all', currentSort = 'recent', currentFilters = {};
+let currentExcludes = {}; // 新增：排除筛选
 let currentSortDir = 'desc'; // 排序方向: 'asc' 或 'desc'
 let lastClickedFilter = null; // 记录最后点击的筛选项 {type: 'type'|'propval'|'noprop', id: xxx, name: xxx}
 let currentViewMode = localStorage.getItem('viewMode') || 'card'; // 卡片/列表视图
@@ -441,7 +442,9 @@ function renderSidebar() {
         const count = accounts.filter(a => a.type_id === t.id).length;
         if (count === 0) return; // 跳过没有账号的类型
         const isSelected = currentFilters['type_' + t.id];
-        typesHtml += `<div class="nav-item${isSelected ? ' active' : ''}" onclick="filterByType(${t.id})"><span class="nav-icon" style="color:${escapeAttr(t.color)}">${escapeHtml(t.icon)}</span><span class="nav-label">${escapeHtml(t.name)}</span><span class="nav-count">${count}</span></div>`;
+        const isExcluded = currentExcludes['type_' + t.id];
+        const stateClass = isSelected ? ' active' : isExcluded ? ' excluded' : '';
+        typesHtml += `<div class="nav-item${stateClass}" onclick="filterByType(${t.id})" oncontextmenu="excludeType(${t.id}, event)"><span class="nav-icon" style="color:${escapeAttr(t.color)}">${escapeHtml(t.icon)}</span><span class="nav-label">${escapeHtml(t.name)}</span><span class="nav-count">${count}</span></div>`;
     });
     typesHtml += '</div></div>';
     document.getElementById('sidebarTypes').innerHTML = typesHtml;
@@ -464,7 +467,9 @@ function renderSidebar() {
                 });
             }).length;
             const isSelected = currentFilters['propval_' + v.id];
-            propsHtml += `<div class="prop-item${isSelected ? ' active' : ''}" onclick="filterByProperty(${g.id},${v.id})"><span class="prop-dot" style="background:${escapeAttr(v.color)}"></span><span class="prop-label">${escapeHtml(v.name)}</span><span class="prop-count">${count}</span></div>`;
+            const isExcluded = currentExcludes['propval_' + v.id];
+            const stateClass = isSelected ? ' active' : isExcluded ? ' excluded' : '';
+            propsHtml += `<div class="prop-item${stateClass}" onclick="filterByProperty(${g.id},${v.id})" oncontextmenu="excludeProperty(${g.id},${v.id},event)"><span class="prop-dot" style="background:${escapeAttr(v.color)}"></span><span class="prop-label">${escapeHtml(v.name)}</span><span class="prop-count">${count}</span></div>`;
         });
         propsHtml += '</div></div>';
     });
@@ -473,7 +478,27 @@ function renderSidebar() {
     document.getElementById('countAll').textContent = accounts.length;
     document.getElementById('countFav').textContent = accounts.filter(a => a.is_favorite).length;
     document.getElementById('countNoCombo').textContent = accounts.filter(a => !a.combos || a.combos.length === 0 || a.combos.every(c => !c || c.length === 0)).length;
-    document.getElementById('countRecent').textContent = accounts.filter(a => a.last_used && (Date.now() - new Date(a.last_used).getTime()) < 7*24*60*60*1000).length;
+    
+    // 更新视图项的选中/排除状态
+    const favItem = document.querySelector('.view-section .nav-item[data-view="favorites"]');
+    const nocomboItem = document.querySelector('.view-section .nav-item[data-view="nocombo"]');
+    
+    if (favItem) {
+        favItem.classList.remove('active', 'excluded');
+        if (currentFilters['view_favorites']) {
+            favItem.classList.add('active');
+        } else if (currentExcludes['view_favorites']) {
+            favItem.classList.add('excluded');
+        }
+    }
+    if (nocomboItem) {
+        nocomboItem.classList.remove('active', 'excluded');
+        if (currentFilters['view_nocombo']) {
+            nocomboItem.classList.add('active');
+        } else if (currentExcludes['view_nocombo']) {
+            nocomboItem.classList.add('excluded');
+        }
+    }
 }
 
 // 卡片渲染
@@ -609,9 +634,9 @@ function getFilteredAccounts() {
     let result = [...accounts];
     const search = document.getElementById('searchInput').value.toLowerCase();
     if (currentView === 'favorites') result = result.filter(a => a.is_favorite);
-    else if (currentView === 'recent') result = result.filter(a => a.last_used && (Date.now() - new Date(a.last_used).getTime()) < 7*24*60*60*1000);
     else if (currentView === 'nocombo') result = result.filter(a => !a.combos || a.combos.length === 0 || a.combos.every(c => !c || c.length === 0));
     
+    // ========== 选中筛选（包含） ==========
     // 按账号类型筛选（新结构：type_xxx）
     Object.keys(currentFilters).forEach(key => {
         if (key.startsWith('type_')) {
@@ -650,6 +675,68 @@ function getFilteredAccounts() {
             });
         }
     });
+    // 视图筛选（收藏、无属性组）
+    Object.keys(currentFilters).forEach(key => {
+        if (key === 'view_favorites') {
+            result = result.filter(a => a.is_favorite);
+        } else if (key === 'view_nocombo') {
+            result = result.filter(a => !a.combos || a.combos.length === 0 || a.combos.every(c => !c || c.length === 0));
+        }
+    });
+    
+    // ========== 排除筛选（不包含） ==========
+    // 排除账号类型
+    Object.keys(currentExcludes).forEach(key => {
+        if (key.startsWith('type_')) {
+            const typeId = currentExcludes[key];
+            result = result.filter(a => a.type_id !== typeId);
+        }
+    });
+    
+    // 排除收藏
+    if (currentExcludes['view_favorites']) {
+        result = result.filter(a => !a.is_favorite);
+    }
+    
+    // 排除无属性组
+    if (currentExcludes['view_nocombo']) {
+        result = result.filter(a => a.combos && a.combos.length > 0 && a.combos.some(c => c && c.length > 0));
+    }
+    
+    // 排除"未设置"属性组
+    Object.keys(currentExcludes).forEach(key => {
+        if (key.startsWith('noprop_')) {
+            const groupId = parseInt(currentExcludes[key]);
+            const group = propertyGroups.find(g => g.id === groupId);
+            if (group) {
+                const groupValueIds = (group.values || []).map(v => v.id);
+                // 排除 = 只保留设置了该属性组的账号
+                result = result.filter(a => {
+                    const combos = a.combos || [];
+                    return combos.some(combo => {
+                        if (!Array.isArray(combo)) return false;
+                        return combo.some(vid => groupValueIds.includes(Number(vid)) || groupValueIds.includes(String(vid)));
+                    });
+                });
+            }
+        }
+    });
+    
+    // 排除属性值
+    Object.keys(currentExcludes).forEach(key => {
+        if (key.startsWith('propval_')) {
+            const valueId = currentExcludes[key];
+            result = result.filter(a => {
+                const combos = a.combos || [];
+                // 排除 = 不包含此属性值
+                return !combos.some(combo => {
+                    if (!Array.isArray(combo)) return false;
+                    return combo.some(vid => String(vid) === String(valueId));
+                });
+            });
+        }
+    });
+    
     if (search) result = result.filter(a => (a.email || '').toLowerCase().includes(search) || (a.customName || '').toLowerCase().includes(search) || (a.tags || []).some(t => t.toLowerCase().includes(search)));
     return result;
 }
@@ -672,81 +759,253 @@ function sortAccounts(list) {
     return sorted;
 }
 
-// 视图筛选
+// 视图筛选 - 三态循环：正常 → 选中 → 排除 → 正常
 function setView(view) {
-    currentView = view; 
-    currentFilters = {};
-    lastClickedFilter = null;
-    document.querySelectorAll('.view-section .nav-item').forEach(el => el.classList.toggle('active', el.dataset.view === view));
-    updatePageTitle();
-    renderSidebar();
-    renderFiltersBar(); 
-    renderCards();
-}
-
-function filterByType(typeId) {
-    const key = 'type_' + typeId;
-    const t = accountTypes.find(t => t.id === typeId);
-    const wasSelected = currentFilters[key];
+    // 全部账号直接切换，不参与三态循环
+    if (view === 'all') {
+        currentView = 'all';
+        currentFilters = {};
+        currentExcludes = {};
+        lastClickedFilter = null;
+        document.querySelectorAll('.view-section .nav-item').forEach(el => el.classList.toggle('active', el.dataset.view === 'all'));
+        updatePageTitle();
+        renderSidebar();
+        renderFiltersBar();
+        renderCards();
+        return;
+    }
     
-    // 账号类型互斥：先清除所有已选的账号类型
-    Object.keys(currentFilters).forEach(k => {
-        if (k.startsWith('type_')) delete currentFilters[k];
+    const key = 'view_' + view;
+    const isSelected = currentFilters[key];
+    const isExcluded = currentExcludes[key];
+    
+    // 三态循环：正常 → 选中 → 排除 → 正常
+    if (!isSelected && !isExcluded) {
+        // 正常 → 选中
+        currentFilters[key] = true;
+    } else if (isSelected) {
+        // 选中 → 排除
+        delete currentFilters[key];
+        currentExcludes[key] = true;
+    } else {
+        // 排除 → 正常
+        delete currentExcludes[key];
+    }
+    
+    // 保持在全部账号视图
+    currentView = 'all';
+    document.querySelectorAll('.view-section .nav-item').forEach(el => {
+        el.classList.toggle('active', el.dataset.view === 'all');
     });
     
-    // 如果点的是同一个，就取消；否则选中新的
-    if (wasSelected) {
-        // 已选中，取消
-    } else {
-        currentFilters[key] = typeId;
+    updatePageTitle();
+    renderSidebar();
+    renderFiltersBar();
+    renderCards();
+}
+
+// 右键排除视图（PC端快捷操作，直接跳到排除状态）
+function excludeView(view, event) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
     }
+    
+    const key = 'view_' + view;
+    
+    // 如果已经排除，则取消排除
+    if (currentExcludes[key]) {
+        delete currentExcludes[key];
+    } else {
+        // 清除选中，添加排除
+        delete currentFilters[key];
+        currentExcludes[key] = true;
+    }
+    
+    currentView = 'all';
+    document.querySelectorAll('.view-section .nav-item').forEach(el => {
+        el.classList.toggle('active', el.dataset.view === 'all');
+    });
+    
+    updatePageTitle();
+    renderSidebar();
+    renderFiltersBar();
+    renderCards();
+}
+
+// 账号类型筛选 - 三态循环：正常 → 选中 → 排除 → 正常
+function filterByType(typeId) {
+    const key = 'type_' + typeId;
+    const isSelected = currentFilters[key];
+    const isExcluded = currentExcludes[key];
+    
+    // 三态循环：正常 → 选中 → 排除 → 正常
+    if (!isSelected && !isExcluded) {
+        // 正常 → 选中（账号类型互斥，先清除其他类型的选中）
+        Object.keys(currentFilters).forEach(k => {
+            if (k.startsWith('type_')) delete currentFilters[k];
+        });
+        currentFilters[key] = typeId;
+    } else if (isSelected) {
+        // 选中 → 排除
+        delete currentFilters[key];
+        currentExcludes[key] = typeId;
+    } else {
+        // 排除 → 正常
+        delete currentExcludes[key];
+    }
+    
     updatePageTitle();
     renderSidebar();
     renderFiltersBar(); 
     renderCards();
 }
 
+// 右键排除账号类型（PC端快捷操作）
+function excludeType(typeId, event) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+    
+    const key = 'type_' + typeId;
+    
+    // 如果已经排除，则取消排除
+    if (currentExcludes[key]) {
+        delete currentExcludes[key];
+    } else {
+        // 先清除该类型的选中状态
+        delete currentFilters[key];
+        // 添加排除
+        currentExcludes[key] = typeId;
+    }
+    
+    updatePageTitle();
+    renderSidebar();
+    renderFiltersBar();
+    renderCards();
+}
+
+// 属性值筛选 - 三态循环：正常 → 选中 → 排除 → 正常
 function filterByProperty(groupId, valueId) {
     const key = 'propval_' + valueId;
+    const isSelected = currentFilters[key];
+    const isExcluded = currentExcludes[key];
+    
     // 查找属性值名称
     let valueName = '';
     for (const g of propertyGroups) {
         const v = (g.values || []).find(v => v.id === valueId);
         if (v) { valueName = v.name; break; }
     }
-    // 切换选中状态：如果已选中则取消，否则添加
-    if (currentFilters[key]) {
-        delete currentFilters[key];
-        lastClickedFilter = null;
-    } else {
+    
+    // 三态循环：正常 → 选中 → 排除 → 正常
+    if (!isSelected && !isExcluded) {
+        // 正常 → 选中
         currentFilters[key] = valueId;
         lastClickedFilter = { type: 'propval', id: valueId, name: valueName };
+    } else if (isSelected) {
+        // 选中 → 排除
+        delete currentFilters[key];
+        currentExcludes[key] = valueId;
+        lastClickedFilter = null;
+    } else {
+        // 排除 → 正常
+        delete currentExcludes[key];
     }
+    
     updatePageTitle();
     renderSidebar();
     renderFiltersBar(); 
     renderCards();
 }
 
+// 右键排除属性值（PC端快捷操作）
+function excludeProperty(groupId, valueId, event) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+    
+    const key = 'propval_' + valueId;
+    
+    // 如果已经排除，则取消排除
+    if (currentExcludes[key]) {
+        delete currentExcludes[key];
+    } else {
+        // 先清除该属性的选中状态
+        delete currentFilters[key];
+        if (lastClickedFilter && lastClickedFilter.type === 'propval' && lastClickedFilter.id === valueId) {
+            lastClickedFilter = null;
+        }
+        // 添加排除
+        currentExcludes[key] = valueId;
+    }
+    
+    updatePageTitle();
+    renderSidebar();
+    renderFiltersBar();
+    renderCards();
+}
+
+// "未设置"属性组筛选 - 三态循环：正常 → 选中 → 排除 → 正常
 function filterByNoProperty(groupId) {
     const key = 'noprop_' + groupId;
     const g = propertyGroups.find(g => g.id === groupId);
-    // 切换选中状态：如果已选中则取消，否则添加
-    if (currentFilters[key]) {
-        delete currentFilters[key];
-        lastClickedFilter = null;
-    } else {
+    const isSelected = currentFilters[key];
+    const isExcluded = currentExcludes[key];
+    
+    // 三态循环：正常 → 选中 → 排除 → 正常
+    if (!isSelected && !isExcluded) {
+        // 正常 → 选中
         currentFilters[key] = groupId;
         lastClickedFilter = { type: 'noprop', id: groupId, name: (g?.name || '属性') + ' - 未设置' };
+    } else if (isSelected) {
+        // 选中 → 排除
+        delete currentFilters[key];
+        currentExcludes[key] = groupId;
+        lastClickedFilter = null;
+    } else {
+        // 排除 → 正常
+        delete currentExcludes[key];
     }
+    
     updatePageTitle();
     renderSidebar();
     renderFiltersBar(); 
+    renderCards();
+}
+
+// 右键排除"未设置"属性组（PC端快捷操作）
+function excludeNoProperty(groupId, event) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+    
+    const key = 'noprop_' + groupId;
+    
+    // 如果已经排除，则取消排除
+    if (currentExcludes[key]) {
+        delete currentExcludes[key];
+    } else {
+        // 先清除该属性组的选中状态
+        delete currentFilters[key];
+        if (lastClickedFilter && lastClickedFilter.type === 'noprop' && lastClickedFilter.id === groupId) {
+            lastClickedFilter = null;
+        }
+        // 添加排除
+        currentExcludes[key] = groupId;
+    }
+    
+    updatePageTitle();
+    renderSidebar();
+    renderFiltersBar();
     renderCards();
 }
 
 function updatePageTitle() {
-    const viewName = currentView === 'all' ? '全部账号' : currentView === 'favorites' ? '所有收藏' : currentView === 'nocombo' ? '无属性组' : '最近使用';
+    const viewName = currentView === 'all' ? '全部账号' : currentView === 'favorites' ? '所有收藏' : '无属性组';
     
     let path = viewName;
     
@@ -768,17 +1027,30 @@ function updatePageTitle() {
 }
 
 function renderFiltersBar() {
-    const container = document.getElementById('activeFilters'), has = Object.keys(currentFilters).length > 0;
+    const container = document.getElementById('activeFilters');
+    const hasFilters = Object.keys(currentFilters).length > 0;
+    const hasExcludes = Object.keys(currentExcludes).length > 0;
+    const has = hasFilters || hasExcludes;
+    
     container.classList.toggle('show', has);
     if (!has) { container.innerHTML = ''; return; }
     let html = '';
+    
+    // ===== 选中标签（蓝色） =====
+    // 视图选中标签
+    if (currentFilters['view_favorites']) {
+        html += `<div class="filter-tag filter-include"><span class="dot" style="background:var(--accent)"></span>收藏<span class="remove" onclick="removeFilter('view_favorites')">✕</span></div>`;
+    }
+    if (currentFilters['view_nocombo']) {
+        html += `<div class="filter-tag filter-include"><span class="dot" style="background:#9ca3af"></span>无属性组<span class="remove" onclick="removeFilter('view_nocombo')">✕</span></div>`;
+    }
     
     // 账号类型标签
     Object.keys(currentFilters).forEach(key => {
         if (key.startsWith('type_')) {
             const typeId = currentFilters[key];
             const t = accountTypes.find(t => t.id === typeId);
-            if (t) html += `<div class="filter-tag"><span class="dot" style="background:${escapeAttr(t.color)}"></span>${escapeHtml(t.name)}<span class="remove" onclick="removeFilter('${key}')">✕</span></div>`;
+            if (t) html += `<div class="filter-tag filter-include"><span class="dot" style="background:${escapeAttr(t.color)}"></span>${escapeHtml(t.name)}<span class="remove" onclick="removeFilter('${key}')">✕</span></div>`;
         }
     });
     
@@ -788,7 +1060,7 @@ function renderFiltersBar() {
             const groupId = currentFilters[key];
             const g = propertyGroups.find(g => g.id === groupId);
             if (g) {
-                html += `<div class="filter-tag"><span class="dot" style="background:#9ca3af"></span>${escapeHtml(g.name)} - 未设置<span class="remove" onclick="removeFilter('${key}')">✕</span></div>`;
+                html += `<div class="filter-tag filter-include"><span class="dot" style="background:#9ca3af"></span>${escapeHtml(g.name)} - 未设置<span class="remove" onclick="removeFilter('${key}')">✕</span></div>`;
             }
         }
         if (key.startsWith('propval_')) {
@@ -796,14 +1068,53 @@ function renderFiltersBar() {
             for (const g of propertyGroups) {
                 const v = (g.values || []).find(v => v.id === valueId);
                 if (v) {
-                    html += `<div class="filter-tag"><span class="dot" style="background:${escapeAttr(v.color)}"></span>${escapeHtml(v.name)}<span class="remove" onclick="removeFilter('${key}')">✕</span></div>`;
+                    html += `<div class="filter-tag filter-include"><span class="dot" style="background:${escapeAttr(v.color)}"></span>${escapeHtml(v.name)}<span class="remove" onclick="removeFilter('${key}')">✕</span></div>`;
                     break;
                 }
             }
         }
     });
     
-    html += `<button class="clear-filters" onclick="clearFilters()">清除全部</button>`;
+    // ===== 排除标签（红色） =====
+    // 视图排除标签
+    if (currentExcludes['view_favorites']) {
+        html += `<div class="filter-tag filter-exclude"><span class="dot" style="background:var(--red)"></span>收藏<span class="remove" onclick="removeExclude('view_favorites')">✕</span></div>`;
+    }
+    if (currentExcludes['view_nocombo']) {
+        html += `<div class="filter-tag filter-exclude"><span class="dot" style="background:var(--red)"></span>无属性组<span class="remove" onclick="removeExclude('view_nocombo')">✕</span></div>`;
+    }
+    
+    // 排除账号类型标签
+    Object.keys(currentExcludes).forEach(key => {
+        if (key.startsWith('type_')) {
+            const typeId = currentExcludes[key];
+            const t = accountTypes.find(t => t.id === typeId);
+            if (t) html += `<div class="filter-tag filter-exclude"><span class="dot" style="background:var(--red)"></span>${escapeHtml(t.name)}<span class="remove" onclick="removeExclude('${key}')">✕</span></div>`;
+        }
+    });
+    
+    // 排除属性值标签
+    Object.keys(currentExcludes).forEach(key => {
+        if (key.startsWith('noprop_')) {
+            const groupId = currentExcludes[key];
+            const g = propertyGroups.find(g => g.id === groupId);
+            if (g) {
+                html += `<div class="filter-tag filter-exclude"><span class="dot" style="background:var(--red)"></span>${escapeHtml(g.name)} - 未设置<span class="remove" onclick="removeExclude('${key}')">✕</span></div>`;
+            }
+        }
+        if (key.startsWith('propval_')) {
+            const valueId = currentExcludes[key];
+            for (const g of propertyGroups) {
+                const v = (g.values || []).find(v => v.id === valueId);
+                if (v) {
+                    html += `<div class="filter-tag filter-exclude"><span class="dot" style="background:var(--red)"></span>${escapeHtml(v.name)}<span class="remove" onclick="removeExclude('${key}')">✕</span></div>`;
+                    break;
+                }
+            }
+        }
+    });
+    
+    html += `<button class="clear-filters" onclick="clearAllFilters()">清除全部</button>`;
     container.innerHTML = html;
 }
 
@@ -823,6 +1134,14 @@ function removeFilter(key) {
     renderCards(); 
 }
 
+function removeExclude(key) {
+    delete currentExcludes[key];
+    updatePageTitle();
+    renderSidebar();
+    renderFiltersBar();
+    renderCards();
+}
+
 function clearFilters() { 
     currentFilters = {}; 
     lastClickedFilter = null;
@@ -830,6 +1149,16 @@ function clearFilters() {
     renderSidebar();
     renderFiltersBar(); 
     renderCards(); 
+}
+
+function clearAllFilters() {
+    currentFilters = {};
+    currentExcludes = {};
+    lastClickedFilter = null;
+    updatePageTitle();
+    renderSidebar();
+    renderFiltersBar();
+    renderCards();
 }
 
 function setSort(sort) { 

@@ -110,9 +110,8 @@
                 <div class="view-section">
                     <div class="section-label">视图</div>
                     <div class="nav-item active" data-view="all" onclick="setView('all')"><span class="nav-icon">📋</span><span class="nav-label">全部账号</span><span class="nav-count" id="countAll">0</span></div>
-                    <div class="nav-item" data-view="favorites" onclick="setView('favorites')"><span class="nav-icon">💌</span><span class="nav-label">所有收藏</span><span class="nav-count" id="countFav">0</span></div>
-                    <div class="nav-item" data-view="nocombo" onclick="setView('nocombo')"><span class="nav-icon">💤</span><span class="nav-label">无属性组</span><span class="nav-count" id="countNoCombo">0</span></div>
-                    <div class="nav-item" data-view="recent" onclick="setView('recent')"><span class="nav-icon">🕐</span><span class="nav-label">最近使用</span><span class="nav-count" id="countRecent">0</span></div>
+                    <div class="nav-item" data-view="favorites" onclick="setView('favorites')" oncontextmenu="excludeView('favorites', event)"><span class="nav-icon">💌</span><span class="nav-label">所有收藏</span><span class="nav-count" id="countFav">0</span></div>
+                    <div class="nav-item" data-view="nocombo" onclick="setView('nocombo')" oncontextmenu="excludeView('nocombo', event)"><span class="nav-icon">💤</span><span class="nav-label">无属性组</span><span class="nav-count" id="countNoCombo">0</span></div>
                 </div>
                 <div id="sidebarTypes"></div>
                 <div id="sidebarProperties"></div>
