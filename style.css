@@ -3020,3 +3020,652 @@ html:not([data-theme="light"]) .user-avatar-large {
 /* 备份说明中的密钥提示 */
 .backup-tips-note { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border); }
 .backup-key-tip { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+
+/* ============================================
+   季节主题系统 - 双层主题架构
+   ============================================ */
+
+/* === 季节色调变量 === */
+/* 春季 - 粉色、嫩绿、樱花色 */
+[data-season="spring"] {
+    --season-accent: #f8a5c2;
+    --season-accent-light: #fce4ec;
+    --season-accent-dark: #e91e63;
+    --season-accent-rgb: 248, 165, 194;
+    --season-secondary: #c8e6c9;
+    --season-glow: rgba(248, 165, 194, 0.4);
+}
+
+[data-theme="light"][data-season="spring"],
+[data-season="spring"] [data-theme="light"] {
+    --season-accent: #ec407a;
+    --season-accent-light: #f8bbd0;
+    --season-accent-dark: #c2185b;
+}
+
+/* 夏季 - 薄荷绿、青绿色（清凉活力感） */
+[data-season="summer"] {
+    --season-accent: #26a69a;
+    --season-accent-light: #e0f2f1;
+    --season-accent-dark: #00897b;
+    --season-accent-rgb: 38, 166, 154;
+    --season-secondary: #80deea;
+    --season-glow: rgba(38, 166, 154, 0.4);
+}
+
+[data-theme="light"][data-season="summer"],
+[data-season="summer"] [data-theme="light"] {
+    --season-accent: #00897b;
+    --season-accent-light: #b2dfdb;
+    --season-accent-dark: #00695c;
+}
+
+/* 秋季 - 橙色、棕色、枫叶红 */
+[data-season="autumn"] {
+    --season-accent: #ffb74d;
+    --season-accent-light: #fff3e0;
+    --season-accent-dark: #f57c00;
+    --season-accent-rgb: 255, 183, 77;
+    --season-secondary: #d4a574;
+    --season-glow: rgba(255, 183, 77, 0.4);
+}
+
+[data-theme="light"][data-season="autumn"],
+[data-season="autumn"] [data-theme="light"] {
+    --season-accent: #fb8c00;
+    --season-accent-light: #ffe0b2;
+    --season-accent-dark: #ef6c00;
+}
+
+/* 冬季 - 冰蓝、银白、淡紫 */
+[data-season="winter"] {
+    --season-accent: #90caf9;
+    --season-accent-light: #e3f2fd;
+    --season-accent-dark: #1976d2;
+    --season-accent-rgb: 144, 202, 249;
+    --season-secondary: #b39ddb;
+    --season-glow: rgba(144, 202, 249, 0.4);
+}
+
+[data-theme="light"][data-season="winter"],
+[data-season="winter"] [data-theme="light"] {
+    --season-accent: #42a5f5;
+    --season-accent-light: #bbdefb;
+    --season-accent-dark: #1565c0;
+}
+
+/* 无季节主题时保持原样 */
+[data-season="none"] {
+    --season-accent: var(--accent);
+    --season-accent-light: var(--accent-dim);
+    --season-accent-dark: var(--accent-dark);
+}
+
+/* === 季节色调应用到UI元素 === */
+
+/* ========== Logo 文字季节变色 ========== */
+/* 侧边栏 Logo 文字 - 季节渐变 */
+[data-season]:not([data-season="none"]) .logo span:last-child {
+    background: linear-gradient(135deg, var(--text-primary) 0%, var(--season-accent) 50%, var(--season-accent-dark) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+/* 侧边栏 Logo 文字呼吸灯 - 深色模式 */
+html:not([data-theme="light"])[data-season]:not([data-season="none"]) .logo span:last-child {
+    filter: drop-shadow(0 0 8px var(--season-glow));
+    animation: seasonLogoGlow 4s ease-in-out infinite;
+}
+
+/* 登录页 Logo 文字 - 季节渐变 */
+[data-season]:not([data-season="none"]) .login-logo h1 {
+    background: linear-gradient(135deg, var(--text-primary) 0%, var(--season-accent) 50%, var(--season-accent-dark) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+/* 登录页蜂蜜罐呼吸灯 - 季节色 */
+html:not([data-theme="light"])[data-season]:not([data-season="none"]) .login-logo h1 .honey-icon {
+    animation: seasonHoneyGlow 3s ease-in-out infinite;
+}
+
+/* 侧边栏蜂蜜罐呼吸灯 - 季节色 */
+html:not([data-theme="light"])[data-season]:not([data-season="none"]) .logo span:first-child {
+    animation: seasonHoneyGlow 3s ease-in-out infinite;
+}
+
+/* 季节呼吸灯动画 - Logo文字 */
+@keyframes seasonLogoGlow {
+    0%, 100% { filter: drop-shadow(0 0 8px var(--season-glow)); }
+    50% { filter: drop-shadow(0 0 14px var(--season-glow)); }
+}
+
+/* 季节呼吸灯动画 - 蜂蜜罐（保持金色但加入季节色点缀） */
+@keyframes seasonHoneyGlow {
+    0%, 100% { 
+        filter: drop-shadow(0 0 6px rgba(245, 158, 11, 0.5)) drop-shadow(0 0 12px var(--season-glow)); 
+    }
+    50% { 
+        filter: drop-shadow(0 0 10px rgba(245, 158, 11, 0.7)) drop-shadow(0 0 18px var(--season-glow)); 
+    }
+}
+
+/* ========== 强调色按钮 ========== */
+[data-season]:not([data-season="none"]) .btn-primary,
+[data-season]:not([data-season="none"]) .btn-submit {
+    background: linear-gradient(135deg, var(--season-accent), var(--season-accent-dark));
+    box-shadow: 0 4px 15px var(--season-glow);
+}
+
+[data-season]:not([data-season="none"]) .btn-primary:hover,
+[data-season]:not([data-season="none"]) .btn-submit:hover {
+    background: linear-gradient(135deg, var(--season-accent-dark), var(--season-accent));
+    box-shadow: 0 6px 20px var(--season-glow);
+}
+
+/* 选中态/活跃态 */
+[data-season]:not([data-season="none"]) .nav-item.active {
+    background: linear-gradient(135deg, rgba(var(--season-accent-rgb), 0.15), rgba(var(--season-accent-rgb), 0.08));
+    border-left-color: var(--season-accent);
+}
+
+[data-season]:not([data-season="none"]) .nav-item.active::before {
+    background: var(--season-accent);
+    box-shadow: 0 0 10px var(--season-glow);
+}
+
+/* 登录页按钮 */
+[data-season]:not([data-season="none"]) .login-box .btn-submit {
+    background: linear-gradient(135deg, var(--season-accent), var(--season-accent-dark));
+}
+
+/* 边框高亮 */
+[data-season]:not([data-season="none"]) .form-input:focus {
+    border-color: var(--season-accent);
+    box-shadow: 0 0 0 3px rgba(var(--season-accent-rgb), 0.15);
+}
+
+/* 链接/进度条 */
+[data-season]:not([data-season="none"]) .badge-tag {
+    background: rgba(var(--season-accent-rgb), 0.15);
+    color: var(--season-accent);
+}
+
+/* 登录框渐变边框 */
+[data-season]:not([data-season="none"]) .login-box::before {
+    background: linear-gradient(135deg, var(--season-accent) 0%, transparent 30%, transparent 70%, var(--season-secondary) 100%) !important;
+}
+
+/* 卡片悬浮效果 */
+[data-season]:not([data-season="none"]) .account-card:hover {
+    border-color: rgba(var(--season-accent-rgb), 0.3);
+    box-shadow: 0 8px 25px rgba(var(--season-accent-rgb), 0.15);
+}
+
+/* ========== 头像季节变色 ========== */
+/* 侧边栏小头像 - 边框和呼吸灯 */
+[data-season]:not([data-season="none"]) .btn-avatar::before {
+    border-color: rgba(var(--season-accent-rgb), 0.4);
+    box-shadow: 0 0 8px var(--season-glow), 0 0 16px rgba(var(--season-accent-rgb), 0.2);
+    animation: seasonAvatarBreath 3s ease-in-out infinite;
+}
+
+html:not([data-theme="light"])[data-season]:not([data-season="none"]) .btn-avatar:hover::before {
+    border-color: rgba(var(--season-accent-rgb), 0.8);
+    box-shadow: 0 0 15px var(--season-glow), 0 0 30px rgba(var(--season-accent-rgb), 0.4);
+}
+
+/* 用户面板大头像 - 边框色 */
+[data-season]:not([data-season="none"]) .user-avatar-large {
+    border-color: var(--season-accent);
+}
+
+/* 用户面板大头像 - 呼吸灯 */
+[data-season]:not([data-season="none"]) .user-avatar-large::before {
+    border-color: rgba(var(--season-accent-rgb), 0.5);
+    box-shadow: 0 0 12px var(--season-glow), 0 0 24px rgba(var(--season-accent-rgb), 0.3);
+    animation: seasonAvatarBreath 3s ease-in-out infinite;
+}
+
+html:not([data-theme="light"])[data-season]:not([data-season="none"]) .user-avatar-large {
+    box-shadow: 0 0 15px rgba(var(--season-accent-rgb), 0.3);
+}
+
+/* 季节头像呼吸灯动画 */
+@keyframes seasonAvatarBreath {
+    0%, 100% {
+        box-shadow: 0 0 8px var(--season-glow), 0 0 16px rgba(var(--season-accent-rgb), 0.2);
+        border-color: rgba(var(--season-accent-rgb), 0.4);
+    }
+    50% {
+        box-shadow: 0 0 12px var(--season-glow), 0 0 24px rgba(var(--season-accent-rgb), 0.4);
+        border-color: rgba(var(--season-accent-rgb), 0.6);
+    }
+}
+
+/* === 季节粒子容器 === */
+.season-particles {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 0;
+    overflow: hidden;
+}
+
+/* 隐藏粒子时 */
+body.no-particles .season-particles {
+    display: none;
+}
+
+/* === 春季粒子 - 樱花 === */
+.season-particle-spring {
+    position: absolute;
+    width: 15px;
+    height: 15px;
+    opacity: 0.4;
+    animation: sakuraFall linear infinite;
+    background: radial-gradient(ellipse at 30% 30%, #ffb6c1, #ffc0cb 40%, #ff69b4 100%);
+    border-radius: 150% 0 150% 0;
+    transform: rotate(45deg);
+    box-shadow: 0 0 5px rgba(255, 182, 193, 0.3);
+}
+
+@keyframes sakuraFall {
+    0% {
+        transform: translateY(-20px) translateX(0) rotate(0deg) scale(1);
+        opacity: 0;
+    }
+    10% {
+        opacity: 0.4;
+    }
+    90% {
+        opacity: 0.4;
+    }
+    100% {
+        transform: translateY(100vh) translateX(100px) rotate(720deg) scale(0.8);
+        opacity: 0;
+    }
+}
+
+/* === 夏季粒子 - 萤火虫 === */
+.season-particle-summer {
+    position: absolute;
+    width: 6px;
+    height: 6px;
+    background: radial-gradient(circle, #c5ff50, #9dff00 50%, transparent 70%);
+    border-radius: 50%;
+    opacity: 0;
+    animation: fireflyFloat ease-in-out infinite;
+    box-shadow: 0 0 10px 3px rgba(197, 255, 80, 0.6), 0 0 20px 6px rgba(157, 255, 0, 0.3);
+}
+
+@keyframes fireflyFloat {
+    0%, 100% {
+        transform: translate(0, 0);
+        opacity: 0;
+    }
+    10% {
+        opacity: 0.7;
+    }
+    25% {
+        transform: translate(30px, -20px);
+        opacity: 0.4;
+    }
+    50% {
+        transform: translate(-20px, 30px);
+        opacity: 0.8;
+    }
+    75% {
+        transform: translate(40px, 10px);
+        opacity: 0.3;
+    }
+    90% {
+        opacity: 0.6;
+    }
+}
+
+/* === 秋季粒子 - 枫叶 === */
+.season-particle-autumn {
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    opacity: 0.45;
+    animation: mapleLeafFall linear infinite;
+    background: linear-gradient(135deg, #ff6b35 0%, #f7931e 50%, #cd5c08 100%);
+    clip-path: polygon(50% 0%, 80% 10%, 100% 35%, 80% 50%, 100% 70%, 75% 90%, 50% 100%, 25% 90%, 0% 70%, 20% 50%, 0% 35%, 20% 10%);
+}
+
+.season-particle-autumn:nth-child(odd) {
+    background: linear-gradient(135deg, #d35400 0%, #e74c3c 50%, #c0392b 100%);
+}
+
+@keyframes mapleLeafFall {
+    0% {
+        transform: translateY(-30px) translateX(0) rotate(0deg);
+        opacity: 0;
+    }
+    10% {
+        opacity: 0.45;
+    }
+    90% {
+        opacity: 0.45;
+    }
+    100% {
+        transform: translateY(100vh) translateX(80px) rotate(540deg);
+        opacity: 0;
+    }
+}
+
+/* === 冬季粒子 - 雪花 === */
+.season-particle-winter {
+    position: absolute;
+    width: 8px;
+    height: 8px;
+    background: radial-gradient(circle, #ffffff, #e3f2fd 60%, transparent 70%);
+    border-radius: 50%;
+    opacity: 0.5;
+    animation: snowFall linear infinite;
+    box-shadow: 0 0 5px rgba(255, 255, 255, 0.5);
+}
+
+.season-particle-winter::before,
+.season-particle-winter::after {
+    content: '';
+    position: absolute;
+    background: inherit;
+    border-radius: inherit;
+}
+
+@keyframes snowFall {
+    0% {
+        transform: translateY(-10px) translateX(0) rotate(0deg);
+        opacity: 0;
+    }
+    10% {
+        opacity: 0.5;
+    }
+    90% {
+        opacity: 0.5;
+    }
+    100% {
+        transform: translateY(100vh) translateX(50px) rotate(360deg);
+        opacity: 0;
+    }
+}
+
+/* === 季节主题菜单样式 === */
+.user-panel-item.has-submenu {
+    position: relative;
+}
+
+.season-submenu {
+    display: none;
+    position: absolute;
+    left: calc(100% + 8px);
+    top: 0;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 8px 0;
+    min-width: 160px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    z-index: 1001;
+    animation: submenuSlide 0.2s ease-out;
+}
+
+.season-submenu.show {
+    display: block;
+}
+
+@keyframes submenuSlide {
+    from {
+        opacity: 0;
+        transform: translateX(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+.season-option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    cursor: pointer;
+    transition: background 0.15s ease;
+    font-size: 13px;
+}
+
+.season-option:hover {
+    background: var(--bg-hover);
+}
+
+.season-option.active {
+    background: var(--accent-dim);
+    color: var(--accent);
+}
+
+.season-option span:first-child {
+    font-size: 16px;
+}
+
+.season-divider {
+    height: 1px;
+    background: var(--border);
+    margin: 6px 12px;
+}
+
+.season-option.particle-toggle {
+    justify-content: space-between;
+}
+
+.season-option .toggle-status {
+    font-size: 11px;
+    color: var(--text-muted);
+    background: var(--bg-hover);
+    padding: 2px 8px;
+    border-radius: 10px;
+}
+
+/* 响应式：移动端季节菜单 */
+@media (max-width: 768px) {
+    .season-submenu {
+        position: fixed;
+        left: 50% !important;
+        top: 50% !important;
+        transform: translate(-50%, -50%);
+        width: 90%;
+        max-width: 280px;
+    }
+    
+    .season-submenu.show {
+        animation: submenuPopup 0.25s ease-out;
+    }
+    
+    @keyframes submenuPopup {
+        from {
+            opacity: 0;
+            transform: translate(-50%, -50%) scale(0.9);
+        }
+        to {
+            opacity: 1;
+            transform: translate(-50%, -50%) scale(1);
+        }
+    }
+}
+
+/* 登录页季节背景适配 */
+[data-season="spring"] .cyber-bg::before {
+    background: 
+        radial-gradient(ellipse 80% 50% at 50% -20%, rgba(248, 165, 194, 0.15) 0%, transparent 50%),
+        radial-gradient(ellipse 60% 40% at 100% 50%, rgba(200, 230, 201, 0.1) 0%, transparent 40%);
+}
+
+[data-season="summer"] .cyber-bg::before {
+    background: 
+        radial-gradient(ellipse 80% 50% at 50% -20%, rgba(38, 166, 154, 0.15) 0%, transparent 50%),
+        radial-gradient(ellipse 60% 40% at 100% 50%, rgba(128, 222, 234, 0.1) 0%, transparent 40%);
+}
+
+[data-season="autumn"] .cyber-bg::before {
+    background: 
+        radial-gradient(ellipse 80% 50% at 50% -20%, rgba(255, 183, 77, 0.15) 0%, transparent 50%),
+        radial-gradient(ellipse 60% 40% at 100% 50%, rgba(212, 165, 116, 0.1) 0%, transparent 40%);
+}
+
+[data-season="winter"] .cyber-bg::before {
+    background: 
+        radial-gradient(ellipse 80% 50% at 50% -20%, rgba(144, 202, 249, 0.15) 0%, transparent 50%),
+        radial-gradient(ellipse 60% 40% at 100% 50%, rgba(179, 157, 219, 0.1) 0%, transparent 40%);
+}
+
+/* 浅色模式下季节背景更淡 */
+[data-theme="light"][data-season="spring"] .cyber-bg::before {
+    background: radial-gradient(ellipse 80% 50% at 50% 0%, rgba(248, 165, 194, 0.08) 0%, transparent 50%);
+}
+
+[data-theme="light"][data-season="summer"] .cyber-bg::before {
+    background: radial-gradient(ellipse 80% 50% at 50% 0%, rgba(38, 166, 154, 0.08) 0%, transparent 50%);
+}
+
+[data-theme="light"][data-season="autumn"] .cyber-bg::before {
+    background: radial-gradient(ellipse 80% 50% at 50% 0%, rgba(255, 183, 77, 0.08) 0%, transparent 50%);
+}
+
+[data-theme="light"][data-season="winter"] .cyber-bg::before {
+    background: radial-gradient(ellipse 80% 50% at 50% 0%, rgba(144, 202, 249, 0.08) 0%, transparent 50%);
+}
+
+/* === 季节主题选择弹窗 === */
+.season-modal {
+    width: 90%;
+    max-width: 400px;
+    border-radius: 16px;
+}
+
+.season-modal .modal-header {
+    border-bottom: 1px solid var(--border);
+    padding: 16px 20px;
+}
+
+.season-modal .modal-body {
+    padding: 20px;
+}
+
+.season-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.season-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 16px 8px;
+    border-radius: 12px;
+    background: var(--bg-hover);
+    border: 2px solid transparent;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.season-card:hover {
+    background: var(--bg-input);
+    transform: translateY(-2px);
+}
+
+.season-card.active {
+    border-color: var(--accent);
+    background: var(--accent-dim);
+}
+
+.season-card-icon {
+    font-size: 28px;
+    margin-bottom: 6px;
+}
+
+.season-card-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 2px;
+}
+
+.season-card-desc {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-align: center;
+}
+
+/* 季节卡片选中时的特殊边框色 */
+.season-card[data-season="spring"].active { border-color: #f8a5c2; }
+.season-card[data-season="summer"].active { border-color: #26a69a; }
+.season-card[data-season="autumn"].active { border-color: #ffb74d; }
+.season-card[data-season="winter"].active { border-color: #90caf9; }
+
+.season-particle-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    background: var(--bg-hover);
+    border-radius: 10px;
+    border: 1px solid var(--border);
+}
+
+.season-toggle-label {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.season-toggle-label span:first-child {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.season-toggle-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.season-toggle-btn {
+    padding: 6px 16px;
+    border-radius: 20px;
+    border: none;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    background: var(--accent);
+    color: white;
+}
+
+.season-toggle-btn:hover {
+    filter: brightness(1.1);
+}
+
+.season-toggle-btn.off {
+    background: var(--bg-input);
+    color: var(--text-muted);
+}
+
+@media (max-width: 480px) {
+    .season-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .season-modal {
+        width: 95%;
+    }
+}

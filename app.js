@@ -127,6 +127,7 @@ const COUNTRY_MAP = {
 function init() {
     console.log('账号管家初始化', VERSION);
     initTheme();
+    initSeason(); // 初始化季节主题
     initViewMode();
     initFavStyle();
     initTimeBadge(); // 初始化时间提醒开关
@@ -344,6 +345,249 @@ function switchThemeWithEffect(event) {
         if (flash) flash.className = 'flash-overlay';
         isThemeSwitching = false;
     }, 400);
+}
+
+// ==================== 季节主题系统 ====================
+let currentSeason = localStorage.getItem('season') || 'auto';
+let particlesEnabled = localStorage.getItem('seasonParticles') !== 'false';
+let seasonParticleElements = [];
+
+// 季节图标映射
+const SEASON_ICONS = {
+    'auto': '🔄',
+    'spring': '🌸',
+    'summer': '☀️',
+    'autumn': '🍂',
+    'winter': '❄️',
+    'none': '🚫'
+};
+
+const SEASON_NAMES = {
+    'auto': '自动',
+    'spring': '春',
+    'summer': '夏',
+    'autumn': '秋',
+    'winter': '冬',
+    'none': '关闭'
+};
+
+// 获取真实季节（根据当前日期）
+function getRealSeason() {
+    const month = new Date().getMonth() + 1;
+    if (month >= 3 && month <= 5) return 'spring';
+    if (month >= 6 && month <= 8) return 'summer';
+    if (month >= 9 && month <= 11) return 'autumn';
+    return 'winter';
+}
+
+// 获取当前应该显示的季节
+function getEffectiveSeason() {
+    if (currentSeason === 'auto') {
+        return getRealSeason();
+    }
+    return currentSeason;
+}
+
+// 初始化季节主题
+function initSeason() {
+    const effectiveSeason = getEffectiveSeason();
+    document.body.setAttribute('data-season', effectiveSeason);
+    
+    // 更新UI显示
+    updateSeasonUI();
+    
+    // 初始化粒子效果
+    if (particlesEnabled && effectiveSeason !== 'none') {
+        createSeasonParticles(effectiveSeason);
+    } else {
+        document.body.classList.toggle('no-particles', !particlesEnabled);
+    }
+    
+    // 更新季节弹窗选中状态
+    updateSeasonCardActive();
+}
+
+// 更新季节UI显示
+function updateSeasonUI() {
+    const iconEl = document.getElementById('seasonIcon');
+    const statusEl = document.getElementById('seasonStatus');
+    
+    // 显示当前生效的季节图标（none时显示关闭图标）
+    const effectiveSeason = getEffectiveSeason();
+    if (iconEl) {
+        if (currentSeason === 'none') {
+            iconEl.textContent = '🚫';
+        } else {
+            iconEl.textContent = SEASON_ICONS[effectiveSeason] || SEASON_ICONS['auto'];
+        }
+    }
+    if (statusEl) {
+        if (currentSeason === 'none') {
+            statusEl.textContent = '关闭';
+        } else if (currentSeason === 'auto') {
+            statusEl.textContent = '自动(' + SEASON_NAMES[getRealSeason()] + ')';
+        } else {
+            statusEl.textContent = SEASON_NAMES[currentSeason] || '自动';
+        }
+    }
+    
+    // 更新粒子开关按钮
+    updateParticleToggleBtn();
+}
+
+// 更新粒子开关按钮状态
+function updateParticleToggleBtn() {
+    const btn = document.getElementById('particleToggleBtn');
+    const text = document.getElementById('particleToggleText');
+    if (btn) {
+        btn.classList.toggle('off', !particlesEnabled);
+    }
+    if (text) {
+        text.textContent = particlesEnabled ? '开启' : '关闭';
+    }
+}
+
+// 更新季节卡片选中状态
+function updateSeasonCardActive() {
+    document.querySelectorAll('.season-card[data-season]').forEach(card => {
+        card.classList.toggle('active', card.dataset.season === currentSeason);
+    });
+}
+
+// 打开季节选择弹窗
+function openSeasonPicker() {
+    const modal = document.getElementById('seasonModal');
+    if (modal) {
+        modal.classList.add('show');
+        updateSeasonCardActive();
+        updateParticleToggleBtn();
+    }
+}
+
+// 关闭季节选择弹窗
+function closeSeasonPicker() {
+    const modal = document.getElementById('seasonModal');
+    if (modal) {
+        modal.classList.remove('show');
+    }
+}
+
+// 设置季节
+function setSeason(season) {
+    currentSeason = season;
+    localStorage.setItem('season', season);
+    
+    const effectiveSeason = getEffectiveSeason();
+    document.body.setAttribute('data-season', effectiveSeason);
+    
+    // 更新UI
+    updateSeasonUI();
+    updateSeasonCardActive();
+    
+    // 重新创建粒子
+    clearSeasonParticles();
+    if (particlesEnabled && effectiveSeason !== 'none') {
+        createSeasonParticles(effectiveSeason);
+    }
+    
+    // 关闭弹窗
+    closeSeasonPicker();
+    
+    // 显示提示
+    if (season === 'none') {
+        showToast('🚫 已关闭季节主题效果');
+    } else if (season === 'auto') {
+        showToast('🔄 已切换到自动模式 (' + SEASON_NAMES[getRealSeason()] + ')');
+    } else {
+        showToast(SEASON_ICONS[season] + ' 已切换到' + SEASON_NAMES[season] + '季主题');
+    }
+}
+
+// 切换粒子效果
+function toggleSeasonParticles() {
+    particlesEnabled = !particlesEnabled;
+    localStorage.setItem('seasonParticles', particlesEnabled);
+    
+    document.body.classList.toggle('no-particles', !particlesEnabled);
+    
+    // 更新UI
+    updateParticleToggleBtn();
+    
+    // 创建或清除粒子
+    clearSeasonParticles();
+    const effectiveSeason = getEffectiveSeason();
+    if (particlesEnabled && effectiveSeason !== 'none') {
+        createSeasonParticles(effectiveSeason);
+    }
+    
+    showToast(particlesEnabled ? '✨ 粒子效果已开启' : '💤 粒子效果已关闭');
+}
+
+// 清除所有季节粒子
+function clearSeasonParticles() {
+    const container = document.getElementById('seasonParticles');
+    if (container) {
+        container.innerHTML = '';
+    }
+    seasonParticleElements = [];
+}
+
+// 创建季节粒子
+function createSeasonParticles(season) {
+    const container = document.getElementById('seasonParticles');
+    if (!container || season === 'none') return;
+    
+    // 清除旧粒子
+    clearSeasonParticles();
+    
+    // 粒子数量：5-8个，保持淡雅
+    const particleCount = 6;
+    
+    for (let i = 0; i < particleCount; i++) {
+        const particle = document.createElement('div');
+        particle.className = 'season-particle-' + season;
+        
+        // 随机初始位置
+        particle.style.left = Math.random() * 100 + '%';
+        
+        // 随机大小变化 (0.7-1.3)
+        const scale = 0.7 + Math.random() * 0.6;
+        particle.style.transform = 'scale(' + scale + ')';
+        
+        // 随机动画时长和延迟
+        let duration, delay;
+        
+        switch (season) {
+            case 'spring': // 樱花：缓慢飘落 15-20秒
+                duration = 15 + Math.random() * 5;
+                delay = Math.random() * 10;
+                break;
+            case 'summer': // 萤火虫：漂浮 8-15秒
+                duration = 8 + Math.random() * 7;
+                delay = Math.random() * 8;
+                break;
+            case 'autumn': // 枫叶：飘落 12-18秒
+                duration = 12 + Math.random() * 6;
+                delay = Math.random() * 8;
+                break;
+            case 'winter': // 雪花：缓慢飘落 18-25秒
+                duration = 18 + Math.random() * 7;
+                delay = Math.random() * 12;
+                break;
+            default:
+                duration = 15;
+                delay = Math.random() * 10;
+        }
+        
+        particle.style.animationDuration = duration + 's';
+        particle.style.animationDelay = '-' + delay + 's';
+        
+        // 随机透明度 (0.25-0.45)
+        particle.style.opacity = (0.25 + Math.random() * 0.2).toString();
+        
+        container.appendChild(particle);
+        seasonParticleElements.push(particle);
+    }
 }
 
 

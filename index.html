@@ -9,7 +9,10 @@
     <link rel="stylesheet" id="mainStyle">
     <script>document.getElementById('mainStyle').href = 'style.css?v=' + Date.now();</script>
 </head>
-<body>
+<body data-season="none">
+    <!-- 季节粒子容器 -->
+    <div class="season-particles" id="seasonParticles"></div>
+    
     <!-- 赛博背景 -->
     <div class="cyber-bg">
         <div class="cyber-grid"></div>
@@ -100,6 +103,7 @@
                         <div class="user-panel-item" onclick="openPasswordReset()">🔑 重置密码</div>
                         <div class="user-panel-item" onclick="showBackupModal()">📦 数据备份</div>
                         <div class="user-panel-item" onclick="toggleTheme()"><span id="themeBtn">🌙</span> 切换主题</div>
+                        <div class="user-panel-item" onclick="openSeasonPicker()"><span id="seasonIcon">❄️</span> 季节主题 <span class="toggle-status" id="seasonStatus">自动</span></div>
                         <a class="user-panel-item" href="https://github.com/shleeshlee/account-manager" target="_blank" style="text-decoration:none;color:inherit;">🌻 1one/GitHub</a>
                     </div>
                     <div class="user-panel-footer">
@@ -486,6 +490,59 @@
             <div class="modal-body">
                 <div class="backup-list-container" id="backupListContainer">
                     <div class="backup-empty">加载中...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 季节主题选择弹窗 -->
+    <div class="modal-overlay" id="seasonModal">
+        <div class="modal season-modal">
+            <div class="modal-header">
+                <span class="modal-title">🎨 季节主题</span>
+                <button class="btn-close" onclick="closeSeasonPicker()">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="season-grid">
+                    <div class="season-card" data-season="none" onclick="setSeason('none')">
+                        <span class="season-card-icon">🚫</span>
+                        <span class="season-card-name">关闭</span>
+                        <span class="season-card-desc">不使用季节效果</span>
+                    </div>
+                    <div class="season-card" data-season="auto" onclick="setSeason('auto')">
+                        <span class="season-card-icon">🔄</span>
+                        <span class="season-card-name">自动</span>
+                        <span class="season-card-desc">跟随真实季节</span>
+                    </div>
+                    <div class="season-card" data-season="spring" onclick="setSeason('spring')">
+                        <span class="season-card-icon">🌸</span>
+                        <span class="season-card-name">春</span>
+                        <span class="season-card-desc">樱花粉绿</span>
+                    </div>
+                    <div class="season-card" data-season="summer" onclick="setSeason('summer')">
+                        <span class="season-card-icon">☀️</span>
+                        <span class="season-card-name">夏</span>
+                        <span class="season-card-desc">清凉薄荷</span>
+                    </div>
+                    <div class="season-card" data-season="autumn" onclick="setSeason('autumn')">
+                        <span class="season-card-icon">🍂</span>
+                        <span class="season-card-name">秋</span>
+                        <span class="season-card-desc">枫叶暖橙</span>
+                    </div>
+                    <div class="season-card" data-season="winter" onclick="setSeason('winter')">
+                        <span class="season-card-icon">❄️</span>
+                        <span class="season-card-name">冬</span>
+                        <span class="season-card-desc">冰蓝银雪</span>
+                    </div>
+                </div>
+                <div class="season-particle-toggle">
+                    <label class="season-toggle-label">
+                        <span>✨ 粒子效果</span>
+                        <span class="season-toggle-hint">樱花/萤火虫/枫叶/雪花飘落</span>
+                    </label>
+                    <button class="season-toggle-btn" id="particleToggleBtn" onclick="toggleSeasonParticles()">
+                        <span id="particleToggleText">开启</span>
+                    </button>
                 </div>
             </div>
         </div>
