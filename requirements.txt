@@ -1,0 +1,10 @@
+# AccBox v5.1 依赖
+fastapi>=0.100.0
+uvicorn>=0.23.0
+cryptography>=41.0.0
+pydantic>=2.0.0
+
+# v5.1 新增安全依赖
+passlib[bcrypt]>=1.7.4
+python-jose[cryptography]>=3.3.0
+bcrypt==4.0.1  # 指定版本，兼容 passlib

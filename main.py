@@ -1,87 +1,173 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-通用账号管家 - 后端API v5.0
-新增: 自定义属性组系统、自定义账号类型、完整2FA TOTP支持(含Steam Guard)
-安全: 环境变量密钥、安全中间件
+通用账号管家 - 后端API v5.1 (安全修复版)
+=====================================
+更新内容:
+- 🔐 密码哈希: SHA256 → bcrypt (自动迁移旧密码)
+- 🎫 Token: 随机字符串 → JWT (7天过期，兼容旧Token)
+- 🌐 CORS: * → 白名单
+- 🔑 密码强度: 4字符 → 8字符+字母+数字
+- 🛡️ URL验证: 防止 javascript: XSS
+- 📦 新增备份功能
+- ⚠️ 生产环境强制密钥警告
 """
+
+import sys
+
+# ==================== v5.1 依赖检测 ====================
+def check_dependencies():
+    """检查 v5.1 新增的依赖是否已安装"""
+    missing = []
+    
+    try:
+        from passlib.context import CryptContext
+    except ImportError:
+        missing.append("passlib[bcrypt]")
+    
+    try:
+        from jose import jwt
+    except ImportError:
+        missing.append("python-jose[cryptography]")
+    
+    if missing:
+        print("\n" + "=" * 60)
+        print("🚨 AccBox v5.1 需要安装新的依赖！")
+        print("=" * 60)
+        print(f"\n缺少的依赖: {', '.join(missing)}")
+        print("\n请运行以下命令安装:")
+        print("-" * 60)
+        print(f"  pip install {' '.join(missing)}")
+        print("-" * 60)
+        print("\n或者一次性安装所有依赖:")
+        print("-" * 60)
+        print("  pip install -r requirements.txt")
+        print("-" * 60)
+        print("\n安装完成后重新启动即可。\n")
+        sys.exit(1)
+
+check_dependencies()
 
 import os
 import json
 import sqlite3
-import hashlib
+import hashlib  # 保留用于兼容旧密码
 import secrets
 import base64
 import time
+import re
+import shutil
+import hmac
+import struct
 from datetime import datetime, timedelta
 from contextlib import contextmanager
+from pathlib import Path
+import threading
 from fastapi import FastAPI, HTTPException, Depends, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from cryptography.fernet import Fernet
 import uvicorn
 
-# 配置 - 支持环境变量覆盖
-UNSAFE_DEFAULT_KEY = "DEFAULT_INSECURE_KEY_CHANGE_ME_IMMEDIATELY"
+# ==================== 新增安全依赖 (已通过检测) ====================
+from passlib.context import CryptContext
+from jose import jwt, JWTError
+
+# ==================== 配置 ====================
+# 公开的默认不安全密钥（32个0的base64编码）
+# 使用此密钥时系统会显示安全警告
+UNSAFE_DEFAULT_KEY = "MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA="
 DATA_DIR = os.environ.get("DATA_DIR", os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(DATA_DIR, "accounts.db")
 ENCRYPTION_KEY_FILE = os.path.join(DATA_DIR, ".encryption_key")
+# 备份目录优先读取环境变量，这样可以通过 docker-compose.yml 配置到不同位置
+DEFAULT_BACKUP_DIR = os.environ.get("BACKUP_PATH", os.path.join(DATA_DIR, "backups"))
+BACKUP_SETTINGS_FILE = os.path.join(DATA_DIR, ".backup_settings.json")
+
+# 定时备份全局变量
+auto_backup_timer = None
+auto_backup_settings = {
+    "enabled": False,
+    "interval_hours": 24,
+    "keep_count": 10,
+    "backup_dir": None,
+    "last_backup": None
+}
 
 # 登录失败限制
 MAX_LOGIN_ATTEMPTS = 5
 LOCKOUT_MINUTES = 15
 
-app = FastAPI(title="通用账号管家 API v5.0")
+# JWT 配置
+JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "")
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRE_HOURS = 24 * 7  # 7天
+
+# 密码哈希配置 (bcrypt)
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+# CORS 白名单
+ALLOWED_ORIGINS = os.environ.get("ALLOWED_ORIGINS", "").split(",") if os.environ.get("ALLOWED_ORIGINS") else [
+    "http://localhost",
+    "http://localhost:9111",
+    "http://127.0.0.1:9111",
+    "http://localhost:80",
+    "http://127.0.0.1:80",
+]
+ALLOWED_ORIGINS = [origin.strip() for origin in ALLOWED_ORIGINS if origin.strip()]
+
+app = FastAPI(title="通用账号管家 API v5.1")
 
 # ==================== 安全中间件 ====================
 @app.middleware("http")
 async def security_middleware(request: Request, call_next):
-    """阻止访问敏感文件"""
+    """阻止直接访问敏感文件（不影响 API）"""
     path = request.url.path.lower()
+    
+    # API 请求放行
+    if path.startswith("/api/"):
+        return await call_next(request)
+    
+    # 阻止直接访问敏感文件
     if (
         path.endswith(".py") or 
         path.endswith(".db") or 
         path.endswith(".key") or 
         "/data/" in path or
+        "/backups/" in path or
         "/." in path
     ):
         return JSONResponse(status_code=403, content={"detail": "🚫 禁止访问敏感资源"})
     return await call_next(request)
 
+# CORS 配置 (已收紧)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 # ==================== 加密模块 ====================
 
 def get_or_create_encryption_key():
-    """获取密钥，优先级: 环境变量 > 文件 > 自动生成"""
-    # 1. 优先从环境变量读取
-    env_key = os.environ.get("APP_MASTER_KEY")
+    """获取密钥，必须由用户在 .env 中设置"""
+    env_key = os.environ.get("APP_MASTER_KEY", "").strip()
+    
+    # 环境变量有效（非空且非默认值）
     if env_key and env_key != UNSAFE_DEFAULT_KEY:
         return env_key.encode()
     
-    # 2. 从文件读取
-    if os.path.exists(ENCRYPTION_KEY_FILE):
-        with open(ENCRYPTION_KEY_FILE, 'rb') as f:
-            return f.read()
-    
-    # 3. 自动生成
-    key = Fernet.generate_key()
-    with open(ENCRYPTION_KEY_FILE, 'wb') as f:
-        f.write(key)
-    try:
-        os.chmod(ENCRYPTION_KEY_FILE, 0o600)
-    except:
-        pass
-    return key
+    # 使用默认不安全密钥（会触发前端警告）
+    print("\n" + "=" * 60)
+    print("⚠️  警告：正在使用默认公开密钥！")
+    print("⚠️  您的数据处于不安全状态！")
+    print("⚠️  请创建 .env 文件并设置 APP_MASTER_KEY")
+    print("=" * 60 + "\n")
+    return UNSAFE_DEFAULT_KEY.encode()
 
 ENCRYPTION_KEY = get_or_create_encryption_key()
 cipher = Fernet(ENCRYPTION_KEY)
@@ -98,6 +184,82 @@ def decrypt_password(encrypted: str) -> str:
         return cipher.decrypt(encrypted.encode()).decode()
     except:
         return encrypted
+
+# ==================== 密码哈希 (bcrypt + 兼容旧SHA256) ====================
+
+def hash_password(password: str) -> str:
+    """使用 bcrypt 哈希密码"""
+    return pwd_context.hash(password)
+
+def verify_password(plain_password: str, hashed_password: str) -> tuple:
+    """
+    验证密码，兼容旧 SHA256 格式
+    返回: (是否验证成功, 是否需要升级到bcrypt)
+    """
+    # 尝试旧的 SHA256 验证
+    old_hash = hashlib.sha256(plain_password.encode()).hexdigest()
+    if hashed_password == old_hash:
+        return True, True  # 验证成功，需要升级
+    
+    # 尝试新的 bcrypt 验证
+    try:
+        if pwd_context.verify(plain_password, hashed_password):
+            return True, False  # 验证成功，无需升级
+    except:
+        pass
+    
+    return False, False  # 验证失败
+
+# ==================== JWT Token ====================
+
+def get_jwt_secret():
+    """获取 JWT 密钥"""
+    if JWT_SECRET_KEY:
+        return JWT_SECRET_KEY
+    # 从加密密钥派生
+    if isinstance(ENCRYPTION_KEY, bytes):
+        return ENCRYPTION_KEY[:32].decode('latin-1')
+    return ENCRYPTION_KEY[:32]
+
+def create_access_token(user_id: int, username: str) -> str:
+    """创建 JWT Token"""
+    expire = datetime.utcnow() + timedelta(hours=JWT_EXPIRE_HOURS)
+    payload = {
+        "sub": username,
+        "id": user_id,
+        "exp": expire,
+        "iat": datetime.utcnow()
+    }
+    return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
+
+def verify_jwt_token(token: str) -> dict:
+    """验证 JWT Token"""
+    try:
+        payload = jwt.decode(token, get_jwt_secret(), algorithms=[JWT_ALGORITHM])
+        return {"id": payload["id"], "username": payload["sub"]}
+    except JWTError:
+        return None
+
+# ==================== 密码强度验证 ====================
+
+def validate_password_strength(password: str) -> tuple:
+    """验证密码强度，返回 (是否通过, 错误信息)"""
+    if len(password) < 8:
+        return False, "密码至少需要 8 个字符"
+    if not re.search(r"[a-zA-Z]", password):
+        return False, "密码必须包含至少一个字母"
+    if not re.search(r"\d", password):
+        return False, "密码必须包含至少一个数字"
+    return True, ""
+
+# ==================== URL 协议验证 ====================
+
+def validate_url_protocol(url: str) -> bool:
+    """验证 URL 是否使用安全协议"""
+    if not url:
+        return True
+    url_lower = url.lower().strip()
+    return url_lower.startswith("http://") or url_lower.startswith("https://")
 
 # ==================== 数据模型 ====================
 
@@ -122,8 +284,8 @@ class AccountCreate(BaseModel):
     password: str = ""
     country: str = "🌍"
     customName: str = ""
-    properties: Dict[int, int] = {}  # {property_group_id: property_value_id} - 保留兼容
-    combos: List[List[int]] = []  # 组合标签 [[值ID1, 值ID2], [值ID3, 值ID4, 值ID5], ...]
+    properties: Dict[int, int] = {}
+    combos: List[List[int]] = []
     tags: List[str] = []
     notes: str = ""
 
@@ -134,7 +296,7 @@ class AccountUpdate(BaseModel):
     country: Optional[str] = None
     customName: Optional[str] = None
     properties: Optional[Dict[int, int]] = None
-    combos: Optional[List[List[int]]] = None  # 组合标签
+    combos: Optional[List[List[int]]] = None
     tags: Optional[List[str]] = None
     notes: Optional[str] = None
     is_favorite: Optional[bool] = None
@@ -166,6 +328,25 @@ class PropertyValueUpdate(BaseModel):
     name: Optional[str] = None
     color: Optional[str] = None
 
+class BackupConfig(BaseModel):
+    backup_dir: Optional[str] = None
+    include_key: bool = False
+    auto: bool = False  # 是否是自动备份
+    keep_count: int = 10  # 自动备份保留数量
+
+class BackupSettings(BaseModel):
+    interval_hours: int = 0  # 备份间隔（小时）
+    keep_count: int = 10  # 保留数量
+
+class TOTPCreate(BaseModel):
+    secret: str
+    issuer: str = ""
+    totp_type: str = "totp"
+    algorithm: str = "SHA1"
+    digits: int = 6
+    period: int = 30
+    backup_codes: List[str] = []
+
 # ==================== 数据库 ====================
 
 @contextmanager
@@ -193,7 +374,6 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        # 迁移：为旧数据库添加avatar列
         try:
             conn.execute("ALTER TABLE users ADD COLUMN avatar TEXT DEFAULT '👤'")
         except:
@@ -266,10 +446,9 @@ def init_user_tables(user_id: int):
             )
         """)
         
-        # 检查是否需要初始化默认数据
+        # 初始化默认数据
         cursor = conn.execute(f"SELECT COUNT(*) FROM user_{user_id}_account_types")
         if cursor.fetchone()[0] == 0:
-            # 插入默认账号类型
             default_types = [
                 ('Google', 'G', '#4285f4', 'https://accounts.google.com/signin/v2/identifier?Email='),
                 ('Microsoft', 'M', '#00a4ef', 'https://login.live.com/'),
@@ -283,79 +462,60 @@ def init_user_tables(user_id: int):
                     VALUES (?, ?, ?, ?, ?)
                 """, (name, icon, color, url, i))
             
-            # 插入默认属性组和值
-            # 账号状态
+            # 默认属性组
             conn.execute(f"INSERT INTO user_{user_id}_property_groups (name, sort_order) VALUES ('账号状态', 0)")
             status_group_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-            status_values = [('正常', '#4ade80'), ('受限', '#facc15'), ('不可用', '#f87171')]
-            for i, (name, color) in enumerate(status_values):
-                conn.execute(f"""
-                    INSERT INTO user_{user_id}_property_values (group_id, name, color, sort_order)
-                    VALUES (?, ?, ?, ?)
-                """, (status_group_id, name, color, i))
+            for i, (name, color) in enumerate([('正常', '#4ade80'), ('受限', '#facc15'), ('不可用', '#f87171')]):
+                conn.execute(f"INSERT INTO user_{user_id}_property_values (group_id, name, color, sort_order) VALUES (?, ?, ?, ?)",
+                    (status_group_id, name, color, i))
             
-            # 服务类型
             conn.execute(f"INSERT INTO user_{user_id}_property_groups (name, sort_order) VALUES ('服务类型', 1)")
             service_group_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-            service_values = [('CLI', '#a78bfa'), ('Antigravity', '#60a5fa'), ('GCP', '#fb923c'), ('APIKey', '#4ade80'), ('Build', '#22d3ee')]
-            for i, (name, color) in enumerate(service_values):
-                conn.execute(f"""
-                    INSERT INTO user_{user_id}_property_values (group_id, name, color, sort_order)
-                    VALUES (?, ?, ?, ?)
-                """, (service_group_id, name, color, i))
-            
-            # 添加一个示例账号
-            # 获取刚插入的第一个类型ID（Google）和属性值ID
-            cursor = conn.execute(f"SELECT id FROM user_{user_id}_account_types WHERE name='Google' LIMIT 1")
-            google_type = cursor.fetchone()
-            cursor = conn.execute(f"SELECT id FROM user_{user_id}_property_values WHERE group_id=? AND name='正常' LIMIT 1", (status_group_id,))
-            normal_status = cursor.fetchone()
-            cursor = conn.execute(f"SELECT id FROM user_{user_id}_property_values WHERE group_id=? AND name='CLI' LIMIT 1", (service_group_id,))
-            cli_service = cursor.fetchone()
-            
-            if google_type and normal_status and cli_service:
-                demo_combos = json.dumps([[normal_status[0]], [normal_status[0], cli_service[0]]])
-                conn.execute(f"""
-                    INSERT INTO user_{user_id}_accounts (type_id, email, password, country, custom_name, combos, tags, notes, is_favorite)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    google_type[0],
-                    'demo@example.com',
-                    encrypt_password('demo123456'),
-                    'CN',
-                    '默认账号',
-                    demo_combos,
-                    json.dumps(['示例']),
-                    '这是一个示例账号，你可以删除它并添加自己的账号。',
-                    1
-                ))
+            for i, (name, color) in enumerate([('CLI', '#a78bfa'), ('Antigravity', '#60a5fa'), ('GCP', '#fb923c'), ('APIKey', '#4ade80'), ('Build', '#22d3ee')]):
+                conn.execute(f"INSERT INTO user_{user_id}_property_values (group_id, name, color, sort_order) VALUES (?, ?, ?, ?)",
+                    (service_group_id, name, color, i))
         
         conn.commit()
 
 def migrate_add_combos_column():
-    """为现有用户表添加combos列"""
+    """迁移：添加 combos 列"""
     with get_db() as conn:
-        # 获取所有用户
         cursor = conn.execute("SELECT id FROM users")
-        users = cursor.fetchall()
-        for user in users:
+        for user in cursor.fetchall():
             user_id = user["id"]
-            # 检查combos列是否存在
             try:
                 conn.execute(f"SELECT combos FROM user_{user_id}_accounts LIMIT 1")
             except sqlite3.OperationalError:
-                # 列不存在，添加它
                 try:
                     conn.execute(f"ALTER TABLE user_{user_id}_accounts ADD COLUMN combos TEXT DEFAULT '[]'")
                     conn.commit()
-                    print(f"✅ 为用户 {user_id} 添加了 combos 列")
                 except:
                     pass
 
-# ==================== 工具函数 ====================
+def migrate_add_2fa_columns():
+    """迁移：添加 2FA 字段"""
+    with get_db() as conn:
+        users = conn.execute("SELECT id FROM users").fetchall()
+        for user in users:
+            user_id = user['id']
+            table = f"user_{user_id}_accounts"
+            for col, typ in [
+                ("totp_secret", "TEXT DEFAULT ''"),
+                ("totp_issuer", "TEXT DEFAULT ''"),
+                ("totp_type", "TEXT DEFAULT ''"),
+                ("totp_algorithm", "TEXT DEFAULT 'SHA1'"),
+                ("totp_digits", "INTEGER DEFAULT 6"),
+                ("totp_period", "INTEGER DEFAULT 30"),
+                ("backup_codes", "TEXT DEFAULT '[]'"),
+                ("time_offset", "INTEGER DEFAULT 0")
+            ]:
+                try:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
+                except:
+                    pass
+        conn.commit()
 
-def hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode()).hexdigest()
+# ==================== 工具函数 ====================
 
 def generate_token() -> str:
     return secrets.token_hex(32)
@@ -364,30 +524,39 @@ def get_current_user(authorization: str = Header(None)):
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="未授权")
     token = authorization.replace("Bearer ", "")
+    
+    # 先尝试 JWT 验证
+    jwt_user = verify_jwt_token(token)
+    if jwt_user:
+        return jwt_user
+    
+    # 回退到数据库 Token (兼容旧版)
     with get_db() as conn:
         cursor = conn.execute("SELECT id, username FROM users WHERE token = ?", (token,))
         user = cursor.fetchone()
     if not user:
-        raise HTTPException(status_code=401, detail="无效令牌")
+        raise HTTPException(status_code=401, detail="无效令牌或已过期")
     return {"id": user["id"], "username": user["username"]}
 
-# ==================== 用户API ====================
+# ==================== 用户 API ====================
 
 @app.post("/api/register")
 def register(data: UserRegister):
     if len(data.username) < 2:
         raise HTTPException(status_code=400, detail="用户名至少2个字符")
-    if len(data.password) < 4:
-        raise HTTPException(status_code=400, detail="密码至少4个字符")
+    
+    # 密码强度验证
+    is_valid, error_msg = validate_password_strength(data.password)
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=error_msg)
     
     password_hash = hash_password(data.password)
-    token = generate_token()
     
     with get_db() as conn:
         try:
             cursor = conn.execute(
-                "INSERT INTO users (username, password_hash, token) VALUES (?, ?, ?)",
-                (data.username, password_hash, token)
+                "INSERT INTO users (username, password_hash) VALUES (?, ?)",
+                (data.username, password_hash)
             )
             user_id = cursor.lastrowid
             conn.commit()
@@ -395,55 +564,70 @@ def register(data: UserRegister):
             raise HTTPException(status_code=400, detail="用户名已存在")
     
     init_user_tables(user_id)
+    token = create_access_token(user_id, data.username)
+    
     return {"message": "注册成功", "token": token, "user": {"id": user_id, "username": data.username, "avatar": "👤"}}
 
 @app.post("/api/login")
 def login(data: UserLogin):
     with get_db() as conn:
+        cursor = conn.execute(
+            "SELECT id, username, password_hash, avatar, login_attempts, locked_until FROM users WHERE username = ?",
+            (data.username,)
+        )
+        user = cursor.fetchone()
+        
+        if not user:
+            raise HTTPException(status_code=401, detail="用户名或密码错误")
+        
         # 检查锁定
-        cursor = conn.execute("SELECT login_attempts, locked_until FROM users WHERE username = ?", (data.username,))
-        row = cursor.fetchone()
-        if row and row["locked_until"]:
-            locked_until = datetime.fromisoformat(row["locked_until"])
+        if user["locked_until"]:
+            locked_until = datetime.fromisoformat(user["locked_until"])
             if datetime.now() < locked_until:
                 remaining = (locked_until - datetime.now()).seconds // 60 + 1
                 raise HTTPException(status_code=423, detail=f"账号已锁定，请 {remaining} 分钟后重试")
             else:
                 conn.execute("UPDATE users SET login_attempts = 0, locked_until = NULL WHERE username = ?", (data.username,))
         
-        password_hash = hash_password(data.password)
-        cursor = conn.execute(
-            "SELECT id, username, avatar FROM users WHERE username = ? AND password_hash = ?",
-            (data.username, password_hash)
-        )
-        user = cursor.fetchone()
+        # 验证密码 (兼容旧SHA256)
+        auth_success, need_upgrade = verify_password(data.password, user["password_hash"])
         
-        if not user:
-            cursor2 = conn.execute("SELECT id FROM users WHERE username = ?", (data.username,))
-            if cursor2.fetchone():
-                conn.execute("UPDATE users SET login_attempts = login_attempts + 1 WHERE username = ?", (data.username,))
-                cursor3 = conn.execute("SELECT login_attempts FROM users WHERE username = ?", (data.username,))
-                attempts = cursor3.fetchone()["login_attempts"]
-                if attempts >= MAX_LOGIN_ATTEMPTS:
-                    locked_until = (datetime.now() + timedelta(minutes=LOCKOUT_MINUTES)).isoformat()
-                    conn.execute("UPDATE users SET locked_until = ? WHERE username = ?", (locked_until, data.username))
-                    conn.commit()
-                    raise HTTPException(status_code=423, detail=f"账号已锁定，请 {LOCKOUT_MINUTES} 分钟后重试")
+        if not auth_success:
+            conn.execute("UPDATE users SET login_attempts = login_attempts + 1 WHERE username = ?", (data.username,))
+            cursor2 = conn.execute("SELECT login_attempts FROM users WHERE username = ?", (data.username,))
+            attempts = cursor2.fetchone()["login_attempts"]
+            
+            if attempts >= MAX_LOGIN_ATTEMPTS:
+                locked_until = (datetime.now() + timedelta(minutes=LOCKOUT_MINUTES)).isoformat()
+                conn.execute("UPDATE users SET locked_until = ? WHERE username = ?", (locked_until, data.username))
                 conn.commit()
-                raise HTTPException(status_code=401, detail=f"密码错误，还剩 {MAX_LOGIN_ATTEMPTS - attempts} 次尝试")
-            raise HTTPException(status_code=401, detail="用户名或密码错误")
+                raise HTTPException(status_code=423, detail=f"账号已锁定，请 {LOCKOUT_MINUTES} 分钟后重试")
+            
+            conn.commit()
+            raise HTTPException(status_code=401, detail=f"密码错误，还剩 {MAX_LOGIN_ATTEMPTS - attempts} 次尝试")
         
+        # 登录成功，重置计数
         conn.execute("UPDATE users SET login_attempts = 0, locked_until = NULL WHERE username = ?", (data.username,))
-        token = generate_token()
-        conn.execute("UPDATE users SET token = ? WHERE id = ?", (token, user["id"]))
+        
+        # 自动升级旧密码到 bcrypt
+        if need_upgrade:
+            new_hash = hash_password(data.password)
+            conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (new_hash, user["id"]))
+            print(f"✅ 用户 {data.username} 的密码已自动升级为 bcrypt")
+        
         conn.commit()
     
     init_user_tables(user["id"])
-    return {"message": "登录成功", "token": token, "user": {"id": user["id"], "username": user["username"], "avatar": user["avatar"] or "👤"}}
+    token = create_access_token(user["id"], user["username"])
+    
+    return {
+        "message": "登录成功",
+        "token": token,
+        "user": {"id": user["id"], "username": user["username"], "avatar": user["avatar"] or "👤"}
+    }
 
 @app.post("/api/update-avatar")
 def update_avatar(data: UpdateAvatar, user: dict = Depends(get_current_user)):
-    """更新用户头像"""
     with get_db() as conn:
         conn.execute("UPDATE users SET avatar = ? WHERE id = ?", (data.avatar, user["id"]))
         conn.commit()
@@ -451,24 +635,26 @@ def update_avatar(data: UpdateAvatar, user: dict = Depends(get_current_user)):
 
 @app.post("/api/change-password")
 def change_password(data: ChangePassword, user: dict = Depends(get_current_user)):
-    """修改当前用户密码"""
-    old_hash = hash_password(data.old_password)
-    new_hash = hash_password(data.new_password)
+    # 密码强度验证
+    is_valid, error_msg = validate_password_strength(data.new_password)
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=error_msg)
     
     with get_db() as conn:
-        # 验证旧密码
         cursor = conn.execute("SELECT password_hash FROM users WHERE id = ?", (user["id"],))
         row = cursor.fetchone()
-        if not row or row["password_hash"] != old_hash:
+        
+        auth_success, _ = verify_password(data.old_password, row["password_hash"])
+        if not auth_success:
             raise HTTPException(status_code=400, detail="当前密码错误")
         
-        # 更新新密码
+        new_hash = hash_password(data.new_password)
         conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (new_hash, user["id"]))
         conn.commit()
     
     return {"message": "密码修改成功"}
 
-# ==================== 账号类型API ====================
+# ==================== 账号类型 API ====================
 
 @app.get("/api/account-types")
 def get_account_types(user: dict = Depends(get_current_user)):
@@ -479,6 +665,10 @@ def get_account_types(user: dict = Depends(get_current_user)):
 
 @app.post("/api/account-types")
 def create_account_type(data: AccountTypeCreate, user: dict = Depends(get_current_user)):
+    # URL 协议验证
+    if data.login_url and not validate_url_protocol(data.login_url):
+        raise HTTPException(status_code=400, detail="登录URL必须以 http:// 或 https:// 开头")
+    
     with get_db() as conn:
         cursor = conn.execute(f"""
             INSERT INTO user_{user['id']}_account_types (name, icon, color, login_url)
@@ -489,6 +679,10 @@ def create_account_type(data: AccountTypeCreate, user: dict = Depends(get_curren
 
 @app.put("/api/account-types/{type_id}")
 def update_account_type(type_id: int, data: AccountTypeUpdate, user: dict = Depends(get_current_user)):
+    # URL 协议验证
+    if data.login_url is not None and data.login_url and not validate_url_protocol(data.login_url):
+        raise HTTPException(status_code=400, detail="登录URL必须以 http:// 或 https:// 开头")
+    
     updates, values = [], []
     if data.name is not None:
         updates.append("name = ?")
@@ -518,7 +712,7 @@ def delete_account_type(type_id: int, user: dict = Depends(get_current_user)):
         conn.commit()
     return {"message": "删除成功"}
 
-# ==================== 属性组API ====================
+# ==================== 属性组 API ====================
 
 @app.get("/api/property-groups")
 def get_property_groups(user: dict = Depends(get_current_user)):
@@ -527,10 +721,7 @@ def get_property_groups(user: dict = Depends(get_current_user)):
         cursor = conn.execute(f"SELECT * FROM user_{user['id']}_property_groups ORDER BY sort_order, id")
         for row in cursor.fetchall():
             group = dict(row)
-            values_cursor = conn.execute(f"""
-                SELECT * FROM user_{user['id']}_property_values 
-                WHERE group_id = ? ORDER BY sort_order, id
-            """, (group['id'],))
+            values_cursor = conn.execute(f"SELECT * FROM user_{user['id']}_property_values WHERE group_id = ? ORDER BY sort_order, id", (group['id'],))
             group['values'] = [dict(v) for v in values_cursor.fetchall()]
             groups.append(group)
     return {"groups": groups}
@@ -538,9 +729,7 @@ def get_property_groups(user: dict = Depends(get_current_user)):
 @app.post("/api/property-groups")
 def create_property_group(data: PropertyGroupCreate, user: dict = Depends(get_current_user)):
     with get_db() as conn:
-        cursor = conn.execute(f"""
-            INSERT INTO user_{user['id']}_property_groups (name) VALUES (?)
-        """, (data.name,))
+        cursor = conn.execute(f"INSERT INTO user_{user['id']}_property_groups (name) VALUES (?)", (data.name,))
         conn.commit()
         return {"message": "创建成功", "id": cursor.lastrowid}
 
@@ -560,15 +749,13 @@ def delete_property_group(group_id: int, user: dict = Depends(get_current_user))
         conn.commit()
     return {"message": "删除成功"}
 
-# ==================== 属性值API ====================
+# ==================== 属性值 API ====================
 
 @app.post("/api/property-values")
 def create_property_value(data: PropertyValueCreate, user: dict = Depends(get_current_user)):
     with get_db() as conn:
-        cursor = conn.execute(f"""
-            INSERT INTO user_{user['id']}_property_values (group_id, name, color)
-            VALUES (?, ?, ?)
-        """, (data.group_id, data.name, data.color))
+        cursor = conn.execute(f"INSERT INTO user_{user['id']}_property_values (group_id, name, color) VALUES (?, ?, ?)",
+            (data.group_id, data.name, data.color))
         conn.commit()
         return {"message": "创建成功", "id": cursor.lastrowid}
 
@@ -596,7 +783,7 @@ def delete_property_value(value_id: int, user: dict = Depends(get_current_user))
         conn.commit()
     return {"message": "删除成功"}
 
-# ==================== 账号API ====================
+# ==================== 账号 API ====================
 
 @app.get("/api/accounts")
 def get_accounts(user: dict = Depends(get_current_user)):
@@ -609,10 +796,13 @@ def get_accounts(user: dict = Depends(get_current_user)):
     
     accounts = []
     for row in rows:
-        # 检查是否有 totp_secret 字段（2FA）
         has_2fa = False
+        has_backup_codes = False
         try:
             has_2fa = bool(row["totp_secret"]) if "totp_secret" in row.keys() else False
+            if has_2fa and "backup_codes" in row.keys():
+                codes = json.loads(row["backup_codes"] or "[]")
+                has_backup_codes = len(codes) > 0
         except:
             pass
         accounts.append({
@@ -628,6 +818,7 @@ def get_accounts(user: dict = Depends(get_current_user)):
             "notes": row["notes"] or "",
             "is_favorite": bool(row["is_favorite"]),
             "has_2fa": has_2fa,
+            "has_backup_codes": has_backup_codes,
             "last_used": row["last_used"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"]
@@ -646,10 +837,8 @@ def create_account(data: AccountCreate, user: dict = Depends(get_current_user)):
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             data.type_id, data.email, encrypted_pwd, data.country, data.customName,
-            json.dumps(data.properties),
-            json.dumps(data.combos),
-            json.dumps(data.tags, ensure_ascii=False),
-            data.notes, now, now
+            json.dumps(data.properties), json.dumps(data.combos),
+            json.dumps(data.tags, ensure_ascii=False), data.notes, now, now
         ))
         conn.commit()
     return {"message": "创建成功", "id": cursor.lastrowid}
@@ -733,16 +922,27 @@ def delete_account(account_id: int, user: dict = Depends(get_current_user)):
             raise HTTPException(status_code=404, detail="账号不存在")
     return {"message": "删除成功"}
 
-# ==================== 导入导出API ====================
+@app.post("/api/accounts/batch-delete")
+def batch_delete_accounts(data: dict, user: dict = Depends(get_current_user)):
+    ids = data.get("ids", [])
+    if not ids:
+        raise HTTPException(status_code=400, detail="没有选择账号")
+    
+    with get_db() as conn:
+        placeholders = ",".join("?" * len(ids))
+        cursor = conn.execute(f"DELETE FROM user_{user['id']}_accounts WHERE id IN ({placeholders})", ids)
+        conn.commit()
+    
+    return {"message": f"成功删除 {cursor.rowcount} 个账号", "deleted": cursor.rowcount}
+
+# ==================== 导入导出 API ====================
 
 @app.get("/api/export")
 def export_data(user: dict = Depends(get_current_user)):
     with get_db() as conn:
-        # 导出账号类型
         types_cursor = conn.execute(f"SELECT * FROM user_{user['id']}_account_types ORDER BY sort_order")
         types = [dict(row) for row in types_cursor.fetchall()]
         
-        # 导出属性组和值
         groups = []
         groups_cursor = conn.execute(f"SELECT * FROM user_{user['id']}_property_groups ORDER BY sort_order")
         for row in groups_cursor.fetchall():
@@ -751,7 +951,6 @@ def export_data(user: dict = Depends(get_current_user)):
             group['values'] = [dict(v) for v in values_cursor.fetchall()]
             groups.append(group)
         
-        # 导出账号
         accounts_cursor = conn.execute(f"SELECT * FROM user_{user['id']}_accounts")
         accounts = []
         for row in accounts_cursor.fetchall():
@@ -768,21 +967,20 @@ def export_data(user: dict = Depends(get_current_user)):
                 "is_favorite": bool(row["is_favorite"]),
                 "created_at": row["created_at"]
             }
-            # 导出2FA配置
             if "totp_secret" in row.keys() and row["totp_secret"]:
                 account_data["totp"] = {
                     "secret": decrypt_password(row["totp_secret"]),
-                    "issuer": row["totp_issuer"] or "" if "totp_issuer" in row.keys() else "",
-                    "type": row["totp_type"] or "totp" if "totp_type" in row.keys() else "totp",
-                    "algorithm": row["totp_algorithm"] or "SHA1" if "totp_algorithm" in row.keys() else "SHA1",
-                    "digits": row["totp_digits"] or 6 if "totp_digits" in row.keys() else 6,
-                    "period": row["totp_period"] or 30 if "totp_period" in row.keys() else 30,
-                    "backup_codes": json.loads(row["backup_codes"] or "[]") if "backup_codes" in row.keys() else [],
+                    "issuer": row["totp_issuer"] or "",
+                    "type": row["totp_type"] or "totp",
+                    "algorithm": row["totp_algorithm"] or "SHA1",
+                    "digits": row["totp_digits"] or 6,
+                    "period": row["totp_period"] or 30,
+                    "backup_codes": json.loads(row["backup_codes"] or "[]"),
                 }
             accounts.append(account_data)
     
     return {
-        "version": "4.0",
+        "version": "5.1",
         "exported_at": datetime.now().isoformat(),
         "user": user["username"],
         "account_types": types,
@@ -792,18 +990,11 @@ def export_data(user: dict = Depends(get_current_user)):
 
 @app.post("/api/import")
 def import_data(data: dict, user: dict = Depends(get_current_user)):
-    """
-    完整导入功能，支持：
-    - 导入账号类型（按名称匹配，避免重复）
-    - 导入属性组和属性值（按名称匹配，避免重复）
-    - 导入账号（支持 skip/overwrite/all 模式）
-    - 自动映射旧ID到新ID
-    """
     if "accounts" not in data:
         raise HTTPException(status_code=400, detail="无效的导入数据")
     
     now = datetime.now().isoformat()
-    import_mode = data.get("import_mode", "all")  # all, skip, overwrite
+    import_mode = data.get("import_mode", "all")
     
     imported_accounts = 0
     updated_accounts = 0
@@ -812,14 +1003,12 @@ def import_data(data: dict, user: dict = Depends(get_current_user)):
     imported_groups = 0
     imported_values = 0
     
-    # ID映射表：旧ID -> 新ID
     type_id_map = {}
     value_id_map = {}
     
     with get_db() as conn:
-        # ========== 步骤1：导入账号类型（按名称匹配或新建） ==========
+        # 导入账号类型
         if "account_types" in data:
-            # 获取现有类型
             existing_types = {}
             cursor = conn.execute(f"SELECT id, name FROM user_{user['id']}_account_types")
             for row in cursor.fetchall():
@@ -831,41 +1020,24 @@ def import_data(data: dict, user: dict = Depends(get_current_user)):
                 name_lower = name.lower()
                 
                 if name_lower in existing_types:
-                    # 已存在同名类型，复用
                     type_id_map[old_id] = existing_types[name_lower]
                 else:
-                    # 新建类型
                     cursor = conn.execute(f"""
                         INSERT INTO user_{user['id']}_account_types (name, icon, color, login_url, sort_order)
                         VALUES (?, ?, ?, ?, ?)
-                    """, (
-                        name,
-                        old_type.get("icon", "🔑"),
-                        old_type.get("color", "#8b5cf6"),
-                        old_type.get("login_url", ""),
-                        old_type.get("sort_order", 0)
-                    ))
+                    """, (name, old_type.get("icon", "🔑"), old_type.get("color", "#8b5cf6"),
+                          old_type.get("login_url", ""), old_type.get("sort_order", 0)))
                     new_id = cursor.lastrowid
                     type_id_map[old_id] = new_id
                     existing_types[name_lower] = new_id
                     imported_types += 1
         
-        # ========== 步骤2：导入属性组和属性值（按名称匹配或新建） ==========
+        # 导入属性组和值
         if "property_groups" in data:
-            # 获取现有属性组
             existing_groups = {}
             cursor = conn.execute(f"SELECT id, name FROM user_{user['id']}_property_groups")
             for row in cursor.fetchall():
                 existing_groups[row["name"].lower()] = row["id"]
-            
-            # 获取现有属性值（按组ID分组）
-            existing_values = {}  # {group_id: {name_lower: value_id}}
-            cursor = conn.execute(f"SELECT id, group_id, name FROM user_{user['id']}_property_values")
-            for row in cursor.fetchall():
-                gid = row["group_id"]
-                if gid not in existing_values:
-                    existing_values[gid] = {}
-                existing_values[gid][row["name"].lower()] = row["id"]
             
             for old_group in data["property_groups"]:
                 old_group_id = old_group.get("id")
@@ -873,183 +1045,110 @@ def import_data(data: dict, user: dict = Depends(get_current_user)):
                 group_name_lower = group_name.lower()
                 
                 if group_name_lower in existing_groups:
-                    # 已存在同名组，复用
                     new_group_id = existing_groups[group_name_lower]
                 else:
-                    # 新建组
-                    cursor = conn.execute(f"""
-                        INSERT INTO user_{user['id']}_property_groups (name, sort_order)
-                        VALUES (?, ?)
-                    """, (group_name, old_group.get("sort_order", 0)))
+                    cursor = conn.execute(f"INSERT INTO user_{user['id']}_property_groups (name, sort_order) VALUES (?, ?)",
+                        (group_name, old_group.get("sort_order", 0)))
                     new_group_id = cursor.lastrowid
                     existing_groups[group_name_lower] = new_group_id
-                    existing_values[new_group_id] = {}
                     imported_groups += 1
                 
-                # 导入该组的属性值
-                for old_value in old_group.get("values", []):
-                    old_value_id = old_value.get("id")
-                    value_name = old_value.get("name", "")
-                    value_name_lower = value_name.lower()
+                if "values" in old_group:
+                    existing_values = {}
+                    cursor = conn.execute(f"SELECT id, name FROM user_{user['id']}_property_values WHERE group_id = ?", (new_group_id,))
+                    for row in cursor.fetchall():
+                        existing_values[row["name"].lower()] = row["id"]
                     
-                    group_values = existing_values.get(new_group_id, {})
-                    if value_name_lower in group_values:
-                        # 已存在同名值，复用
-                        value_id_map[old_value_id] = group_values[value_name_lower]
-                    else:
-                        # 新建值
-                        cursor = conn.execute(f"""
-                            INSERT INTO user_{user['id']}_property_values (group_id, name, color, sort_order)
-                            VALUES (?, ?, ?, ?)
-                        """, (
-                            new_group_id,
-                            value_name,
-                            old_value.get("color", "#8b5cf6"),
-                            old_value.get("sort_order", 0)
-                        ))
-                        new_value_id = cursor.lastrowid
-                        value_id_map[old_value_id] = new_value_id
-                        if new_group_id not in existing_values:
-                            existing_values[new_group_id] = {}
-                        existing_values[new_group_id][value_name_lower] = new_value_id
-                        imported_values += 1
+                    for old_value in old_group["values"]:
+                        old_value_id = old_value.get("id")
+                        value_name = old_value.get("name", "")
+                        value_name_lower = value_name.lower()
+                        
+                        if value_name_lower in existing_values:
+                            value_id_map[old_value_id] = existing_values[value_name_lower]
+                        else:
+                            cursor = conn.execute(f"""
+                                INSERT INTO user_{user['id']}_property_values (group_id, name, color, sort_order)
+                                VALUES (?, ?, ?, ?)
+                            """, (new_group_id, value_name, old_value.get("color", "#8b5cf6"), old_value.get("sort_order", 0)))
+                            value_id_map[old_value_id] = cursor.lastrowid
+                            imported_values += 1
         
-        # ========== 步骤3：获取现有账号（用于重复检测） ==========
-        existing_accounts = {}
-        if import_mode in ("skip", "overwrite"):
-            cursor = conn.execute(f"SELECT id, email FROM user_{user['id']}_accounts WHERE email != ''")
-            for row in cursor.fetchall():
-                existing_accounts[row["email"].lower()] = row["id"]
-        
-        # ========== 步骤4：导入账号 ==========
+        # 导入账号
         for acc in data["accounts"]:
-            try:
-                email = acc.get("email", "")
-                email_lower = email.lower() if email else ""
-                existing_id = existing_accounts.get(email_lower) if email_lower else None
-                
-                # 映射 type_id（如果有映射表则转换，否则保持原值）
-                old_type_id = acc.get("type_id")
-                new_type_id = type_id_map.get(old_type_id, old_type_id) if old_type_id else None
-                
-                # 映射 combos 中的属性值ID
-                old_combos = acc.get("combos", [])
-                new_combos = []
-                for combo in old_combos:
-                    if isinstance(combo, list):
-                        new_combo = [value_id_map.get(vid, vid) for vid in combo]
+            email = acc.get("email", "")
+            
+            cursor = conn.execute(f"SELECT id FROM user_{user['id']}_accounts WHERE email = ?", (email,))
+            existing = cursor.fetchone()
+            
+            if existing:
+                if import_mode == "skip":
+                    skipped_accounts += 1
+                    continue
+                elif import_mode == "overwrite":
+                    new_type_id = type_id_map.get(acc.get("type_id")) if acc.get("type_id") else None
+                    new_combos = []
+                    for combo in acc.get("combos", []):
+                        new_combo = [value_id_map.get(v, v) for v in combo]
                         new_combos.append(new_combo)
-                
-                # 映射 properties 中的属性值ID（旧格式兼容）
-                old_properties = acc.get("properties", {})
-                new_properties = {}
-                for k, v in old_properties.items():
-                    new_k = str(k)  # key可能是字符串
-                    new_properties[new_k] = value_id_map.get(v, v)
-                
-                if existing_id:
-                    # 账号已存在
-                    if import_mode == "skip":
-                        skipped_accounts += 1
-                        continue
-                    elif import_mode == "overwrite":
-                        # 更新现有账号
-                        conn.execute(f"""
-                            UPDATE user_{user['id']}_accounts SET
-                            type_id = ?, password = ?, country = ?, custom_name = ?,
-                            properties = ?, combos = ?, tags = ?, notes = ?,
-                            is_favorite = ?, updated_at = ?
-                            WHERE id = ?
-                        """, (
-                            new_type_id,
-                            encrypt_password(acc.get("password", "")),
-                            acc.get("country", "🌍"),
-                            acc.get("customName", ""),
-                            json.dumps(new_properties),
-                            json.dumps(new_combos),
-                            json.dumps(acc.get("tags", []), ensure_ascii=False),
-                            acc.get("notes", ""),
-                            1 if acc.get("is_favorite") else 0,
-                            now,
-                            existing_id
-                        ))
-                        # 导入2FA配置
-                        totp_data = acc.get("totp")
-                        if totp_data and totp_data.get("secret"):
-                            conn.execute(f"""
-                                UPDATE user_{user['id']}_accounts SET
-                                totp_secret = ?, totp_issuer = ?, totp_type = ?,
-                                totp_algorithm = ?, totp_digits = ?, totp_period = ?, backup_codes = ?
-                                WHERE id = ?
-                            """, (
-                                encrypt_password(totp_data.get("secret", "")),
-                                totp_data.get("issuer", ""),
-                                totp_data.get("type", "totp"),
-                                totp_data.get("algorithm", "SHA1"),
-                                totp_data.get("digits", 6),
-                                totp_data.get("period", 30),
-                                json.dumps(totp_data.get("backup_codes", [])),
-                                existing_id
-                            ))
-                        updated_accounts += 1
-                        continue
-                
-                # 新建账号
+                    
+                    conn.execute(f"""
+                        UPDATE user_{user['id']}_accounts SET
+                        type_id=?, password=?, country=?, custom_name=?, properties=?, combos=?, tags=?, notes=?, is_favorite=?, updated_at=?
+                        WHERE id=?
+                    """, (
+                        new_type_id, encrypt_password(acc.get("password", "")),
+                        acc.get("country", "🌍"), acc.get("customName", ""),
+                        json.dumps(acc.get("properties", {})), json.dumps(new_combos),
+                        json.dumps(acc.get("tags", []), ensure_ascii=False),
+                        acc.get("notes", ""), 1 if acc.get("is_favorite") else 0, now, existing["id"]
+                    ))
+                    updated_accounts += 1
+                    continue
+            
+            new_type_id = type_id_map.get(acc.get("type_id")) if acc.get("type_id") else None
+            new_combos = []
+            for combo in acc.get("combos", []):
+                new_combo = [value_id_map.get(v, v) for v in combo]
+                new_combos.append(new_combo)
+            
+            cursor = conn.execute(f"""
+                INSERT INTO user_{user['id']}_accounts 
+                (type_id, email, password, country, custom_name, properties, combos, tags, notes, is_favorite, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                new_type_id, email, encrypt_password(acc.get("password", "")),
+                acc.get("country", "🌍"), acc.get("customName", ""),
+                json.dumps(acc.get("properties", {})), json.dumps(new_combos),
+                json.dumps(acc.get("tags", []), ensure_ascii=False),
+                acc.get("notes", ""), 1 if acc.get("is_favorite") else 0,
+                acc.get("created_at", now), now  # 保留原始创建时间
+            ))
+            
+            if "totp" in acc and acc["totp"].get("secret"):
+                totp = acc["totp"]
                 conn.execute(f"""
-                    INSERT INTO user_{user['id']}_accounts 
-                    (type_id, email, password, country, custom_name, properties, combos, tags, notes, is_favorite, created_at, updated_at,
-                     totp_secret, totp_issuer, totp_type, totp_algorithm, totp_digits, totp_period, backup_codes)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    UPDATE user_{user['id']}_accounts SET
+                    totp_secret=?, totp_issuer=?, totp_type=?, totp_algorithm=?, totp_digits=?, totp_period=?, backup_codes=?
+                    WHERE id=?
                 """, (
-                    new_type_id,
-                    email,
-                    encrypt_password(acc.get("password", "")),
-                    acc.get("country", "🌍"),
-                    acc.get("customName", ""),
-                    json.dumps(new_properties),
-                    json.dumps(new_combos),
-                    json.dumps(acc.get("tags", []), ensure_ascii=False),
-                    acc.get("notes", ""),
-                    1 if acc.get("is_favorite") else 0,
-                    acc.get("created_at", now),
-                    now,
-                    encrypt_password(acc.get("totp", {}).get("secret", "")) if acc.get("totp", {}).get("secret") else "",
-                    acc.get("totp", {}).get("issuer", ""),
-                    acc.get("totp", {}).get("type", "totp"),
-                    acc.get("totp", {}).get("algorithm", "SHA1"),
-                    acc.get("totp", {}).get("digits", 6),
-                    acc.get("totp", {}).get("period", 30),
-                    json.dumps(acc.get("totp", {}).get("backup_codes", [])),
+                    encrypt_password(totp["secret"]), totp.get("issuer", ""),
+                    totp.get("type", "totp"), totp.get("algorithm", "SHA1"),
+                    totp.get("digits", 6), totp.get("period", 30),
+                    json.dumps(totp.get("backup_codes", [])), cursor.lastrowid
                 ))
-                imported_accounts += 1
-            except Exception as e:
-                print(f"导入账号失败: {e}")
+            
+            imported_accounts += 1
         
         conn.commit()
     
-    # 构建返回消息
-    parts = []
-    if imported_types > 0:
-        parts.append(f"类型 {imported_types} 个")
-    if imported_groups > 0:
-        parts.append(f"属性组 {imported_groups} 个")
-    if imported_values > 0:
-        parts.append(f"属性值 {imported_values} 个")
-    if imported_accounts > 0:
-        parts.append(f"新增账号 {imported_accounts} 个")
-    if updated_accounts > 0:
-        parts.append(f"覆盖账号 {updated_accounts} 个")
-    if skipped_accounts > 0:
-        parts.append(f"跳过 {skipped_accounts} 个")
-    
-    message = "成功导入：" + "，".join(parts) if parts else "没有数据被导入"
     return {
-        "message": message, 
+        "message": f"导入完成：{imported_accounts} 新增, {updated_accounts} 更新, {skipped_accounts} 跳过",
         "imported_types": imported_types,
         "imported_groups": imported_groups,
         "imported_values": imported_values,
-        "imported": imported_accounts, 
-        "updated": updated_accounts, 
+        "imported": imported_accounts,
+        "updated": updated_accounts,
         "skipped": skipped_accounts
     }
 
@@ -1090,17 +1189,12 @@ def import_csv(data: dict, user: dict = Depends(get_current_user)):
     
     return {"message": f"成功导入 {imported} 个账号", "count": imported, "errors": errors[:10]}
 
-# ==================== v5.0 新增：2FA TOTP API ====================
-import hmac
-import struct
-import re
+# ==================== 2FA TOTP API ====================
 
 STEAM_CHARS = "23456789BCDFGHJKMNPQRTVWXY"
 
 def generate_totp(secret: str, time_offset: int = 0, digits: int = 6, period: int = 30, algorithm: str = "SHA1") -> str:
-    """生成标准 TOTP 验证码"""
     try:
-        import hashlib
         key = base64.b32decode(secret.upper().replace(" ", "") + "=" * ((8 - len(secret) % 8) % 8))
         counter = (int(time.time()) + time_offset) // period
         counter_bytes = struct.pack(">Q", counter)
@@ -1113,7 +1207,6 @@ def generate_totp(secret: str, time_offset: int = 0, digits: int = 6, period: in
         return ""
 
 def generate_steam_code(secret: str, time_offset: int = 0) -> str:
-    """生成 Steam Guard 验证码"""
     try:
         key = base64.b64decode(secret)
         counter = (int(time.time()) + time_offset) // 30
@@ -1125,7 +1218,6 @@ def generate_steam_code(secret: str, time_offset: int = 0) -> str:
         return ""
 
 def parse_otpauth_uri(uri: str) -> dict:
-    """解析 otpauth:// URI"""
     try:
         match = re.match(r'otpauth://(totp|hotp)/([^?]+)\?(.+)', uri)
         if not match:
@@ -1143,42 +1235,8 @@ def parse_otpauth_uri(uri: str) -> dict:
     except:
         return None
 
-class TOTPCreate(BaseModel):
-    secret: str
-    issuer: str = ""
-    totp_type: str = "totp"
-    algorithm: str = "SHA1"
-    digits: int = 6
-    period: int = 30
-    backup_codes: List[str] = []
-
-# 数据库迁移：添加 2FA 字段
-def migrate_add_2fa_columns():
-    """为现有用户表添加 2FA 相关字段"""
-    with get_db() as conn:
-        users = conn.execute("SELECT id FROM users").fetchall()
-        for user in users:
-            user_id = user['id']
-            table = f"user_{user_id}_accounts"
-            for col, typ in [
-                ("totp_secret", "TEXT DEFAULT ''"),
-                ("totp_issuer", "TEXT DEFAULT ''"),
-                ("totp_type", "TEXT DEFAULT ''"),
-                ("totp_algorithm", "TEXT DEFAULT 'SHA1'"),
-                ("totp_digits", "INTEGER DEFAULT 6"),
-                ("totp_period", "INTEGER DEFAULT 30"),
-                ("backup_codes", "TEXT DEFAULT '[]'"),
-                ("time_offset", "INTEGER DEFAULT 0")
-            ]:
-                try:
-                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
-                except:
-                    pass
-        conn.commit()
-
 @app.post("/api/accounts/{account_id}/totp")
 def set_account_totp(account_id: int, data: TOTPCreate, user: dict = Depends(get_current_user)):
-    """配置账号的 2FA"""
     with get_db() as conn:
         row = conn.execute(f"SELECT id FROM user_{user['id']}_accounts WHERE id = ?", (account_id,)).fetchone()
         if not row:
@@ -1186,14 +1244,13 @@ def set_account_totp(account_id: int, data: TOTPCreate, user: dict = Depends(get
         conn.execute(f"""UPDATE user_{user['id']}_accounts 
             SET totp_secret=?, totp_issuer=?, totp_type=?, totp_algorithm=?, totp_digits=?, totp_period=?, backup_codes=?, updated_at=?
             WHERE id=?""",
-            (encrypt_password(data.secret), data.issuer, data.totp_type, data.algorithm, data.digits, data.period, 
+            (encrypt_password(data.secret), data.issuer, data.totp_type, data.algorithm, data.digits, data.period,
              json.dumps(data.backup_codes), datetime.now().isoformat(), account_id))
         conn.commit()
     return {"message": "2FA 配置已保存"}
 
 @app.get("/api/accounts/{account_id}/totp")
 def get_account_totp(account_id: int, user: dict = Depends(get_current_user)):
-    """获取账号的 2FA 配置（解密密钥供前端生成验证码）"""
     with get_db() as conn:
         row = conn.execute(f"""SELECT totp_secret, totp_issuer, totp_type, totp_algorithm, totp_digits, totp_period, backup_codes, time_offset 
             FROM user_{user['id']}_accounts WHERE id = ?""", (account_id,)).fetchone()
@@ -1214,7 +1271,6 @@ def get_account_totp(account_id: int, user: dict = Depends(get_current_user)):
 
 @app.get("/api/accounts/{account_id}/totp/generate")
 def generate_totp_code(account_id: int, user: dict = Depends(get_current_user)):
-    """生成当前 2FA 验证码（支持标准TOTP和Steam Guard）"""
     with get_db() as conn:
         row = conn.execute(f"""SELECT totp_secret, totp_type, totp_algorithm, totp_digits, totp_period, time_offset 
             FROM user_{user['id']}_accounts WHERE id = ?""", (account_id,)).fetchone()
@@ -1232,26 +1288,15 @@ def generate_totp_code(account_id: int, user: dict = Depends(get_current_user)):
     if totp_type == "steam":
         code = generate_steam_code(secret, time_offset)
     else:
-        code = generate_totp(
-            secret,
-            time_offset=time_offset,
-            digits=row["totp_digits"] or 6,
-            period=period,
-            algorithm=row["totp_algorithm"] or "SHA1"
-        )
+        code = generate_totp(secret, time_offset=time_offset, digits=row["totp_digits"] or 6,
+            period=period, algorithm=row["totp_algorithm"] or "SHA1")
     
     remaining = period - ((int(time.time()) + time_offset) % period)
     
-    return {
-        "code": code,
-        "type": totp_type,
-        "remaining": remaining,
-        "period": period
-    }
+    return {"code": code, "type": totp_type, "remaining": remaining, "period": period}
 
 @app.delete("/api/accounts/{account_id}/totp")
 def delete_account_totp(account_id: int, user: dict = Depends(get_current_user)):
-    """删除账号的 2FA 配置"""
     with get_db() as conn:
         conn.execute(f"""UPDATE user_{user['id']}_accounts 
             SET totp_secret='', totp_issuer='', totp_type='', backup_codes='[]', updated_at=?
@@ -1261,7 +1306,6 @@ def delete_account_totp(account_id: int, user: dict = Depends(get_current_user))
 
 @app.post("/api/accounts/{account_id}/totp/parse")
 def parse_totp_uri(account_id: int, data: dict, user: dict = Depends(get_current_user)):
-    """从 otpauth:// URI 导入 2FA 配置"""
     parsed = parse_otpauth_uri(data.get("uri", ""))
     if not parsed:
         raise HTTPException(status_code=400, detail="无效的 otpauth URI")
@@ -1269,43 +1313,469 @@ def parse_totp_uri(account_id: int, data: dict, user: dict = Depends(get_current
         conn.execute(f"""UPDATE user_{user['id']}_accounts 
             SET totp_secret=?, totp_issuer=?, totp_type=?, totp_algorithm=?, totp_digits=?, totp_period=?, updated_at=?
             WHERE id=?""",
-            (encrypt_password(parsed["secret"]), parsed["issuer"] or parsed["label"], parsed["type"], 
+            (encrypt_password(parsed["secret"]), parsed["issuer"] or parsed["label"], parsed["type"],
              parsed["algorithm"], parsed["digits"], parsed["period"], datetime.now().isoformat(), account_id))
         conn.commit()
     return {"message": "2FA 配置已从 URI 导入", "parsed": {k: v for k, v in parsed.items() if k != "secret"}}
 
+# ==================== 备份 API ====================
+
+@app.post("/api/backup")
+def create_backup(config: BackupConfig = BackupConfig(), user: dict = Depends(get_current_user)):
+    backup_dir = config.backup_dir if config.backup_dir else DEFAULT_BACKUP_DIR
+    
+    try:
+        os.makedirs(backup_dir, exist_ok=True)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"无法创建备份目录: {str(e)}")
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    # 文件名根据是否包含密钥和是否自动备份
+    suffix = "_full" if config.include_key else ""
+    prefix = "auto_" if config.auto else ""
+    db_backup_name = f"backup_{timestamp}{suffix}.db"
+    db_backup_path = os.path.join(backup_dir, db_backup_name)
+    
+    try:
+        with get_db() as conn:
+            backup_conn = sqlite3.connect(db_backup_path)
+            conn.backup(backup_conn)
+            backup_conn.close()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"数据库备份失败: {str(e)}")
+    
+    result = {
+        "message": "备份成功",
+        "timestamp": timestamp,
+        "backup_dir": backup_dir,
+        "files": [db_backup_name]
+    }
+    
+    # 如果是自动备份，自动清理旧备份
+    if config.auto and config.keep_count > 0:
+        try:
+            backups = sorted([f for f in os.listdir(backup_dir) if f.endswith('.db')], reverse=True)
+            for old_backup in backups[config.keep_count:]:
+                os.remove(os.path.join(backup_dir, old_backup))
+            if len(backups) > config.keep_count:
+                result["cleaned"] = len(backups) - config.keep_count
+        except Exception:
+            pass
+    
+    if config.include_key and os.path.exists(ENCRYPTION_KEY_FILE):
+        key_backup_name = f"backup_{timestamp}_full.key"
+        key_backup_path = os.path.join(backup_dir, key_backup_name)
+        try:
+            shutil.copy2(ENCRYPTION_KEY_FILE, key_backup_path)
+            os.chmod(key_backup_path, 0o600)
+            result["files"].append(key_backup_name)
+            result["warning"] = "⚠️ 加密密钥已备份，请妥善保管！"
+        except Exception as e:
+            result["key_backup_error"] = str(e)
+    
+    return result
+
+@app.get("/api/backup/download")
+def download_backup(user: dict = Depends(get_current_user)):
+    """
+    生成备份并直接下载到用户电脑
+    这样即使 VPS 或 Docker 被删除，用户本地还有备份
+    """
+    import tempfile
+    
+    # 创建临时备份文件
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    temp_dir = tempfile.mkdtemp()
+    db_backup_name = f"accbox_backup_{timestamp}.db"
+    db_backup_path = os.path.join(temp_dir, db_backup_name)
+    
+    try:
+        # 执行数据库备份
+        with get_db() as conn:
+            backup_conn = sqlite3.connect(db_backup_path)
+            conn.backup(backup_conn)
+            backup_conn.close()
+        
+        # 返回文件流，触发浏览器下载
+        return FileResponse(
+            path=db_backup_path,
+            filename=db_backup_name,
+            media_type='application/octet-stream',
+            headers={
+                "Content-Disposition": f'attachment; filename="{db_backup_name}"'
+            }
+        )
+    except Exception as e:
+        # 清理临时文件
+        if os.path.exists(db_backup_path):
+            os.remove(db_backup_path)
+        if os.path.exists(temp_dir):
+            os.rmdir(temp_dir)
+        raise HTTPException(status_code=500, detail=f"备份生成失败: {str(e)}")
+
+@app.get("/api/backups/{filename}/download")
+def download_existing_backup(filename: str, path: Optional[str] = None, user: dict = Depends(get_current_user)):
+    """
+    下载已存在的备份文件到用户电脑
+    """
+    # 安全检查：防止路径遍历攻击
+    if not (filename.startswith("backup_") or filename.startswith("accounts_backup_") or filename.startswith("accbox_backup_")) or ".." in filename:
+        raise HTTPException(status_code=400, detail="无效的文件名")
+    
+    backup_dir = path if path else DEFAULT_BACKUP_DIR
+    file_path = os.path.join(backup_dir, filename)
+    
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="备份文件不存在")
+    
+    return FileResponse(
+        path=file_path,
+        filename=filename,
+        media_type='application/octet-stream',
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        }
+    )
+
+@app.post("/api/backup/settings")
+def save_backup_settings(settings: BackupSettings, backup_dir: Optional[str] = None, user: dict = Depends(get_current_user)):
+    """保存并应用定时备份设置"""
+    global auto_backup_settings, auto_backup_timer
+    
+    # 更新设置
+    auto_backup_settings["enabled"] = settings.interval_hours > 0
+    auto_backup_settings["interval_hours"] = settings.interval_hours
+    auto_backup_settings["keep_count"] = settings.keep_count
+    auto_backup_settings["backup_dir"] = backup_dir
+    
+    # 保存到文件
+    try:
+        with open(BACKUP_SETTINGS_FILE, 'w') as f:
+            json.dump(auto_backup_settings, f)
+    except Exception as e:
+        print(f"保存备份设置失败: {e}")
+    
+    # 重启定时器
+    setup_auto_backup()
+    
+    return {
+        "message": "定时备份设置已保存",
+        "settings": auto_backup_settings
+    }
+
+@app.get("/api/backup/settings")
+def get_backup_settings(user: dict = Depends(get_current_user)):
+    """获取定时备份设置"""
+    return auto_backup_settings
+
+@app.post("/api/backup/validate-path")
+def validate_backup_path(path: str, user: dict = Depends(get_current_user)):
+    """验证备份路径是否有效且可写"""
+    if not path:
+        return {"valid": True, "path": DEFAULT_BACKUP_DIR, "message": "使用默认路径"}
+    
+    try:
+        # 尝试创建目录
+        os.makedirs(path, exist_ok=True)
+        # 尝试写入测试文件
+        test_file = os.path.join(path, ".write_test")
+        with open(test_file, 'w') as f:
+            f.write("test")
+        os.remove(test_file)
+        return {"valid": True, "path": path, "message": "路径有效"}
+    except PermissionError:
+        return {"valid": False, "path": path, "message": "没有写入权限"}
+    except Exception as e:
+        return {"valid": False, "path": path, "message": f"路径无效: {str(e)}"}
+
+# ==================== 密钥管理 API ====================
+
+@app.get("/api/encryption-key/info")
+def get_key_info(user: dict = Depends(get_current_user)):
+    """获取密钥信息（不返回密钥本身）"""
+    env_key = os.environ.get("APP_MASTER_KEY", "").strip()
+    
+    if env_key and env_key != UNSAFE_DEFAULT_KEY:
+        return {
+            "source": "environment",
+            "message": "密钥已配置在 .env 文件中"
+        }
+    else:
+        return {
+            "source": "unsafe_default",
+            "message": "正在使用默认不安全密钥"
+        }
+
+# ==================== 定时备份核心功能 ====================
+
+def load_backup_settings():
+    """加载备份设置"""
+    global auto_backup_settings
+    if os.path.exists(BACKUP_SETTINGS_FILE):
+        try:
+            with open(BACKUP_SETTINGS_FILE, 'r') as f:
+                saved = json.load(f)
+                auto_backup_settings.update(saved)
+        except Exception as e:
+            print(f"加载备份设置失败: {e}")
+
+def do_auto_backup():
+    """执行自动备份"""
+    global auto_backup_settings
+    
+    if not auto_backup_settings.get("enabled"):
+        return
+    
+    backup_dir = auto_backup_settings.get("backup_dir") or DEFAULT_BACKUP_DIR
+    keep_count = auto_backup_settings.get("keep_count", 10)
+    
+    try:
+        os.makedirs(backup_dir, exist_ok=True)
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        db_backup_name = f"backup_{timestamp}_auto.db"
+        db_backup_path = os.path.join(backup_dir, db_backup_name)
+        
+        # 执行备份
+        with get_db() as conn:
+            backup_conn = sqlite3.connect(db_backup_path)
+            conn.backup(backup_conn)
+            backup_conn.close()
+        
+        # 更新最后备份时间
+        auto_backup_settings["last_backup"] = datetime.now().isoformat()
+        with open(BACKUP_SETTINGS_FILE, 'w') as f:
+            json.dump(auto_backup_settings, f)
+        
+        # 清理旧备份
+        backups = sorted([f for f in os.listdir(backup_dir) if f.endswith('.db') and '_auto' in f], reverse=True)
+        for old_backup in backups[keep_count:]:
+            try:
+                os.remove(os.path.join(backup_dir, old_backup))
+            except:
+                pass
+        
+        print(f"✅ 自动备份完成: {db_backup_path}")
+        
+    except Exception as e:
+        print(f"❌ 自动备份失败: {e}")
+
+def auto_backup_loop():
+    """定时备份循环"""
+    global auto_backup_timer, auto_backup_settings
+    
+    while auto_backup_settings.get("enabled"):
+        interval = auto_backup_settings.get("interval_hours", 24)
+        # 等待指定小时数
+        time.sleep(interval * 3600)
+        
+        if auto_backup_settings.get("enabled"):
+            do_auto_backup()
+
+def setup_auto_backup():
+    """设置定时备份"""
+    global auto_backup_timer, auto_backup_settings
+    
+    # 停止现有定时器
+    if auto_backup_timer and auto_backup_timer.is_alive():
+        auto_backup_settings["enabled"] = False
+        auto_backup_timer.join(timeout=1)
+    
+    # 如果启用了定时备份，启动新线程
+    if auto_backup_settings.get("enabled") and auto_backup_settings.get("interval_hours", 0) > 0:
+        auto_backup_settings["enabled"] = True
+        auto_backup_timer = threading.Thread(target=auto_backup_loop, daemon=True)
+        auto_backup_timer.start()
+        print(f"🕐 定时备份已启动: 每 {auto_backup_settings['interval_hours']} 小时")
+    else:
+        print("🕐 定时备份已关闭")
+
+# 启动时加载设置并启动定时备份
+load_backup_settings()
+setup_auto_backup()
+
+@app.get("/api/backups")
+def list_backups(path: Optional[str] = None, user: dict = Depends(get_current_user)):
+    backup_dir = path if path else DEFAULT_BACKUP_DIR
+    
+    if not os.path.exists(backup_dir):
+        return {"backups": [], "backup_dir": backup_dir}
+    
+    backups = []
+    for filename in os.listdir(backup_dir):
+        if filename.startswith("backup_") and filename.endswith(".db"):
+            filepath = os.path.join(backup_dir, filename)
+            stat = os.stat(filepath)
+            
+            try:
+                # 匹配新格式 backup_20260123_153045.db 或 backup_20260123_153045_full.db
+                timestamp_str = filename.replace("backup_", "").replace("_full", "").replace(".db", "")
+                backup_time = datetime.strptime(timestamp_str, "%Y%m%d_%H%M%S")
+            except:
+                backup_time = datetime.fromtimestamp(stat.st_mtime)
+            
+            backups.append({
+                "filename": filename,
+                "size": stat.st_size,
+                "size_human": f"{stat.st_size / 1024:.1f} KB",
+                "created_at": backup_time.isoformat(),
+                "created_at_human": backup_time.strftime("%Y-%m-%d %H:%M:%S")
+            })
+    
+    # 也支持旧格式文件名
+    for filename in os.listdir(backup_dir):
+        if filename.startswith("accounts_backup_") and filename.endswith(".db"):
+            filepath = os.path.join(backup_dir, filename)
+            stat = os.stat(filepath)
+            
+            try:
+                timestamp_str = filename.replace("accounts_backup_", "").replace(".db", "")
+                backup_time = datetime.strptime(timestamp_str, "%Y%m%d_%H%M%S")
+            except:
+                backup_time = datetime.fromtimestamp(stat.st_mtime)
+            
+            backups.append({
+                "filename": filename,
+                "size": stat.st_size,
+                "size_human": f"{stat.st_size / 1024:.1f} KB",
+                "created_at": backup_time.isoformat(),
+                "created_at_human": backup_time.strftime("%Y-%m-%d %H:%M:%S")
+            })
+    
+    backups.sort(key=lambda x: x["created_at"], reverse=True)
+    
+    return {"backups": backups, "backup_dir": backup_dir, "total_count": len(backups)}
+
+@app.delete("/api/backups/{filename}")
+def delete_backup(filename: str, path: Optional[str] = None, user: dict = Depends(get_current_user)):
+    # 支持新旧两种文件名格式
+    if not (filename.startswith("backup_") or filename.startswith("accounts_backup_")) or ".." in filename:
+        raise HTTPException(status_code=400, detail="无效的文件名")
+    
+    backup_dir = path if path else DEFAULT_BACKUP_DIR
+    backup_path = os.path.join(backup_dir, filename)
+    
+    if not os.path.exists(backup_path):
+        raise HTTPException(status_code=404, detail="备份文件不存在")
+    
+    try:
+        os.remove(backup_path)
+        # 删除对应的密钥文件（如果有）
+        key_backup = backup_path.replace(".db", ".key")
+        if os.path.exists(key_backup):
+            os.remove(key_backup)
+        return {"message": "备份已删除", "filename": filename}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"删除失败: {str(e)}")
+
+class RestoreConfig(BaseModel):
+    backup_dir: Optional[str] = None
+
+@app.post("/api/backups/{filename}/restore")
+def restore_backup(filename: str, config: RestoreConfig = RestoreConfig(), user: dict = Depends(get_current_user)):
+    # 支持新旧两种文件名格式
+    if not (filename.startswith("backup_") or filename.startswith("accounts_backup_")) or ".." in filename:
+        raise HTTPException(status_code=400, detail="无效的文件名")
+    
+    backup_dir = config.backup_dir if config.backup_dir else DEFAULT_BACKUP_DIR
+    backup_path = os.path.join(backup_dir, filename)
+    
+    if not os.path.exists(backup_path):
+        raise HTTPException(status_code=404, detail="备份文件不存在")
+    
+    try:
+        # 恢复前先备份当前数据
+        current_backup = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}_before_restore.db"
+        os.makedirs(DEFAULT_BACKUP_DIR, exist_ok=True)
+        shutil.copy2(DB_PATH, os.path.join(DEFAULT_BACKUP_DIR, current_backup))
+        shutil.copy2(backup_path, DB_PATH)
+        
+        return {
+            "message": "恢复成功",
+            "restored_from": filename,
+            "previous_backup": current_backup,
+            "warning": "请重新登录以加载恢复的数据"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"恢复失败: {str(e)}")
+
+@app.post("/api/backup/cleanup")
+def cleanup_old_backups(max_keep: int = 7, user: dict = Depends(get_current_user)):
+    if max_keep < 1:
+        raise HTTPException(status_code=400, detail="至少保留1个备份")
+    
+    backup_dir = DEFAULT_BACKUP_DIR
+    if not os.path.exists(backup_dir):
+        return {"message": "没有备份需要清理", "deleted": 0}
+    
+    backups = []
+    for filename in os.listdir(backup_dir):
+        if filename.startswith("accounts_backup_") and filename.endswith(".db"):
+            filepath = os.path.join(backup_dir, filename)
+            backups.append((filename, os.path.getmtime(filepath)))
+    
+    backups.sort(key=lambda x: x[1], reverse=True)
+    
+    deleted = []
+    for filename, _ in backups[max_keep:]:
+        try:
+            os.remove(os.path.join(backup_dir, filename))
+            key_file = filename.replace("accounts_backup_", "encryption_key_backup_").replace(".db", ".key")
+            key_path = os.path.join(backup_dir, key_file)
+            if os.path.exists(key_path):
+                os.remove(key_path)
+            deleted.append(filename)
+        except:
+            pass
+    
+    return {"message": f"清理完成，删除了 {len(deleted)} 个旧备份", "kept": max_keep, "deleted": deleted}
+
+# ==================== 健康检查 ====================
+
 @app.get("/api/health")
 def health_check():
     current_key = os.environ.get("APP_MASTER_KEY", "")
-    if not current_key:
-        key_status = "file_based"
-    elif current_key == UNSAFE_DEFAULT_KEY:
-        key_status = "unsafe_default"
-    else:
+    jwt_key = os.environ.get("JWT_SECRET_KEY", "")
+    
+    # 只有两种状态：安全 或 不安全（使用默认密钥）
+    if current_key and current_key != UNSAFE_DEFAULT_KEY:
         key_status = "secure"
-    return {"status": "ok", "version": "5.0", "key_status": key_status, "time": datetime.now().isoformat()}
+    else:
+        key_status = "unsafe_default"
+    
+    return {
+        "status": "ok",
+        "version": "5.1",
+        "key_status": key_status,
+        "jwt_configured": bool(jwt_key),
+        "cors_origins": len(ALLOWED_ORIGINS),
+        "time": datetime.now().isoformat()
+    }
 
-# 静态文件目录
+@app.get("/api/version")
+def get_version():
+    """返回服务器版本"""
+    return {"server_version": "v5.1"}
+
+# ==================== 静态文件 ====================
+
 STATIC_DIR = os.path.dirname(os.path.abspath(__file__))
 
 @app.get("/")
 def root():
-    """返回前端页面"""
     index_path = os.path.join(STATIC_DIR, "index.html")
     if os.path.exists(index_path):
         return FileResponse(index_path, media_type="text/html")
-    return {"message": "通用账号管家 API v5.0", "docs": "/docs"}
+    return {"message": "通用账号管家 API v5.1", "docs": "/docs"}
 
 @app.get("/{filename:path}")
 def serve_static(filename: str):
-    """提供静态文件服务"""
-    # 排除 API 路径
     if filename.startswith("api/"):
         raise HTTPException(status_code=404, detail="Not found")
     
     file_path = os.path.join(STATIC_DIR, filename)
     if os.path.exists(file_path) and os.path.isfile(file_path):
-        # 根据扩展名设置 content-type
         if filename.endswith(".css"):
             return FileResponse(file_path, media_type="text/css")
         elif filename.endswith(".js"):
@@ -1316,12 +1786,32 @@ def serve_static(filename: str):
             return FileResponse(file_path)
     raise HTTPException(status_code=404, detail="File not found")
 
+# ==================== 启动 ====================
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 9111))
     key_mode = "ENV" if os.environ.get("APP_MASTER_KEY") else "FILE"
-    print(f"🔐 通用账号管家 API v5.0 启动中... 端口: {port} | 密钥: {key_mode}")
-    print(f"📁 数据库路径: {DB_PATH}")
+    jwt_mode = "ENV" if os.environ.get("JWT_SECRET_KEY") else "DERIVED"
+    
+    print(f"""
+╔══════════════════════════════════════════════════════════════╗
+║        🔐 通用账号管家 API v5.1 (安全修复版)                 ║
+╠══════════════════════════════════════════════════════════════╣
+║  端口: {port:<5}  |  加密密钥: {key_mode:<4}  |  JWT密钥: {jwt_mode:<7}        ║
+║  数据库: {DB_PATH:<48} ║
+║  CORS 允许域名: {len(ALLOWED_ORIGINS)} 个                                      ║
+╠══════════════════════════════════════════════════════════════╣
+║  安全修复:                                                   ║
+║  ✅ 密码哈希: SHA256 → bcrypt (自动迁移)                     ║
+║  ✅ Token: JWT (7天过期，兼容旧Token)                        ║
+║  ✅ CORS: 白名单模式                                         ║
+║  ✅ 密码强度: 8字符+字母+数字                                ║
+║  ✅ URL验证: 防止 javascript: XSS                            ║
+║  ✅ 新增备份功能                                             ║
+╚══════════════════════════════════════════════════════════════╝
+""")
+    
     init_db()
-    migrate_add_combos_column()  # 数据库迁移
-    migrate_add_2fa_columns()    # 2FA字段迁移
+    migrate_add_combos_column()
+    migrate_add_2fa_columns()
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")

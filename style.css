@@ -983,7 +983,9 @@ html:not([data-theme="light"]) .btn-avatar:hover::before {
 .empty-state .icon { font-size: 3rem; margin-bottom: 12px; opacity: 0.5; }
 
 /* 账号卡片 */
-.account-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; transition: all 0.2s; }
+.account-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; transition: all 0.2s; position: relative; }
+/* 当菜单打开时，允许下拉菜单超出卡片边界 */
+.account-card:has(.card-menu.open) { overflow: visible; }
 .account-card:hover { border-color: var(--border-light); transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.15); }
 .account-card.warning { border-left: 3px solid var(--yellow); }
 .account-card.error { border-left: 3px solid var(--red); opacity: 0.6; }
@@ -1008,11 +1010,15 @@ html:not([data-theme="light"]) .btn-avatar:hover::before {
 .card-menu { position: relative; z-index: 15; /* 确保在收藏角标(z-index:10,11)之上 */ }
 .btn-menu-dots { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; background: transparent; border: 1px solid var(--border); border-radius: 6px; color: var(--text-muted); cursor: pointer; font-size: 1rem; letter-spacing: 1px; position: relative; z-index: 15; }
 .btn-menu-dots:hover { border-color: var(--accent); color: var(--accent); }
-.card-menu-dropdown { display: none; position: absolute; top: 100%; right: 0; margin-top: 4px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 100; min-width: 100px; overflow: hidden; }
+.card-menu-dropdown { display: none; position: absolute; top: 100%; right: 0; margin-top: 4px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 100; min-width: 120px; overflow: visible; }
 .card-menu.open .card-menu-dropdown { display: block; }
 .menu-item { display: flex; align-items: center; gap: 8px; padding: 10px 14px; color: var(--text-secondary); font-size: 0.85rem; cursor: pointer; white-space: nowrap; }
 .menu-item:hover { background: var(--bg-hover); color: var(--text-primary); }
 .menu-item.danger:hover { background: rgba(239,68,68,0.1); color: var(--red); }
+
+/* 确保卡片视图（非列表视图）下菜单文字正常显示 */
+.cards-grid:not(.list-view) .menu-item { font-size: 0.85rem !important; }
+.cards-grid:not(.list-view) .menu-item::before { content: none !important; }
 
 /* 隐藏旧的操作按钮 */
 .card-actions { display: none; }
@@ -2409,6 +2415,18 @@ html:not([data-theme="light"]) .user-avatar-large {
     border-color: var(--accent);
 }
 
+/* 有备份码的2FA按钮 - 绿色高亮 */
+.btn-action.btn-2fa.has-backup {
+    background: linear-gradient(135deg, rgba(52, 199, 89, 0.25), rgba(52, 199, 89, 0.15));
+    border-color: rgba(52, 199, 89, 0.5);
+    color: #34c759;
+}
+
+.btn-action.btn-2fa.has-backup:hover {
+    background: linear-gradient(135deg, rgba(52, 199, 89, 0.35), rgba(52, 199, 89, 0.25));
+    border-color: #34c759;
+}
+
 /* ==================== v5.0 新增：二维码上传区域样式 ==================== */
 
 .qr-upload-zone {
@@ -2908,3 +2926,97 @@ html:not([data-theme="light"]) .user-avatar-large {
     opacity: 1;
 }
 
+
+/* ==================== 备份弹窗样式 ==================== */
+.backup-modal { max-width: 480px; width: 95%; }
+.backup-section { margin-bottom: 16px; }
+.backup-section:last-child { margin-bottom: 0; }
+.backup-section-title { font-weight: 600; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; color: var(--text-primary); font-size: 14px; }
+.backup-section-right { display: flex; align-items: center; gap: 8px; }
+.backup-arrow { color: var(--text-muted); font-size: 18px; }
+.backup-section-clickable { cursor: pointer; padding: 12px; margin: 0 -16px; background: var(--bg-hover); border-radius: 0; }
+.backup-section-clickable:hover { background: var(--bg-card); }
+.backup-section-clickable:hover .backup-arrow { color: var(--accent); }
+.backup-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.backup-row:last-child { margin-bottom: 0; }
+.backup-row .btn { flex: 1; padding: 10px 14px; font-size: 13px; border-radius: 8px; border: none; cursor: pointer; transition: all 0.2s; }
+.backup-row .btn-primary { background: var(--accent); color: white; }
+.backup-row .btn-primary:hover { filter: brightness(1.1); }
+.backup-row .btn-secondary { background: var(--bg-hover); color: var(--text-primary); border: 1px solid var(--border); }
+.backup-row .btn-secondary:hover { background: var(--bg-card); border-color: var(--accent); }
+.backup-row .btn-success { background: var(--green); color: white; }
+.backup-row .btn-success:hover { filter: brightness(1.1); }
+.backup-hint { font-size: 11px; color: var(--text-muted); margin-top: 6px; }
+.backup-hint-important { color: var(--green); font-weight: 500; }
+.backup-label { min-width: 70px; font-size: 13px; color: var(--text-secondary); }
+.backup-select { flex: 1; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-input); color: var(--text-primary); font-size: 13px; cursor: pointer; }
+.backup-select:focus { outline: none; border-color: var(--accent); }
+.backup-select option { background: var(--bg-card); color: var(--text-primary); }
+.backup-status { font-size: 12px; color: var(--text-muted); padding: 8px 10px; background: var(--bg-hover); border-radius: 6px; margin-top: 8px; }
+.backup-status.active { color: var(--green); }
+.backup-count { font-size: 12px; color: var(--text-muted); font-weight: normal; }
+.backup-input { flex: 1; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-input); color: var(--text-primary); font-size: 13px; font-family: monospace; }
+.backup-input:focus { outline: none; border-color: var(--accent); }
+.backup-input::placeholder { color: var(--text-muted); }
+.backup-path-hint { font-size: 11px; color: var(--gold); margin-top: 6px; }
+.backup-path-current { font-size: 11px; color: var(--text-muted); margin-top: 4px; font-family: monospace; }
+.backup-section-highlight { background: linear-gradient(135deg, rgba(52, 199, 89, 0.1), rgba(52, 199, 89, 0.05)); border: 1px solid rgba(52, 199, 89, 0.3); border-radius: 10px; padding: 14px; margin: 0 -4px 16px -4px; }
+.backup-path-hint-box { background: var(--bg-hover); border-radius: 8px; padding: 12px; margin-top: 10px; font-size: 12px; line-height: 1.6; }
+.backup-path-hint-box p { margin: 6px 0; color: var(--text-secondary); }
+.backup-path-hint-box p:first-child { margin-top: 0; }
+.backup-path-hint-box b { color: var(--text-primary); }
+.backup-path-hint-box code { background: var(--bg-card); padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 11px; }
+.backup-code-hint { background: var(--bg-card); padding: 10px 12px; border-radius: 6px; margin: 8px 0; font-family: monospace; font-size: 11px; color: var(--text-secondary); white-space: pre; overflow-x: auto; border: 1px solid var(--border); }
+.btn-sm { padding: 8px 12px !important; flex: none !important; min-width: auto !important; }
+
+/* 折叠区域 */
+.backup-details { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 12px; }
+.backup-details-summary { cursor: pointer; font-size: 13px; color: var(--text-secondary); padding: 8px 0; list-style: none; }
+.backup-details-summary::-webkit-details-marker { display: none; }
+.backup-details-summary:hover { color: var(--text-primary); }
+.backup-details[open] .backup-details-summary { margin-bottom: 12px; }
+.backup-tips-list { margin: 0; padding-left: 18px; font-size: 12px; }
+.backup-tips-list li { margin: 6px 0; color: var(--text-secondary); line-height: 1.5; }
+.backup-tips-list b { color: var(--text-primary); }
+
+/* 密钥信息 */
+.key-info-source { font-size: 13px; color: var(--text-primary); flex: 1; }
+.key-info-hint { font-size: 12px; color: var(--text-muted); }
+.key-warning-text { font-size: 11px; color: var(--gold); margin-top: 6px; }
+
+/* 备份记录弹窗 */
+.backup-list-modal { max-width: 500px; width: 95%; max-height: 80vh; }
+.backup-list-path { font-size: 12px; color: var(--text-muted); margin-bottom: 12px; font-family: monospace; padding: 8px 10px; background: var(--bg-hover); border-radius: 6px; }
+.backup-list-container { max-height: 400px; overflow-y: auto; }
+.backup-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; background: var(--bg-hover); border-radius: 8px; margin-bottom: 8px; transition: all 0.2s; }
+.backup-item:hover { background: var(--bg-card); }
+.backup-item:last-child { margin-bottom: 0; }
+.backup-item-info { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+.backup-item-icon { font-size: 18px; flex-shrink: 0; }
+.backup-item-details { min-width: 0; flex: 1; }
+.backup-item-name { font-size: 13px; font-weight: 500; color: var(--text-primary); }
+.backup-item-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.backup-item-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.backup-item-actions .btn { padding: 5px 10px; font-size: 12px; border-radius: 5px; border: none; cursor: pointer; }
+.backup-item-actions .btn-restore { background: var(--accent); color: white; }
+.backup-item-actions .btn-restore:hover { filter: brightness(1.1); }
+.backup-item-actions .btn-delete { background: transparent; color: var(--text-muted); }
+.backup-item-actions .btn-delete:hover { background: var(--red); color: white; }
+.backup-item-actions .btn-download { background: transparent; color: var(--text-muted); }
+.backup-item-actions .btn-download:hover { background: var(--green); color: white; }
+.backup-empty { text-align: center; padding: 30px; color: var(--text-muted); font-size: 13px; }
+.backup-download-tip { text-align: center; padding: 12px; margin-top: 12px; background: linear-gradient(135deg, rgba(52, 199, 89, 0.1), rgba(52, 199, 89, 0.05)); border: 1px dashed rgba(52, 199, 89, 0.4); border-radius: 8px; font-size: 12px; color: var(--green); }
+.backup-env-tip { margin-top: 12px; padding: 10px 12px; background: var(--bg-hover); border-radius: 6px; font-size: 12px; color: var(--text-secondary); }
+.backup-env-tip code { background: var(--bg-card); padding: 2px 6px; border-radius: 4px; font-family: monospace; }
+.backup-legend { text-align: center; padding: 8px; font-size: 11px; color: var(--text-muted); }
+
+@media (max-width: 768px) {
+    .backup-modal, .backup-list-modal { width: 100%; max-width: none; margin: 10px; }
+    .backup-row { flex-direction: column; align-items: stretch; }
+    .backup-row .btn { width: 100%; }
+    .backup-label { min-width: auto; margin-bottom: 4px; }
+}
+
+/* 备份说明中的密钥提示 */
+.backup-tips-note { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border); }
+.backup-key-tip { font-size: 12px; color: var(--text-muted); line-height: 1.5; }

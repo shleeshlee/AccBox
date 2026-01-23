@@ -5,14 +5,24 @@ services:
     build: .
     container_name: accbox-v5
     ports:
-      - "9111:80"
+      - "${PORT:-9111}:80"
     volumes:
+      # 🗃️ 核心数据
       - ./data:/app/data
+      
+      # 📦 备份数据 - 可在 .env 中设置 BACKUP_HOST_PATH 修改位置
+      # 默认: ./backups（项目目录下）
+      # 示例: BACKUP_HOST_PATH=/mnt/backup_disk/accbox
+      - ${BACKUP_HOST_PATH:-./backups}:/app/backups
     restart: unless-stopped
     environment:
       - TZ=Asia/Shanghai
       - DATA_DIR=/app/data
-      # ⚠️ 安全配置：请修改为您自己的密钥！
-      # 生成方法: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-      # 注意: 使用默认密钥时系统会显示安全警告
-      - APP_MASTER_KEY=DEFAULT_INSECURE_KEY_CHANGE_ME_IMMEDIATELY
+      - BACKUP_PATH=/app/backups
+      # ⚠️ 安全配置：请在 .env 文件中设置您的密钥！
+      # 步骤：cp .env.example .env 然后编辑 .env 填入密钥
+      # 生成密钥: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+      # 注意: 使用默认密钥时系统会显示安全警告，请勿直接修改此文件
+      - APP_MASTER_KEY=${APP_MASTER_KEY:-MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=}
+      # JWT 密钥 (可选，不设置则自动从 APP_MASTER_KEY 派生)
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-}

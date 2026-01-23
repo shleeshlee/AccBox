@@ -98,6 +98,7 @@
                         <div class="user-panel-item" onclick="openFavStylePicker()">💌 收藏样式</div>
                         <div class="user-panel-item" onclick="toggleTimeBadge()"><span id="timeBadgeIcon">⏰️</span> 时间提醒 <span class="toggle-status" id="timeBadgeStatus">开</span></div>
                         <div class="user-panel-item" onclick="openPasswordReset()">🔑 重置密码</div>
+                        <div class="user-panel-item" onclick="showBackupModal()">📦 数据备份</div>
                         <div class="user-panel-item" onclick="toggleTheme()"><span id="themeBtn">🌙</span> 切换主题</div>
                         <a class="user-panel-item" href="https://github.com/shleeshlee/account-manager" target="_blank" style="text-decoration:none;color:inherit;">🌻 1one/GitHub</a>
                     </div>
@@ -403,6 +404,93 @@
         <button class="http-warning-close" onclick="dismissHttpWarning()">✕</button>
     </div>
     
+    <!-- 数据备份弹窗 -->
+    <div class="modal-overlay" id="backupModal">
+        <div class="modal backup-modal">
+            <div class="modal-header">
+                <span class="modal-title">📦 数据备份</span>
+                <button class="btn-close" onclick="closeBackupModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <!-- 立即备份 -->
+                <div class="backup-section">
+                    <div class="backup-section-title">💾 立即备份</div>
+                    <div class="backup-row">
+                        <button class="btn btn-primary" onclick="createBackup()">📦 备份到服务器</button>
+                        <button class="btn btn-success" onclick="downloadBackupToLocal()">⬇️ 下载到本地</button>
+                    </div>
+                </div>
+                
+                <!-- 备份记录（点击查看） -->
+                <div class="backup-section backup-section-clickable" onclick="showBackupListModal()">
+                    <div class="backup-section-title">
+                        <span>📋 备份记录</span>
+                        <span class="backup-section-right">
+                            <span class="backup-count" id="backupCount">0 个</span>
+                            <span class="backup-arrow">›</span>
+                        </span>
+                    </div>
+                </div>
+                
+                <!-- 定时备份 -->
+                <details class="backup-details">
+                    <summary class="backup-details-summary">⏰ 定时备份</summary>
+                    <div class="backup-section">
+                        <div class="backup-row">
+                            <label class="backup-label">备份间隔</label>
+                            <select id="autoBackupInterval" class="backup-select" onchange="saveAutoBackupSettings()">
+                                <option value="0">关闭</option>
+                                <option value="6">每 6 小时</option>
+                                <option value="12">每 12 小时</option>
+                                <option value="24" selected>每天</option>
+                                <option value="72">每 3 天</option>
+                                <option value="168">每周</option>
+                            </select>
+                        </div>
+                        <div class="backup-row">
+                            <label class="backup-label">保留数量</label>
+                            <select id="autoBackupKeep" class="backup-select" onchange="saveAutoBackupSettings()">
+                                <option value="5">最近 5 个</option>
+                                <option value="10" selected>最近 10 个</option>
+                                <option value="20">最近 20 个</option>
+                                <option value="50">最近 50 个</option>
+                            </select>
+                        </div>
+                        <div class="backup-status" id="autoBackupStatus">定时备份：未启用</div>
+                    </div>
+                </details>
+                
+                <!-- 使用说明 -->
+                <details class="backup-details" open>
+                    <summary class="backup-details-summary">💡 说明</summary>
+                    <ul class="backup-tips-list">
+                        <li><b>下载到本地</b>：保存到您的电脑，最安全</li>
+                        <li><b>备份到服务器</b>：保存到 VPS，方便快速恢复</li>
+                        <li><b>定时备份</b>：服务器自动执行，无需保持网页打开</li>
+                    </ul>
+                    <div class="backup-env-tip">
+                        🔑 迁移服务器时，请同时备份 <code>.env</code> 文件（含加密密钥）
+                    </div>
+                </details>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 备份记录列表弹窗 -->
+    <div class="modal-overlay" id="backupListModal">
+        <div class="modal backup-list-modal">
+            <div class="modal-header">
+                <span class="modal-title">📋 备份记录</span>
+                <button class="btn-close" onclick="closeBackupListModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="backup-list-container" id="backupListContainer">
+                    <div class="backup-empty">加载中...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- jsQR 二维码识别库 -->
     <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
     <script>

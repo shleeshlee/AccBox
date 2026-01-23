@@ -1,5 +1,5 @@
 const API = '/api';
-const VERSION = 'v5.0'; // 完整2FA支持(含Steam Guard)、二维码扫描、安全加固
+const VERSION = 'v5.1'; // 安全修复版: bcrypt密码、JWT Token、备份功能、XSS防护 // 完整2FA支持(含Steam Guard)、二维码扫描、安全加固
 let token = localStorage.getItem('token');
 let user = JSON.parse(localStorage.getItem('user') || 'null');
 let accounts = [], accountTypes = [], propertyGroups = [];
@@ -200,12 +200,12 @@ async function checkSecurity() {
                 '系统检测到您使用的是默认的 <b>APP_MASTER_KEY</b>。<br><br>' +
                 '1. 您的数据目前处于<b>裸奔状态</b>，极易被破解！<br>' +
                 '2. <b>请勿在此状态下保存重要数据！</b><br>' +
-                '3. 请立即去 <code>docker-compose.yml</code> 修改密钥并重启。<br><br>' +
+                '3. 请创建 <code>.env</code> 文件并设置您的专属密钥：<br><br>' +
+                '<code style="display:block;background:#000;padding:10px;border-radius:4px;font-size:0.85rem;">' +
+                'cp .env.example .env<br>' +
+                '# 编辑 .env 填入密钥</code><br><br>' +
                 '❌ <b>切记：如果您现在存了数据，以后再改密钥，数据将永久无法解密！</b>'
             );
-        } else if (data.key_status === 'file_based') {
-            console.warn('正在使用文件密钥模式，请注意备份 data/.encryption_key');
-            showToast('⚠️ 提示：当前未配置环境变量密钥，请妥善备份 data 目录', true);
         }
     } catch (e) {
         console.error('安全检查失败', e);
@@ -219,7 +219,7 @@ function showSecurityModal(title, htmlContent) {
             <div style="font-size:4rem;margin-bottom:20px;">☢️</div>
             <h2 style="color:#ef4444;margin-bottom:20px;font-size:1.5rem;">${title}</h2>
             <div style="color:#e4e4e7;text-align:left;line-height:1.6;font-size:0.95rem;background:rgba(239,68,68,0.1);padding:15px;border-radius:8px;">${htmlContent}</div>
-            <div style="margin-top:25px;font-size:0.85rem;color:#71717a;">修改 docker-compose.yml 后重启容器，此警告将自动消失。</div>
+            <div style="margin-top:25px;font-size:0.85rem;color:#71717a;">修改密钥后重启容器，此警告将自动消失。</div>
         </div>
     </div>`;
     document.body.insertAdjacentHTML('beforeend', warningHtml);
@@ -655,7 +655,7 @@ function renderCards() {
             </div>
             <div class="card-footer">
                 <button class="btn-action" onclick="event.stopPropagation();copyPassword(${acc.id})" title="复制密码">🔑 密码</button>
-                ${acc.has_2fa ? `<button class="btn-action btn-2fa" onclick="event.stopPropagation();show2FAPopup(${acc.id})" title="查看验证码">🛡️ 2FA</button>` : ''}
+                ${acc.has_2fa ? `<button class="btn-action btn-2fa${acc.has_backup_codes ? ' has-backup' : ''}" onclick="event.stopPropagation();show2FAPopup(${acc.id})" title="${acc.has_backup_codes ? '有备份码' : '无备份码'}">🛡️ 2FA</button>` : ''}
                 <button class="btn-action" onclick="event.stopPropagation();copyEmail('${escapeHtml(acc.email)}')" title="复制邮箱">📋 复制</button>
                 <button class="btn-action" onclick="event.stopPropagation();loginTest(${acc.id})" title="登录测试">🔗 登录</button>
             </div>
@@ -1691,6 +1691,11 @@ async function doImport() {
 }
 
 async function exportData() {
+    // 安全提醒
+    if (!confirm('⚠️ 安全提醒\n\n导出的 JSON 文件中密码是【明文】存储的！\n\n请注意：\n• 妥善保管导出文件，不要分享给他人\n• 使用后建议删除本地文件\n• 如需安全备份，请使用「数据备份」功能\n\n确定要导出吗？')) {
+        return;
+    }
+    
     // 确保 token 存在
     if (!token) token = localStorage.getItem('token');
     if (!token) {
@@ -1726,7 +1731,7 @@ async function exportData() {
         a.href = URL.createObjectURL(blob); 
         a.download = `accounts_backup_${new Date().toISOString().slice(0,10)}.json`; 
         a.click();
-        showToast(`导出成功，共 ${data.accounts.length} 个账号`);
+        showToast(`✅ 导出成功，共 ${data.accounts.length} 个账号（⚠️ 密码为明文，请妥善保管）`);
     } catch (e) { 
         console.error('导出错误:', e);
         showToast('导出失败', true); 
@@ -2783,4 +2788,412 @@ function handleTagSubmit(e) {
     }
     // 手机端提交后，通常建议让输入框失去焦点，收起键盘，不然用户会困惑
     input.blur(); 
+}
+
+// 密码强度验证函数
+function validatePasswordStrength(password) {
+    const errors = [];
+    if (password.length < 8) errors.push('密码至少需要8个字符');
+    if (!/[a-zA-Z]/.test(password)) errors.push('密码必须包含字母');
+    if (!/\d/.test(password)) errors.push('密码必须包含数字');
+    if (errors.length > 0) {
+        showToast('⚠️ ' + errors.join('，'), true);
+        return false;
+    }
+    return true;
+}
+
+// 点击弹窗外部关闭
+document.addEventListener('click', (e) => {
+    const modal = document.getElementById('backupModal');
+    if (e.target === modal) closeBackupModal();
+});
+
+
+// ==================== 数据备份功能 ====================
+
+let autoBackupTimer = null;
+
+function showBackupModal() {
+    document.getElementById('backupModal').classList.add('show');
+    loadBackupPath();
+    loadAutoBackupSettings();
+    loadKeyInfo();
+    updateBackupCount(); // 只更新数量，不加载完整列表
+}
+
+function closeBackupModal() {
+    document.getElementById('backupModal').classList.remove('show');
+}
+
+function showBackupListModal() {
+    document.getElementById('backupListModal').classList.add('show');
+    listBackups();
+}
+
+function closeBackupListModal() {
+    document.getElementById('backupListModal').classList.remove('show');
+}
+
+function loadBackupPath() {
+    // 路径由后端环境变量控制，前端不需要处理
+}
+
+function getBackupPath() {
+    return null;
+}
+
+async function createBackup() {
+    try {
+        showToast('⏳ 正在备份...');
+        const resp = await fetch(API + '/backup', {
+            method: 'POST',
+            headers: {
+                'Authorization': 'Bearer ' + token,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({})
+        });
+        const data = await resp.json();
+        if (resp.ok) {
+            showToast('✅ 备份完成');
+            updateBackupCount();
+            if (document.getElementById('backupListModal')?.classList.contains('show')) {
+                listBackups();
+            }
+        } else {
+            showToast('❌ ' + (data.detail || '备份失败'), true);
+        }
+    } catch (e) {
+        showToast('❌ 网络错误', true);
+    }
+}
+
+async function downloadBackupToLocal() {
+    try {
+        showToast('⏳ 正在打包...');
+        
+        const resp = await fetch(API + '/backup/download', {
+            headers: { 'Authorization': 'Bearer ' + token }
+        });
+        
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            throw new Error(err.detail || '下载失败');
+        }
+        
+        const blob = await resp.blob();
+        const url = window.URL.createObjectURL(blob);
+        
+        // 生成文件名
+        const date = new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+        const filename = `accbox_backup_${date}.db`;
+        
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        
+        showToast('✅ 已下载到本地');
+    } catch (e) {
+        showToast('❌ ' + e.message, true);
+    }
+}
+
+async function updateBackupCount() {
+    const count = document.getElementById('backupCount');
+    try {
+        const resp = await fetch(`${API}/backups`, {
+            headers: { 'Authorization': 'Bearer ' + token }
+        });
+        const data = await resp.json();
+        if (resp.ok && count) {
+            count.textContent = data.backups.length + ' 个';
+        }
+    } catch (e) {
+        if (count) count.textContent = '-- 个';
+    }
+}
+
+async function listBackups() {
+    const container = document.getElementById('backupListContainer');
+    const count = document.getElementById('backupCount');
+    
+    if (container) container.innerHTML = '<div class="backup-empty">加载中...</div>';
+    
+    try {
+        const resp = await fetch(`${API}/backups`, {
+            headers: { 'Authorization': 'Bearer ' + token }
+        });
+        const data = await resp.json();
+        if (resp.ok) {
+            if (count) count.textContent = data.backups.length + ' 个';
+            
+            if (data.backups.length === 0) {
+                container.innerHTML = `
+                    <div class="backup-empty">
+                        暂无备份<br>
+                        <span style="font-size:12px;color:var(--text-muted)">点击「备份到服务器」创建第一个备份</span>
+                    </div>
+                    <div class="backup-download-tip">
+                        💡 建议定期下载备份到本地电脑，防止数据丢失
+                    </div>`;
+            } else {
+                // 最多显示 50 个
+                const backups = data.backups.slice(0, 50);
+                container.innerHTML = backups.map(b => {
+                    // 解析文件名获取时间
+                    const timeMatch = b.filename.match(/backup_(\d{8})_(\d{6})/);
+                    let timeStr = b.filename;
+                    if (timeMatch) {
+                        const d = timeMatch[1], t = timeMatch[2];
+                        timeStr = `${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)} ${t.slice(0,2)}:${t.slice(2,4)}`;
+                    }
+                    const sizeKB = (b.size / 1024).toFixed(1);
+                    const isAuto = b.filename.includes('_auto');
+                    const isBeforeRestore = b.filename.includes('_before_restore');
+                    
+                    let typeIcon = '📦';
+                    let typeText = '';
+                    if (isBeforeRestore) { typeIcon = '🔄'; typeText = '恢复前'; }
+                    else if (isAuto) { typeIcon = '⏰'; typeText = '自动'; }
+                    
+                    return `
+                    <div class="backup-item">
+                        <div class="backup-item-info">
+                            <span class="backup-item-icon">${typeIcon}</span>
+                            <div class="backup-item-details">
+                                <div class="backup-item-name">${timeStr}</div>
+                                <div class="backup-item-meta">${sizeKB} KB${typeText ? ' · ' + typeText : ''}</div>
+                            </div>
+                        </div>
+                        <div class="backup-item-actions">
+                            <button class="btn btn-download" onclick="downloadExistingBackup('${b.filename}')" title="下载到本地">⬇️</button>
+                            <button class="btn btn-restore" onclick="restoreBackup('${b.filename}')">恢复</button>
+                            <button class="btn btn-delete" onclick="deleteBackup('${b.filename}')">🗑️</button>
+                        </div>
+                    </div>`;
+                }).join('');
+                
+                // 添加下载提示和图标说明
+                container.innerHTML += `
+                    <div class="backup-download-tip">
+                        💡 建议定期点击 ⬇️ 下载到本地电脑
+                    </div>
+                    <div class="backup-legend">
+                        📦 手动备份 &nbsp;｜&nbsp; ⏰ 定时备份 &nbsp;｜&nbsp; 🔄 恢复前自动备份
+                    </div>`;
+                
+                if (data.backups.length > 50) {
+                    container.innerHTML += `<div class="backup-empty" style="padding:15px">仅显示最近 50 条，共 ${data.backups.length} 条</div>`;
+                }
+            }
+        }
+    } catch (e) {
+        console.error('获取备份列表失败:', e);
+        if (container) container.innerHTML = '<div class="backup-empty">加载失败，请重试</div>';
+    }
+}
+
+// 下载备份文件到本地
+async function downloadExistingBackup(filename) {
+    try {
+        showToast('⏳ 正在下载...');
+        
+        const resp = await fetch(`${API}/backups/${encodeURIComponent(filename)}/download`, {
+            headers: { 'Authorization': 'Bearer ' + token }
+        });
+        
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            throw new Error(err.detail || '下载失败');
+        }
+        
+        const blob = await resp.blob();
+        const url = window.URL.createObjectURL(blob);
+        
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        
+        showToast('✅ 已下载到本地');
+    } catch (e) {
+        console.error('下载备份失败:', e);
+        showToast('❌ ' + e.message, true);
+    }
+}
+
+async function restoreBackup(filename) {
+    if (!confirm('⚠️ 确定要恢复此备份吗？\n\n当前数据将被覆盖，此操作不可撤销！')) return;
+    try {
+        showToast('⏳ 正在恢复...');
+        const resp = await fetch(API + '/backups/' + encodeURIComponent(filename) + '/restore', {
+            method: 'POST',
+            headers: { 
+                'Authorization': 'Bearer ' + token,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({})
+        });
+        const data = await resp.json();
+        if (resp.ok) {
+            showToast('✅ 恢复成功，即将刷新页面');
+            setTimeout(() => location.reload(), 1500);
+        } else {
+            showToast('❌ ' + (data.detail || '恢复失败'), true);
+        }
+    } catch (e) {
+        showToast('❌ 网络错误', true);
+    }
+}
+
+async function deleteBackup(filename) {
+    if (!confirm('确定要删除此备份吗？')) return;
+    try {
+        const resp = await fetch(API + '/backups/' + encodeURIComponent(filename), {
+            method: 'DELETE',
+            headers: { 'Authorization': 'Bearer ' + token }
+        });
+        const data = await resp.json();
+        if (resp.ok) {
+            showToast('✅ 已删除');
+            updateBackupCount();
+            listBackups();
+        } else {
+            showToast('❌ ' + (data.detail || '删除失败'), true);
+        }
+    } catch (e) {
+        showToast('❌ 网络错误', true);
+    }
+}
+
+
+// ==================== 定时备份功能（后端执行） ====================
+
+async function loadAutoBackupSettings() {
+    const intervalSelect = document.getElementById('autoBackupInterval');
+    const keepSelect = document.getElementById('autoBackupKeep');
+    
+    try {
+        const resp = await fetch(API + '/backup/settings', {
+            headers: { 'Authorization': 'Bearer ' + token }
+        });
+        if (resp.ok) {
+            const settings = await resp.json();
+            if (intervalSelect) intervalSelect.value = settings.interval_hours || '0';
+            if (keepSelect) keepSelect.value = settings.keep_count || '10';
+            updateAutoBackupStatus(settings);
+        }
+    } catch (e) {
+        console.log('加载备份设置失败，使用默认值');
+        updateAutoBackupStatus({});
+    }
+}
+
+async function saveAutoBackupSettings() {
+    const interval = parseInt(document.getElementById('autoBackupInterval').value);
+    const keep = parseInt(document.getElementById('autoBackupKeep').value);
+    
+    try {
+        const resp = await fetch(API + '/backup/settings', {
+            method: 'POST',
+            headers: {
+                'Authorization': 'Bearer ' + token,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ interval_hours: interval, keep_count: keep })
+        });
+        
+        if (resp.ok) {
+            const result = await resp.json();
+            updateAutoBackupStatus(result.settings);
+            
+            if (interval > 0) {
+                showToast(`✅ 定时备份已启用：每 ${interval} 小时`);
+            } else {
+                showToast('定时备份已关闭');
+            }
+        } else {
+            showToast('❌ 保存设置失败', true);
+        }
+    } catch (e) {
+        console.error('保存备份设置失败:', e);
+        showToast('❌ 网络错误', true);
+    }
+}
+
+function updateAutoBackupStatus(settings) {
+    const status = document.getElementById('autoBackupStatus');
+    if (!status) return;
+    
+    const interval = settings?.interval_hours || 0;
+    const lastBackup = settings?.last_backup;
+    
+    // 只要 interval > 0 就认为已启用（enabled 字段由后端根据 interval 自动设置）
+    if (interval > 0) {
+        let statusText = `✅ 已启用：每 ${interval} 小时自动备份`;
+        if (lastBackup) {
+            const lastTime = new Date(lastBackup);
+            statusText += ` (上次: ${lastTime.toLocaleString('zh-CN')})`;
+        }
+        status.textContent = statusText;
+        status.classList.add('active');
+    } else {
+        status.textContent = '定时备份：未启用';
+        status.classList.remove('active');
+    }
+}
+
+// ==================== 密钥管理功能 ====================
+
+async function loadKeyInfo() {
+    const container = document.getElementById('keyInfoContainer');
+    if (!container) return;
+    
+    try {
+        const resp = await fetch(API + '/encryption-key/info', {
+            headers: { 'Authorization': 'Bearer ' + token }
+        });
+        if (resp.ok) {
+            const info = await resp.json();
+            
+            // 只有一种情况：密钥在 .env 文件中
+            if (info.source === 'environment') {
+                container.innerHTML = '<div class="backup-key-tip">🔑 您的密钥配置在 .env 文件中，迁移时请一并备份</div>';
+            }
+        }
+    } catch (e) {
+        // 静默失败
+    }
+}
+
+
+// ==================== 版本检查 ====================
+
+async function checkVersionUpgrade() {
+    try {
+        const resp = await fetch(API + '/version', {
+            headers: { 'Authorization': 'Bearer ' + token }
+        });
+        if (resp.ok) {
+            const data = await resp.json();
+            if (data.server_version && data.server_version !== VERSION) {
+                showToast(`🔄 服务器版本 ${data.server_version}，前端版本 ${VERSION}，建议刷新页面`, true);
+            }
+        }
+    } catch (e) {
+        console.log('版本检查跳过:', e.message);
+    }
+}
+
+// 在页面加载完成后检查版本升级
+if (token && user) {
+    setTimeout(checkVersionUpgrade, 2000);
 }
