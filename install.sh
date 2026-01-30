@@ -46,6 +46,7 @@ echo ""
 
 # ========== 检测 5.0 版本密钥迁移 ==========
 MIGRATED_KEY=""
+MIGRATED_BACKUP_PATH=""
 DEFAULT_KEY="MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA="
 
 if [ -f "docker-compose.yml" ]; then
@@ -62,6 +63,21 @@ if [ -f "docker-compose.yml" ]; then
         echo -e "  为保证数据兼容，将自动迁移此密钥到 .env 文件"
         echo ""
         MIGRATED_KEY="$OLD_KEY"
+    fi
+    
+    # 尝试提取旧的备份路径配置
+    OLD_BACKUP_PATH=$(grep -E "BACKUP_HOST_PATH=" docker-compose.yml | grep -v ':-' | grep -v '\${' | sed 's/.*BACKUP_HOST_PATH=//' | tr -d ' "' | head -1)
+    if [ -n "$OLD_BACKUP_PATH" ]; then
+        echo -e "  发现旧备份路径: ${CYAN}${OLD_BACKUP_PATH}${NC}"
+        MIGRATED_BACKUP_PATH="$OLD_BACKUP_PATH"
+    fi
+fi
+
+# 也检查现有的 .env 文件（如果存在且用户选择不覆盖）
+if [ -f ".env" ]; then
+    EXISTING_BACKUP_PATH=$(grep -E "^BACKUP_HOST_PATH=" .env | sed 's/BACKUP_HOST_PATH=//' | tr -d ' "' | head -1)
+    if [ -n "$EXISTING_BACKUP_PATH" ]; then
+        MIGRATED_BACKUP_PATH="$EXISTING_BACKUP_PATH"
     fi
 fi
 
@@ -148,6 +164,14 @@ if [ -f ".env" ]; then
 fi
 
 if [ "$SKIP_ENV" != true ]; then
+    # 确定备份路径的值
+    BACKUP_PATH_LINE=""
+    if [ -n "$MIGRATED_BACKUP_PATH" ]; then
+        BACKUP_PATH_LINE="BACKUP_HOST_PATH=${MIGRATED_BACKUP_PATH}"
+    else
+        BACKUP_PATH_LINE="# BACKUP_HOST_PATH=/your/backup/path"
+    fi
+    
     cat > .env << EOF
 # ╔══════════════════════════════════════════════════════════════╗
 # ║           AccBox 账号管家 - 配置文件                         ║
@@ -168,7 +192,7 @@ APP_MASTER_KEY=${APP_MASTER_KEY}
 JWT_SECRET_KEY=${JWT_SECRET_KEY}
 
 # 📦 备份存储路径 (可选)
-# BACKUP_HOST_PATH=/your/backup/path
+${BACKUP_PATH_LINE}
 EOF
     echo -e "${GREEN}  ✓ .env 文件已创建${NC}"
 fi
