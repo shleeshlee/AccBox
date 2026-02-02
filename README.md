@@ -81,7 +81,7 @@ python main.py
 
 使用一键更新脚本（推荐）：
 
-# cd 你的项目目录
+cd /你的项目路径 && ./update.sh
 
 ```bash
 # 首次使用需要授权
