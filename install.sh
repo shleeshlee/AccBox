@@ -63,6 +63,14 @@ if [ -f "docker-compose.yml" ]; then
         echo -e "  为保证数据兼容，将自动迁移此密钥到 .env 文件"
         echo ""
         MIGRATED_KEY="$OLD_KEY"
+    elif [ "$OLD_KEY" = "$DEFAULT_KEY" ]; then
+        echo -e "${RED}════════════════════════════════════════════════════════════════════${NC}"
+        echo -e "${RED}  ⚠️  检测到不安全的公开密钥！${NC}"
+        echo -e "${RED}════════════════════════════════════════════════════════════════════${NC}"
+        echo ""
+        echo -e "  您之前使用的是默认公开密钥，这是不安全的。"
+        echo -e "  将为您生成新的安全密钥。"
+        echo ""
     fi
     
     # 尝试提取旧的备份路径配置
@@ -73,9 +81,25 @@ if [ -f "docker-compose.yml" ]; then
     fi
 fi
 
-# 也检查现有的 .env 文件（如果存在且用户选择不覆盖）
+# 检查现有的 .env 文件
 if [ -f ".env" ]; then
+    EXISTING_KEY=$(grep -E "^APP_MASTER_KEY=" .env | sed 's/APP_MASTER_KEY=//' | tr -d ' "' | head -1)
     EXISTING_BACKUP_PATH=$(grep -E "^BACKUP_HOST_PATH=" .env | sed 's/BACKUP_HOST_PATH=//' | tr -d ' "' | head -1)
+    
+    # 如果现有密钥是公共密钥，标记需要重新生成
+    if [ "$EXISTING_KEY" = "$DEFAULT_KEY" ]; then
+        echo -e "${RED}════════════════════════════════════════════════════════════════════${NC}"
+        echo -e "${RED}  ⚠️  检测到 .env 中使用不安全的公开密钥！${NC}"
+        echo -e "${RED}════════════════════════════════════════════════════════════════════${NC}"
+        echo ""
+        echo -e "  将为您生成新的安全密钥并更新 .env 文件。"
+        echo ""
+        FORCE_REGENERATE=true
+    elif [ -n "$EXISTING_KEY" ] && [ -z "$MIGRATED_KEY" ]; then
+        # 现有密钥有效且不是公共密钥，保留它
+        MIGRATED_KEY="$EXISTING_KEY"
+    fi
+    
     if [ -n "$EXISTING_BACKUP_PATH" ]; then
         MIGRATED_BACKUP_PATH="$EXISTING_BACKUP_PATH"
     fi
@@ -153,13 +177,18 @@ echo -e "${GREEN}  ✓ JWT_SECRET_KEY 已生成${NC}"
 echo ""
 echo -e "${YELLOW}[3/5] 创建配置文件...${NC}"
 
+SKIP_ENV=false
 if [ -f ".env" ]; then
-    echo -e "${YELLOW}  ! 检测到已存在 .env 文件${NC}"
-    read -p "    是否覆盖？(y/N): " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        echo -e "${GREEN}  ✓ 保留现有配置${NC}"
-        SKIP_ENV=true
+    if [ "$FORCE_REGENERATE" = true ]; then
+        echo -e "${YELLOW}  ! 由于检测到不安全密钥，将强制更新 .env 文件${NC}"
+    else
+        echo -e "${YELLOW}  ! 检测到已存在 .env 文件${NC}"
+        read -p "    是否覆盖？(y/N): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            echo -e "${GREEN}  ✓ 保留现有配置${NC}"
+            SKIP_ENV=true
+        fi
     fi
 fi
 

@@ -48,13 +48,13 @@
                 <div class="form-group">
                     <label class="form-label">用户名</label>
                     <div class="input-wrapper">
-                        <input type="text" class="form-input" id="loginUsername" placeholder="输入您的用户名" required>
+                        <input type="text" class="form-input" id="loginUsername" placeholder="输入您的用户名" required autocomplete="username">
                     </div>
                 </div>
                 <div class="form-group">
                     <label class="form-label">密码</label>
                     <div class="input-wrapper">
-                        <input type="password" class="form-input" id="loginPassword" placeholder="输入您的密码" required>
+                        <input type="password" class="form-input" id="loginPassword" placeholder="输入您的密码" required autocomplete="current-password">
                     </div>
                 </div>
                 <button type="submit" class="btn-submit"><span>🔓 解锁金库</span></button>
@@ -136,8 +136,8 @@
                     <button class="btn-batch-props" onclick="openBatchPropsModal()"><span class="pc-only">🏷️ 修改属性</span><span class="mobile-only">🏷️</span></button>
                     <button class="btn-batch-delete" onclick="batchDelete()"><span class="pc-only">删除</span><span class="mobile-only">🗑️</span></button>
                 </div>
-                <!-- 搜索框 -->
-                <div class="search-box"><span class="search-icon">🔍</span><input type="search" id="searchInput" placeholder="搜索..." oninput="filterAccounts()" autocomplete="off" data-lpignore="true" data-form-type="other" data-1p-ignore="true" role="searchbox" name="accbox-search-no-fill"></div>
+                <!-- 搜索框 - 用form包裹并标记为搜索类型，防止密码管理器误识别 -->
+                <form class="search-box" role="search" action="javascript:void(0)" onsubmit="return false"><span class="search-icon">🔍</span><input type="search" id="searchInput" placeholder="搜索..." oninput="filterAccounts()" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-form-type="other" data-1p-ignore="true" data-protonpass-ignore="true" data-bitwarden-ignore="true" role="searchbox" name="q" aria-autocomplete="none"></form>
                 <!-- 视图切换 -->
                 <div class="view-toggle">
                     <button class="view-btn active" data-view="card" onclick="setViewMode('card')" title="卡片视图">🃏</button>
@@ -176,7 +176,7 @@
     <div class="modal-overlay" id="accountModal">
         <div class="modal">
             <div class="modal-header"><h2 class="modal-title" id="accountModalTitle">添加账号</h2><button class="btn-close" onclick="closeAccountModal()">✕</button></div>
-            <div class="modal-body">
+            <form class="modal-body" autocomplete="off" onsubmit="return false" data-form-type="other">
                 <div class="form-row">
                     <div class="form-group"><label class="form-label">账号类型</label><select class="form-select" id="accType"></select></div>
                     <div class="form-group w100"><label class="form-label">国家/地区</label><select class="form-select" id="accCountry">
@@ -205,10 +205,10 @@
                 </div>
                 <div class="form-group"><label class="form-label">自定义名称</label><input type="text" class="form-input" id="accName" placeholder="如：API主力号"></div>
                 <div class="form-row">
-                    <div class="form-group"><label class="form-label">邮箱/账号</label><input type="text" class="form-input" id="accEmail" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" name="accbox-email-no-fill" readonly onfocus="this.removeAttribute('readonly')"></div>
+                    <div class="form-group"><label class="form-label">邮箱/账号</label><input type="text" class="form-input" id="accEmail" autocomplete="off" autocorrect="off" autocapitalize="off" data-lpignore="true" data-1p-ignore="true" data-protonpass-ignore="true" data-form-type="other" name="accbox_email_nofill_xyz" readonly onfocus="this.removeAttribute('readonly')"></div>
                     <div class="form-group"><label class="form-label">密码（可选）</label>
                         <div class="password-input-wrapper">
-                            <input type="text" class="form-input pwd-field" id="accPassword" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other" name="accbox-pwd-no-fill" readonly onfocus="this.removeAttribute('readonly')">
+                            <input type="text" class="form-input pwd-field" id="accPassword" autocomplete="off" autocorrect="off" autocapitalize="off" data-lpignore="true" data-1p-ignore="true" data-protonpass-ignore="true" data-form-type="other" name="accbox_pwd_nofill_xyz" readonly onfocus="this.removeAttribute('readonly')">
                             <button type="button" class="btn-toggle-pwd" onclick="togglePasswordVisibility()" title="显示/隐藏密码">👁️</button>
                             <button type="button" class="btn-generate-pwd" onclick="generateAndFillPassword()" title="生成16位随机密码">🎲</button>
                         </div>
@@ -217,7 +217,7 @@
                 <div class="form-group"><label class="form-label">服务状态</label><div class="combos-box" id="accCombosBox"></div></div>
                 <div class="form-group"><label class="form-label">标签</label><div class="tags-input-box" id="accTagsBox"><input type="text" class="tag-input" id="accTagInput" placeholder="回车添加" onkeydown="handleTagInput(event)"></div></div>
                 <div class="form-group"><label class="form-label">备注</label><textarea class="form-textarea" id="accNotes"></textarea></div>
-            </div>
+            </form>
             <div class="modal-footer">
                 <button class="btn-2fa-config" id="btn2FAConfig" onclick="open2FAConfig(editingAccountId)" style="display:none">🛡️ 2FA</button>
                 <button class="btn-cancel" onclick="closeAccountModal()">取消</button>
@@ -228,7 +228,43 @@
 
     <!-- 属性组模态框 -->
     <div class="modal-overlay" id="propertyModal">
-        <div class="modal wide"><div class="modal-header"><h2 class="modal-title">管理属性组</h2><button class="btn-close" onclick="closePropertyManager()">✕</button></div><div class="modal-body" id="propertyEditorBody"></div></div>
+        <div class="modal wide">
+            <div class="modal-header">
+                <h2 class="modal-title"><span class="modal-title-icon">🏷️</span>管理属性组</h2>
+                <div class="modal-header-actions">
+                    <button class="help-toggle-btn" id="propHelpBtn" onclick="togglePropertyHelp()" title="帮助">?</button>
+                    <button class="btn-close" onclick="closePropertyManager()">✕</button>
+                </div>
+            </div>
+            <div class="modal-body" id="propertyEditorBody"></div>
+        </div>
+    </div>
+    
+    <!-- 属性组帮助气泡 -->
+    <div class="help-bubble" id="propertyHelpBubble">
+        <div class="help-bubble-header">
+            <span>💡</span>
+            <span>使用帮助</span>
+        </div>
+        <div class="help-bubble-content">
+            <div class="help-section">
+                <div class="help-section-title"><span class="icon">⋮⋮</span>拖拽排序</div>
+                <p>拖动属性组调整优先级，<strong>靠前的属性组颜色优先显示</strong>在复合标签中。</p>
+            </div>
+            <div class="help-section">
+                <div class="help-section-title"><span class="icon">👁</span>隐藏文字</div>
+                <p>👁 显示 → 点击变为 🙈 隐藏。隐藏后文字不显示，但<strong>颜色影响保留</strong>。</p>
+                <div class="help-example-wrap">
+                    <span class="help-tag" style="--tag-color:#ef4444">不可用 备用</span>
+                    <span class="help-arrow">→</span>
+                    <span class="help-tag" style="--tag-color:#ef4444">备用</span>
+                </div>
+            </div>
+            <div class="help-section">
+                <div class="help-section-title"><span class="icon">🎨</span>颜色选择</div>
+                <p>点击左侧色块可更换属性值的颜色。</p>
+            </div>
+        </div>
     </div>
 
     <!-- 类型模态框 -->
@@ -286,9 +322,9 @@
         <div class="modal small">
             <div class="modal-header"><h2 class="modal-title">🔑 重置密码</h2><button class="btn-close" onclick="closePasswordModal()">✕</button></div>
             <div class="modal-body">
-                <div class="form-group"><label class="form-label">当前密码</label><input type="password" class="form-input" id="oldPassword" required></div>
-                <div class="form-group"><label class="form-label">新密码</label><input type="password" class="form-input" id="newPassword" required></div>
-                <div class="form-group"><label class="form-label">确认新密码</label><input type="password" class="form-input" id="newPassword2" required></div>
+                <div class="form-group"><label class="form-label">当前密码</label><input type="password" class="form-input" id="oldPassword" required autocomplete="current-password"></div>
+                <div class="form-group"><label class="form-label">新密码</label><input type="password" class="form-input" id="newPassword" required autocomplete="new-password"></div>
+                <div class="form-group"><label class="form-label">确认新密码</label><input type="password" class="form-input" id="newPassword2" required autocomplete="new-password"></div>
             </div>
             <div class="modal-footer"><button class="btn-cancel" onclick="closePasswordModal()">取消</button><button class="btn-save" onclick="submitPasswordReset()">确认修改</button></div>
         </div>
@@ -520,7 +556,7 @@
                         <span class="season-card-desc">樱花粉绿</span>
                     </div>
                     <div class="season-card" data-season="summer" onclick="setSeason('summer')">
-                        <span class="season-card-icon">☀️</span>
+                        <span class="season-card-icon">🌴</span>
                         <span class="season-card-name">夏</span>
                         <span class="season-card-desc">清凉薄荷</span>
                     </div>

@@ -327,6 +327,7 @@ class PropertyValueCreate(BaseModel):
 class PropertyValueUpdate(BaseModel):
     name: Optional[str] = None
     color: Optional[str] = None
+    hidden: Optional[int] = None  # 0=显示, 1=隐藏
 
 class BackupConfig(BaseModel):
     backup_dir: Optional[str] = None
@@ -413,6 +414,7 @@ def init_user_tables(user_id: int):
                 name TEXT NOT NULL,
                 color TEXT DEFAULT '#8b5cf6',
                 sort_order INTEGER DEFAULT 0,
+                hidden INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (group_id) REFERENCES user_{user_id}_property_groups(id) ON DELETE CASCADE
             )
@@ -516,6 +518,21 @@ def migrate_add_2fa_columns():
         conn.commit()
 
 # ==================== 工具函数 ====================
+
+def migrate_add_hidden_column():
+    """迁移：为属性值表添加 hidden 字段"""
+    with get_db() as conn:
+        cursor = conn.execute("SELECT id FROM users")
+        for user in cursor.fetchall():
+            user_id = user["id"]
+            try:
+                conn.execute(f"SELECT hidden FROM user_{user_id}_property_values LIMIT 1")
+            except sqlite3.OperationalError:
+                try:
+                    conn.execute(f"ALTER TABLE user_{user_id}_property_values ADD COLUMN hidden INTEGER DEFAULT 0")
+                    conn.commit()
+                except:
+                    pass
 
 def generate_token() -> str:
     return secrets.token_hex(32)
@@ -745,9 +762,48 @@ def update_property_group(group_id: int, data: PropertyGroupUpdate, user: dict =
 @app.delete("/api/property-groups/{group_id}")
 def delete_property_group(group_id: int, user: dict = Depends(get_current_user)):
     with get_db() as conn:
+        # 先获取该属性组下所有属性值的ID
+        cursor = conn.execute(f"SELECT id FROM user_{user['id']}_property_values WHERE group_id = ?", (group_id,))
+        value_ids = [row['id'] for row in cursor.fetchall()]
+        
+        # 删除属性组（会级联删除属性值）
         conn.execute(f"DELETE FROM user_{user['id']}_property_groups WHERE id = ?", (group_id,))
+        
+        # 清理账号中引用这些属性值的combo
+        if value_ids:
+            cursor = conn.execute(f"SELECT id, combos FROM user_{user['id']}_accounts")
+            for row in cursor.fetchall():
+                try:
+                    combos = json.loads(row['combos'] or '[]')
+                    # 过滤掉包含已删除属性值的ID
+                    new_combos = []
+                    for combo in combos:
+                        if isinstance(combo, list):
+                            filtered = [vid for vid in combo if vid not in value_ids]
+                            if filtered:  # 只保留非空的combo
+                                new_combos.append(filtered)
+                    conn.execute(f"UPDATE user_{user['id']}_accounts SET combos = ? WHERE id = ?",
+                                (json.dumps(new_combos), row['id']))
+                except:
+                    pass
+        
         conn.commit()
     return {"message": "删除成功"}
+
+# 属性组重排序API
+class PropertyGroupReorder(BaseModel):
+    order: list  # [{"id": 1, "sort_order": 0}, {"id": 2, "sort_order": 1}, ...]
+
+@app.post("/api/property-groups/reorder")
+def reorder_property_groups(data: PropertyGroupReorder, user: dict = Depends(get_current_user)):
+    with get_db() as conn:
+        for item in data.order:
+            conn.execute(
+                f"UPDATE user_{user['id']}_property_groups SET sort_order = ? WHERE id = ?",
+                (item['sort_order'], item['id'])
+            )
+        conn.commit()
+    return {"message": "排序已更新"}
 
 # ==================== 属性值 API ====================
 
@@ -768,6 +824,9 @@ def update_property_value(value_id: int, data: PropertyValueUpdate, user: dict =
     if data.color is not None:
         updates.append("color = ?")
         values.append(data.color)
+    if data.hidden is not None:
+        updates.append("hidden = ?")
+        values.append(data.hidden)
     if not updates:
         raise HTTPException(status_code=400, detail="没有要更新的字段")
     values.append(value_id)
@@ -779,9 +838,68 @@ def update_property_value(value_id: int, data: PropertyValueUpdate, user: dict =
 @app.delete("/api/property-values/{value_id}")
 def delete_property_value(value_id: int, user: dict = Depends(get_current_user)):
     with get_db() as conn:
+        # 删除属性值
         conn.execute(f"DELETE FROM user_{user['id']}_property_values WHERE id = ?", (value_id,))
+        
+        # 清理账号中引用该属性值的combo
+        cursor = conn.execute(f"SELECT id, combos FROM user_{user['id']}_accounts")
+        for row in cursor.fetchall():
+            try:
+                combos = json.loads(row['combos'] or '[]')
+                new_combos = []
+                for combo in combos:
+                    if isinstance(combo, list):
+                        filtered = [vid for vid in combo if vid != value_id]
+                        if filtered:  # 只保留非空的combo
+                            new_combos.append(filtered)
+                conn.execute(f"UPDATE user_{user['id']}_accounts SET combos = ? WHERE id = ?",
+                            (json.dumps(new_combos), row['id']))
+            except:
+                pass
+        
         conn.commit()
     return {"message": "删除成功"}
+
+# ==================== 清理无效属性 API ====================
+
+@app.post("/api/cleanup-invalid-combos")
+def cleanup_invalid_combos(user: dict = Depends(get_current_user)):
+    """清理所有账号中引用已删除属性值的combo"""
+    with get_db() as conn:
+        # 获取所有有效的属性值ID
+        cursor = conn.execute(f"SELECT id FROM user_{user['id']}_property_values")
+        valid_ids = set(row['id'] for row in cursor.fetchall())
+        
+        # 遍历所有账号，清理无效引用
+        cursor = conn.execute(f"SELECT id, combos FROM user_{user['id']}_accounts")
+        cleaned_count = 0
+        
+        for row in cursor.fetchall():
+            try:
+                combos = json.loads(row['combos'] or '[]')
+                new_combos = []
+                changed = False
+                
+                for combo in combos:
+                    if isinstance(combo, list):
+                        filtered = [vid for vid in combo if vid in valid_ids]
+                        if len(filtered) != len(combo):
+                            changed = True
+                        if filtered:
+                            new_combos.append(filtered)
+                        elif combo:  # 原来有内容但被清空了
+                            changed = True
+                
+                if changed:
+                    conn.execute(f"UPDATE user_{user['id']}_accounts SET combos = ? WHERE id = ?",
+                                (json.dumps(new_combos), row['id']))
+                    cleaned_count += 1
+            except:
+                pass
+        
+        conn.commit()
+    
+    return {"message": f"已清理 {cleaned_count} 个账号的无效属性", "cleaned_count": cleaned_count}
 
 # ==================== 账号 API ====================
 
@@ -1814,4 +1932,5 @@ if __name__ == "__main__":
     init_db()
     migrate_add_combos_column()
     migrate_add_2fa_columns()
+    migrate_add_hidden_column()
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")

@@ -191,26 +191,8 @@ function updateTimeBadgeUI() {
 
 // ==================== 安全检查 ====================
 async function checkSecurity() {
-    try {
-        const res = await fetch(API + '/health');
-        const data = await res.json();
-        
-        if (data.key_status === 'unsafe_default') {
-            showSecurityModal(
-                '⚠️ 安全警报：正在使用默认公开密钥！',
-                '系统检测到您使用的是默认的 <b>APP_MASTER_KEY</b>。<br><br>' +
-                '1. 您的数据目前处于<b>裸奔状态</b>，极易被破解！<br>' +
-                '2. <b>请勿在此状态下保存重要数据！</b><br>' +
-                '3. 请创建 <code>.env</code> 文件并设置您的专属密钥：<br><br>' +
-                '<code style="display:block;background:#000;padding:10px;border-radius:4px;font-size:0.85rem;">' +
-                'cp .env.example .env<br>' +
-                '# 编辑 .env 填入密钥</code><br><br>' +
-                '❌ <b>切记：如果您现在存了数据，以后再改密钥，数据将永久无法解密！</b>'
-            );
-        }
-    } catch (e) {
-        console.error('安全检查失败', e);
-    }
+    // 公共密钥检测已由 install.sh 自动处理
+    // 保留此函数以备后续扩展
 }
 
 function showSecurityModal(title, htmlContent) {
@@ -356,7 +338,7 @@ let seasonParticleElements = [];
 const SEASON_ICONS = {
     'auto': '🔄',
     'spring': '🌸',
-    'summer': '☀️',
+    'summer': '🌴',
     'autumn': '🍂',
     'winter': '❄️',
     'none': '🚫'
@@ -663,11 +645,34 @@ async function loadUserAvatar() {
 // 数据加载
 async function loadData() {
     try {
+        // 先显示骨架屏
+        showSkeletonCards();
         await Promise.all([loadAccountTypes(), loadPropertyGroups(), loadAccounts()]);
         renderSidebar(); renderCards();
     } catch (e) {
         console.error('loadData错误:', e);
     }
+}
+
+// 显示骨架屏
+function showSkeletonCards(count = 6) {
+    const skeletonHtml = Array(count).fill(0).map(() => `
+        <div class="skeleton-card">
+            <div class="skeleton-header">
+                <div class="skeleton-icon"></div>
+                <div class="skeleton-lines">
+                    <div class="skeleton-line"></div>
+                    <div class="skeleton-line"></div>
+                </div>
+            </div>
+            <div class="skeleton-footer">
+                <div class="skeleton-btn"></div>
+                <div class="skeleton-btn"></div>
+                <div class="skeleton-btn"></div>
+            </div>
+        </div>
+    `).join('');
+    document.getElementById('cardsList').innerHTML = skeletonHtml;
 }
 
 async function loadAccounts() {
@@ -783,10 +788,11 @@ function renderSidebar() {
 
 // 卡片渲染
 function renderCards() {
+    const cardsList = document.getElementById('cardsList');
     const filtered = getFilteredAccounts(), sorted = sortAccounts(filtered);
     if (sorted.length === 0) { 
         // 可爱的空状态插画
-        document.getElementById('cardsList').innerHTML = `
+        cardsList.innerHTML = `
             <div class="empty-state">
                 <svg class="empty-illustration" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <ellipse cx="100" cy="160" rx="60" ry="15" fill="var(--border)" opacity="0.3"/>
@@ -834,17 +840,31 @@ function renderCards() {
         // 渲染组合标签
         let combosHtml = '';
         combos.forEach(combo => {
+            // 使用normalizeCombo规范化顺序，确保显示一致
+            const normalized = normalizeCombo(combo);
             const parts = [];
             let color = '#8b5cf6'; // 默认颜色
             let isFirst = true;
-            // 遍历combo中的每个值ID
-            combo.forEach(vid => {
+            let firstValueName = ''; // 备用：如果所有都hidden，显示第一个
+            // 遍历规范化后的combo中的每个值ID
+            normalized.forEach(vid => {
                 const v = valueMap[vid];
                 if (v) {
-                    if (isFirst) { color = v.color; isFirst = false; } // 第一个值决定颜色
-                    parts.push(v.name);
+                    if (isFirst) { 
+                        color = v.color; 
+                        isFirst = false; 
+                        firstValueName = v.name;
+                    }
+                    // 只有非hidden的属性值才显示文字
+                    if (!v.hidden) {
+                        parts.push(v.name);
+                    }
                 }
             });
+            // 如果所有都hidden，显示第一个的名称
+            if (parts.length === 0 && firstValueName) {
+                parts.push(firstValueName);
+            }
             if (parts.length > 0) {
                 // 简洁样式：圆点 + 文字，轻量背景
                 combosHtml += `<span class="combo-badge" style="background:${hexToRgba(color,0.12)};color:${color}"><span class="combo-dot" style="background:${color}"></span>${parts.join(' ')}</span>`;
@@ -1051,7 +1071,7 @@ function setView(view) {
         updatePageTitle();
         renderSidebar();
         renderFiltersBar();
-        renderCards();
+        renderCardsWithTransition();
         return;
     }
     
@@ -1081,7 +1101,7 @@ function setView(view) {
     updatePageTitle();
     renderSidebar();
     renderFiltersBar();
-    renderCards();
+    renderCardsWithTransition();
 }
 
 // 右键排除视图（PC端快捷操作，直接跳到排除状态）
@@ -1110,7 +1130,7 @@ function excludeView(view, event) {
     updatePageTitle();
     renderSidebar();
     renderFiltersBar();
-    renderCards();
+    renderCardsWithTransition();
 }
 
 // 账号类型筛选 - 三态循环：正常 → 选中 → 排除 → 正常
@@ -1138,7 +1158,7 @@ function filterByType(typeId) {
     updatePageTitle();
     renderSidebar();
     renderFiltersBar(); 
-    renderCards();
+    renderCardsWithTransition();
 }
 
 // 右键排除账号类型（PC端快捷操作）
@@ -1163,7 +1183,7 @@ function excludeType(typeId, event) {
     updatePageTitle();
     renderSidebar();
     renderFiltersBar();
-    renderCards();
+    renderCardsWithTransition();
 }
 
 // 属性值筛选 - 三态循环：正常 → 选中 → 排除 → 正常
@@ -1197,7 +1217,7 @@ function filterByProperty(groupId, valueId) {
     updatePageTitle();
     renderSidebar();
     renderFiltersBar(); 
-    renderCards();
+    renderCardsWithTransition();
 }
 
 // 右键排除属性值（PC端快捷操作）
@@ -1225,7 +1245,7 @@ function excludeProperty(groupId, valueId, event) {
     updatePageTitle();
     renderSidebar();
     renderFiltersBar();
-    renderCards();
+    renderCardsWithTransition();
 }
 
 // "未设置"属性组筛选 - 三态循环：正常 → 选中 → 排除 → 正常
@@ -1253,7 +1273,7 @@ function filterByNoProperty(groupId) {
     updatePageTitle();
     renderSidebar();
     renderFiltersBar(); 
-    renderCards();
+    renderCardsWithTransition();
 }
 
 // 右键排除"未设置"属性组（PC端快捷操作）
@@ -1281,7 +1301,7 @@ function excludeNoProperty(groupId, event) {
     updatePageTitle();
     renderSidebar();
     renderFiltersBar();
-    renderCards();
+    renderCardsWithTransition();
 }
 
 function updatePageTitle() {
@@ -1465,7 +1485,17 @@ function updateSortButtons() {
     });
 }
 
-function filterAccounts() { renderCards(); }
+function filterAccounts() { renderCardsWithTransition(); }
+
+// 带过渡效果的渲染
+function renderCardsWithTransition() {
+    const cardsList = document.getElementById('cardsList');
+    cardsList.classList.add('transitioning');
+    setTimeout(() => {
+        renderCards();
+        cardsList.classList.remove('transitioning');
+    }, 150);
+}
 
 // 账号操作
 async function toggleFavorite(id) {
@@ -1496,7 +1526,27 @@ async function loginTest(id) {
 
 async function deleteAccount(id) {
     if (!confirm('确定删除此账号?')) return;
-    try { const res = await fetch(API + `/accounts/${id}`, { method: 'DELETE', headers: { Authorization: 'Bearer ' + token } }); if (res.ok) { accounts = accounts.filter(a => a.id !== id); showToast('已删除'); renderSidebar(); renderCards(); } } catch { showToast('删除失败', true); }
+    // 先播放删除动画
+    const card = document.querySelector(`.account-card[data-id="${id}"]`);
+    if (card) {
+        card.classList.add('removing');
+        await new Promise(r => setTimeout(r, 250));
+    }
+    try { 
+        const res = await fetch(API + `/accounts/${id}`, { method: 'DELETE', headers: { Authorization: 'Bearer ' + token } }); 
+        if (res.ok) { 
+            accounts = accounts.filter(a => a.id !== id); 
+            showToast('已删除'); 
+            renderSidebar(); 
+            renderCards(); 
+        } else {
+            // 删除失败，移除动画类
+            if (card) card.classList.remove('removing');
+        }
+    } catch { 
+        if (card) card.classList.remove('removing');
+        showToast('删除失败', true); 
+    }
 }
 
 // 账号模态框
@@ -1545,29 +1595,109 @@ function openEditModal(id) {
 // 组合标签渲染
 function renderCombosBox() {
     const container = document.getElementById('accCombosBox');
-    let html = editingCombos.map((combo, idx) => {
+    // 过滤掉无效的combo（属性值已被删除的）
+    const validCombos = [];
+    const invalidCount = editingCombos.filter(combo => {
+        const display = getComboDisplay(combo);
+        if (display.invalid) return true;
+        validCombos.push(combo);
+        return false;
+    }).length;
+    
+    let html = validCombos.map((combo, idx) => {
         const display = getComboDisplay(combo);
         return `<span class="combo-tag" style="background:${hexToRgba(display.color,0.12)};color:${display.color}"><span class="combo-dot" style="background:${display.color}"></span>${display.text}<span class="remove" onclick="removeCombo(${idx})">✕</span></span>`;
     }).join('');
+    
+    // 如果有无效的combo，显示清理提示
+    if (invalidCount > 0) {
+        html += `<span class="combo-tag invalid" style="background:rgba(239,68,68,0.1);color:#ef4444" onclick="cleanInvalidCombos()" title="点击清理">⚠️ ${invalidCount}个失效属性 ✕</span>`;
+    }
+    
     html += '<button class="btn-add-combo" onclick="openComboSelector()">+ 添加</button>';
     container.innerHTML = html;
+    
+    // 更新 editingCombos 为有效的
+    editingCombos = validCombos;
+}
+
+// 清理无效的combo
+function cleanInvalidCombos() {
+    editingCombos = editingCombos.filter(combo => !getComboDisplay(combo).invalid);
+    renderCombosBox();
+    showToast('已清理失效属性');
+}
+
+/**
+ * 【统一规范化combo数组】
+ * 按属性组顺序排序combo中的值ID，确保：
+ * 1. 无论用户点击顺序如何，相同的属性组合生成相同的数组
+ * 2. 第一个属性组的值始终在前面，保证颜色显示一致
+ * 3. 便于精确匹配和去重
+ */
+function normalizeCombo(combo) {
+    if (!Array.isArray(combo) || combo.length === 0) return combo;
+    
+    // 构建 valueId -> 属性组顺序 的映射
+    const valueOrderMap = new Map();
+    propertyGroups.forEach((g, groupIndex) => {
+        (g.values || []).forEach((v, valueIndex) => {
+            // 属性组顺序 * 10000 + 组内顺序，确保按属性组优先排序
+            valueOrderMap.set(v.id, groupIndex * 10000 + valueIndex);
+        });
+    });
+    
+    // 按属性组顺序排序
+    return [...combo].sort((a, b) => {
+        const orderA = valueOrderMap.get(a) ?? 999999;
+        const orderB = valueOrderMap.get(b) ?? 999999;
+        return orderA - orderB;
+    });
+}
+
+/**
+ * 比较两个combo是否相等（规范化后比较）
+ */
+function combosEqual(combo1, combo2) {
+    if (!Array.isArray(combo1) || !Array.isArray(combo2)) return false;
+    if (combo1.length !== combo2.length) return false;
+    const n1 = normalizeCombo(combo1);
+    const n2 = normalizeCombo(combo2);
+    return n1.every((v, i) => v === n2[i]);
 }
 
 function getComboDisplay(combo) {
+    // 先规范化combo顺序，确保显示一致
+    const normalized = normalizeCombo(combo);
     let color = '#8b5cf6', parts = [], isFirst = true;
     // 遍历combo中的每个值ID，按顺序查找
-    combo.forEach(vid => {
+    normalized.forEach(vid => {
         // 在所有属性组中查找这个值ID
         for (const g of propertyGroups) {
             const v = (g.values || []).find(v => v.id === vid);
             if (v) {
+                // 颜色始终取第一个（即使hidden也影响颜色）
                 if (isFirst) { color = v.color; isFirst = false; }
-                parts.push(v.name);
+                // 只有非hidden的属性值才显示文字
+                if (!v.hidden) {
+                    parts.push(v.name);
+                }
                 break;
             }
         }
     });
-    return { color, text: parts.join(' ') || '●' };
+    // 如果所有属性都hidden了，显示第一个的名称作为备用
+    if (parts.length === 0 && normalized.length > 0) {
+        for (const g of propertyGroups) {
+            const v = (g.values || []).find(v => v.id === normalized[0]);
+            if (v) {
+                parts.push(v.name);
+                break;
+            }
+        }
+    }
+    if (parts.length === 0) return { color, text: '', invalid: true };
+    return { color, text: parts.join(' '), invalid: false };
 }
 
 function removeCombo(idx) {
@@ -1608,7 +1738,9 @@ function cancelComboSelector() {
 function confirmComboSelector() {
     const selected = document.querySelectorAll('#comboSelectorOverlay .combo-option.selected');
     console.log('选中的元素数量:', selected.length);
-    const combo = Array.from(selected).map(el => parseInt(el.dataset.vid));
+    // 【修复】使用normalizeCombo规范化，确保与批量修改逻辑一致
+    const rawCombo = Array.from(selected).map(el => parseInt(el.dataset.vid));
+    const combo = normalizeCombo(rawCombo);
     console.log('生成的combo:', combo);
     if (combo.length > 0) {
         editingCombos.push(combo);
@@ -1750,18 +1882,196 @@ async function saveAccount() {
 }
 
 // 属性组管理
-function openPropertyManager() { renderPropertyEditor(); document.getElementById('propertyModal').classList.add('show'); }
-function closePropertyManager() { document.getElementById('propertyModal').classList.remove('show'); }
+function openPropertyManager() { 
+    renderPropertyEditor(); 
+    document.getElementById('propertyModal').classList.add('show'); 
+    hidePropertyHelp(); // 打开时默认隐藏帮助
+}
+function closePropertyManager() { 
+    document.getElementById('propertyModal').classList.remove('show'); 
+    hidePropertyHelp();
+}
+
+// 帮助气泡控制
+function togglePropertyHelp() {
+    const bubble = document.getElementById('propertyHelpBubble');
+    const btn = document.getElementById('propHelpBtn');
+    const isShow = bubble.classList.toggle('show');
+    btn.classList.toggle('active', isShow);
+}
+
+function hidePropertyHelp() {
+    const bubble = document.getElementById('propertyHelpBubble');
+    const btn = document.getElementById('propHelpBtn');
+    if (bubble) bubble.classList.remove('show');
+    if (btn) btn.classList.remove('active');
+}
+
+// 点击外部关闭帮助气泡
+document.addEventListener('click', (e) => {
+    const bubble = document.getElementById('propertyHelpBubble');
+    const btn = document.getElementById('propHelpBtn');
+    if (bubble && btn && !bubble.contains(e.target) && !btn.contains(e.target)) {
+        hidePropertyHelp();
+    }
+});
 
 function renderPropertyEditor() {
-    let html = '<div class="hint-box"><p>属性组类似Discord分类，可自由增删改。</p></div>';
-    propertyGroups.forEach(g => {
-        html += `<div class="editor-group"><div class="editor-header"><input type="text" value="${escapeHtml(g.name)}" onchange="updateGroupName(${g.id}, this.value)"><button class="btn-del" onclick="deleteGroup(${g.id})">🗑️</button></div><div class="editor-values">`;
-        (g.values || []).forEach(v => html += `<div class="value-row"><input type="color" class="color-picker" value="${v.color}" onchange="updateValue(${v.id}, null, this.value)"><input type="text" value="${escapeHtml(v.name)}" onchange="updateValue(${v.id}, this.value, null)"><button class="btn-del" onclick="deleteValue(${v.id})">✕</button></div>`);
-        html += `<button class="btn-add-row" onclick="addValue(${g.id})">+ 添加</button></div></div>`;
+    let html = '<div id="propertyGroupList" class="property-group-list">';
+    propertyGroups.forEach((g, idx) => {
+        const isCollapsed = localStorage.getItem(`propGroup_${g.id}_collapsed`) === 'true';
+        html += `<div class="prop-group-card ${isCollapsed ? 'collapsed' : ''}" draggable="true" data-group-id="${g.id}" data-group-idx="${idx}">
+            <div class="prop-group-header">
+                <span class="drag-handle" title="拖拽排序">⋮⋮</span>
+                <input type="text" class="prop-group-name" value="${escapeHtml(g.name)}" onchange="updateGroupName(${g.id}, this.value)">
+                <div class="prop-group-actions">
+                    <button class="prop-icon-btn" onclick="toggleGroupCollapse(${g.id}, this)" title="折叠/展开">▾</button>
+                    <button class="prop-icon-btn danger" onclick="deleteGroup(${g.id})" title="删除">🗑</button>
+                </div>
+            </div>
+            <div class="prop-value-list">`;
+        (g.values || []).forEach(v => {
+            const isHidden = v.hidden === 1 || v.hidden === true;
+            html += `<div class="prop-value-row">
+                <div class="prop-color-wrap">
+                    <div class="prop-color-display" style="background:${v.color}"></div>
+                    <input type="color" value="${v.color}" onchange="updateValue(${v.id}, null, this.value)">
+                </div>
+                <input type="text" class="prop-value-name" value="${escapeHtml(v.name)}" onchange="updateValue(${v.id}, this.value, null)">
+                <span class="prop-value-preview" style="--tag-color:${v.color}">
+                    <span class="dot"></span>${escapeHtml(v.name)}
+                </span>
+                <button class="prop-visibility-btn ${isHidden ? 'hidden' : ''}" onclick="toggleValueVisibility(${v.id}, ${isHidden ? 0 : 1})" title="${isHidden ? '点击显示' : '点击隐藏'}">${isHidden ? '🙈' : '👁'}</button>
+                <button class="prop-delete-btn" onclick="deleteValue(${v.id})">✕</button>
+            </div>`;
+        });
+        html += `<button class="prop-add-value-btn" onclick="addValue(${g.id})">+ 添加属性值</button>
+            </div>
+        </div>`;
     });
-    html += '<button class="btn-add-group" onclick="addGroup()">➕ 添加新属性组</button>';
+    html += '</div>';
+    // 底部工具栏
+    html += `<div class="prop-editor-footer">
+        <button class="prop-footer-btn primary" onclick="addGroup()">
+            <span>＋</span>添加属性组
+        </button>
+        <button class="prop-footer-btn secondary" onclick="cleanupInvalidCombos()">
+            <span>🧹</span>清理失效
+        </button>
+    </div>`;
     document.getElementById('propertyEditorBody').innerHTML = html;
+    initPropertyGroupDragSort();
+}
+
+// 折叠/展开属性组
+function toggleGroupCollapse(groupId, btn) {
+    const card = btn.closest('.prop-group-card');
+    const isCollapsed = card.classList.toggle('collapsed');
+    localStorage.setItem(`propGroup_${groupId}_collapsed`, isCollapsed);
+}
+
+// 切换属性值隐藏状态
+async function toggleValueVisibility(valueId, hidden) {
+    try {
+        await fetch(API + `/property-values/${valueId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+            body: JSON.stringify({ hidden: hidden })
+        });
+        await loadPropertyGroups();
+        renderPropertyEditor();
+        renderSidebar();
+        renderCards();
+    } catch (e) {
+        showToast('❌ 更新失败', true);
+    }
+}
+
+// 属性组拖拽排序
+function initPropertyGroupDragSort() {
+    const list = document.getElementById('propertyGroupList');
+    if (!list) return;
+    
+    let draggedItem = null;
+    
+    list.querySelectorAll('.prop-group-card').forEach(item => {
+        item.addEventListener('dragstart', e => {
+            draggedItem = item;
+            item.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+            hidePropertyHelp(); // 拖拽时隐藏帮助
+        });
+        
+        item.addEventListener('dragend', e => {
+            item.classList.remove('dragging');
+            draggedItem = null;
+            savePropertyGroupOrder();
+        });
+        
+        item.addEventListener('dragover', e => {
+            e.preventDefault();
+            if (!draggedItem || draggedItem === item) return;
+            
+            const rect = item.getBoundingClientRect();
+            const midY = rect.top + rect.height / 2;
+            
+            if (e.clientY < midY) {
+                item.parentNode.insertBefore(draggedItem, item);
+            } else {
+                item.parentNode.insertBefore(draggedItem, item.nextSibling);
+            }
+        });
+    });
+}
+
+// 保存属性组顺序
+async function savePropertyGroupOrder() {
+    const list = document.getElementById('propertyGroupList');
+    if (!list) return;
+    
+    const newOrder = Array.from(list.querySelectorAll('.prop-group-card')).map((el, idx) => ({
+        id: parseInt(el.dataset.groupId),
+        sort_order: idx
+    }));
+    
+    try {
+        const res = await fetch(API + '/property-groups/reorder', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+            body: JSON.stringify({ order: newOrder })
+        });
+        if (res.ok) {
+            await loadPropertyGroups();
+            renderSidebar();
+            renderCards();
+            showToast('✅ 顺序已保存');
+        }
+    } catch (e) {
+        showToast('❌ 保存顺序失败', true);
+    }
+}
+
+// 清理所有账号中的失效属性
+async function cleanupInvalidCombos() {
+    if (!confirm('确定要清理所有账号中引用已删除属性值的记录吗？')) return;
+    try {
+        showToast('⏳ 正在清理...');
+        const res = await fetch(API + '/cleanup-invalid-combos', {
+            method: 'POST',
+            headers: { Authorization: 'Bearer ' + token }
+        });
+        const data = await res.json();
+        if (res.ok) {
+            showToast(`✅ ${data.message}`);
+            await loadAccounts();
+            renderSidebar();
+            renderCards();
+        } else {
+            showToast('❌ ' + (data.detail || '清理失败'), true);
+        }
+    } catch (e) {
+        showToast('❌ 网络错误', true);
+    }
 }
 
 async function addGroup() { const name = prompt('属性组名称:'); if (!name) return; try { await fetch(API + '/property-groups', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ name }) }); await loadPropertyGroups(); renderPropertyEditor(); renderSidebar(); } catch {} }
@@ -2434,31 +2744,58 @@ function getTimeRemaining(period = 30) {
 async function show2FAPopup(accountId) {
     const acc = accounts.find(a => a.id === accountId);
     if (!acc || !acc.has_2fa) { showToast('该账号未配置2FA', true); return; }
+    
+    // 先创建弹窗，立即显示loading状态
+    const popup = document.createElement('div');
+    popup.className = 'totp-popup';
+    popup.id = `totp-popup-${accountId}`;
+    popup.innerHTML = `<div class="totp-popup-content">
+        <div class="totp-header"><span class="totp-issuer">${acc.email}</span><button class="totp-close" onclick="close2FAPopup(${accountId})">✕</button></div>
+        <div class="totp-code-wrapper">
+            <div class="totp-code loading" id="totp-code-${accountId}" onclick="copyTOTPCode(${accountId})" style="cursor:pointer">------</div>
+            <svg class="totp-timer" viewBox="0 0 36 36"><path class="totp-timer-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/><path class="totp-timer-progress" id="totp-progress-${accountId}" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/></svg>
+        </div>
+        <div class="totp-actions"><button class="totp-copy-btn" onclick="copyTOTPCode(${accountId})">📋 复制</button><span class="totp-remaining" id="totp-remaining-${accountId}"></span></div>
+    </div>`;
+    document.body.appendChild(popup);
+    popup.addEventListener('click', e => { if (e.target === popup) close2FAPopup(accountId); });
+    
     try {
-        // 先获取配置信息
+        // 异步获取配置和验证码
         const configRes = await apiRequest(`/accounts/${accountId}/totp`);
         if (!configRes.ok) throw new Error();
         const data = await configRes.json();
         
-        const popup = document.createElement('div');
-        popup.className = 'totp-popup';
-        popup.id = `totp-popup-${accountId}`;
-        popup.innerHTML = `<div class="totp-popup-content">
-            <div class="totp-header"><span class="totp-issuer">${data.issuer || acc.email}</span><button class="totp-close" onclick="close2FAPopup(${accountId})">✕</button></div>
-            <div class="totp-code-wrapper">
-                <div class="totp-code" id="totp-code-${accountId}" onclick="copyTOTPCode(${accountId})" style="cursor:pointer">------</div>
-                <svg class="totp-timer" viewBox="0 0 36 36"><path class="totp-timer-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/><path class="totp-timer-progress" id="totp-progress-${accountId}" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/></svg>
-            </div>
-            <div class="totp-actions"><button class="totp-copy-btn" onclick="copyTOTPCode(${accountId})">📋 复制</button><span class="totp-remaining" id="totp-remaining-${accountId}"></span></div>
-        </div>`;
-        document.body.appendChild(popup);
+        // 更新issuer
+        popup.querySelector('.totp-issuer').textContent = data.issuer || acc.email;
         popup.totpData = data;
         
-        // 使用后端生成
+        // 获取验证码并显示
         await updateTOTPDisplayFromBackend(accountId, data);
+        
+        // 移除loading，添加loaded动画
+        const codeEl = document.getElementById(`totp-code-${accountId}`);
+        if (codeEl) {
+            codeEl.classList.remove('loading');
+            codeEl.classList.add('loaded');
+        }
+        
+        // 自动复制验证码
+        if (codeEl && codeEl.dataset.code) {
+            copyToClipboard(codeEl.dataset.code).then(ok => {
+                if (ok) {
+                    showToast('✓ 验证码已复制');
+                    if (clipboardTimeout) clearTimeout(clipboardTimeout);
+                    clipboardTimeout = setTimeout(() => clearClipboard(), 60000);
+                }
+            });
+        }
+        
         totpIntervals[accountId] = setInterval(() => updateTOTPDisplayFromBackend(accountId, data), 1000);
-        popup.addEventListener('click', e => { if (e.target === popup) close2FAPopup(accountId); });
-    } catch { showToast('获取2FA失败', true); }
+    } catch { 
+        close2FAPopup(accountId);
+        showToast('获取2FA失败', true); 
+    }
 }
 
 async function updateTOTPDisplayFromBackend(accountId, configData) {
@@ -2884,6 +3221,7 @@ async function delete2FA(accountId) {
 // ==================== 批量修改属性功能 ====================
 let batchPropsToAdd = [];
 let batchPropsToRemove = [];
+let batchAddAsCombo = true; // 新增：是否作为复合属性组添加
 
 function openBatchPropsModal() {
     if (selectedAccounts.size === 0) {
@@ -2893,6 +3231,7 @@ function openBatchPropsModal() {
     
     batchPropsToAdd = [];
     batchPropsToRemove = [];
+    batchAddAsCombo = true; // 默认作为复合属性组
     
     const existing = document.getElementById('batchPropsOverlay');
     if (existing) existing.remove();
@@ -2906,7 +3245,20 @@ function openBatchPropsModal() {
             </div>
             <div class="combo-dialog-body">
                 <div class="hint-box" style="margin-bottom:16px">
-                    <p>已选择 <b>${selectedAccounts.size}</b> 个账号。点击属性切换：<span style="color:#22c55e">添加(绿)</span> → <span style="color:#ef4444">移除(红)</span> → 取消</p>
+                    <p>已选择 <b>${selectedAccounts.size}</b> 个账号</p>
+                    <p style="margin-top:8px;font-size:0.9em">
+                        点击属性：<span style="color:#22c55e">添加(绿)</span> → <span style="color:#ef4444">移除(红)</span> → 取消
+                    </p>
+                </div>
+                <div class="batch-mode-toggle" style="margin-bottom:16px;padding:12px;background:var(--bg-hover);border-radius:8px;">
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                        <input type="checkbox" id="batchComboMode" checked onchange="batchAddAsCombo=this.checked;updateBatchModeHint()">
+                        <span><b>复合属性组模式</b></span>
+                    </label>
+                    <p id="batchModeHint" style="margin-top:6px;font-size:0.85em;color:var(--text-muted)">
+                        添加：多个属性合并为一个复合组，如"备用 正常"<br>
+                        移除：只移除完全匹配的复合组
+                    </p>
                 </div>`;
     
     propertyGroups.forEach(g => {
@@ -2914,7 +3266,7 @@ function openBatchPropsModal() {
             <div class="combo-group-name">${escapeHtml(g.name)}</div>
             <div class="combo-group-options">`;
         (g.values || []).forEach(v => {
-            html += `<div class="combo-option" data-vid="${v.id}" onclick="toggleBatchProp(this, ${v.id})">
+            html += `<div class="combo-option" data-vid="${v.id}" data-gid="${g.id}" onclick="toggleBatchProp(this, ${v.id})">
                 <span class="combo-check-dot" style="background:${escapeAttr(v.color)}"></span>
                 ${escapeHtml(v.name)}
             </div>`;
@@ -2923,6 +3275,10 @@ function openBatchPropsModal() {
     });
     
     html += `
+                <div id="batchPreview" style="margin-top:16px;padding:12px;background:var(--bg-hover);border-radius:8px;display:none;">
+                    <div style="font-size:0.9em;color:var(--text-muted);margin-bottom:8px;">预览：</div>
+                    <div id="batchPreviewContent"></div>
+                </div>
             </div>
             <div class="combo-dialog-footer">
                 <button class="combo-btn" onclick="closeBatchPropsModal()">取消</button>
@@ -2932,6 +3288,63 @@ function openBatchPropsModal() {
     </div>`;
     
     document.body.insertAdjacentHTML('beforeend', html);
+}
+
+function updateBatchModeHint() {
+    const hint = document.getElementById('batchModeHint');
+    if (hint) {
+        hint.innerHTML = batchAddAsCombo 
+            ? '添加：多个属性合并为一个复合组，如"备用 正常"<br>移除：只移除完全匹配的复合组'
+            : '添加：每个属性分别添加为独立标签<br>移除：只移除单独的标签，不影响复合组';
+    }
+    updateBatchPreview();
+}
+
+function updateBatchPreview() {
+    const preview = document.getElementById('batchPreview');
+    const content = document.getElementById('batchPreviewContent');
+    if (!preview || !content) return;
+    
+    let html = '';
+    
+    // 预览要添加的
+    if (batchPropsToAdd.length > 0) {
+        if (batchAddAsCombo) {
+            // 复合模式：显示为一个组合（使用normalizeCombo规范化）
+            const normalized = normalizeCombo(batchPropsToAdd);
+            const display = getComboDisplay(normalized);
+            html += `<span style="color:#22c55e">+ </span><span class="combo-badge" style="background:${hexToRgba(display.color,0.12)};color:${display.color}"><span class="combo-dot" style="background:${display.color}"></span>${display.text}</span> `;
+        } else {
+            // 独立模式：分别显示
+            batchPropsToAdd.forEach(vid => {
+                const display = getComboDisplay([vid]);
+                html += `<span style="color:#22c55e">+ </span><span class="combo-badge" style="background:${hexToRgba(display.color,0.12)};color:${display.color}"><span class="combo-dot" style="background:${display.color}"></span>${display.text}</span> `;
+            });
+        }
+    }
+    
+    // 预览要移除的
+    if (batchPropsToRemove.length > 0) {
+        if (batchAddAsCombo) {
+            // 复合模式：显示为一个要移除的组合（使用normalizeCombo规范化）
+            const normalized = normalizeCombo(batchPropsToRemove);
+            const display = getComboDisplay(normalized);
+            html += `<span style="color:#ef4444">- </span><span class="combo-badge" style="background:rgba(239,68,68,0.12);color:#ef4444;text-decoration:line-through"><span class="combo-dot" style="background:#ef4444"></span>${display.text}</span> `;
+        } else {
+            // 独立模式：分别显示
+            batchPropsToRemove.forEach(vid => {
+                const display = getComboDisplay([vid]);
+                html += `<span style="color:#ef4444">- </span><span class="combo-badge" style="background:rgba(239,68,68,0.12);color:#ef4444;text-decoration:line-through"><span class="combo-dot" style="background:#ef4444"></span>${display.text}</span> `;
+            });
+        }
+    }
+    
+    if (html) {
+        preview.style.display = 'block';
+        content.innerHTML = html;
+    } else {
+        preview.style.display = 'none';
+    }
 }
 
 function closeBatchPropsModal() {
@@ -2966,6 +3379,9 @@ function toggleBatchProp(el, vid) {
         el.style.color = '';
         el.style.textDecoration = '';
     }
+    
+    // 更新预览
+    updateBatchPreview();
 }
 
 async function applyBatchProps() {
@@ -2984,18 +3400,42 @@ async function applyBatchProps() {
         let newCombos = [...(acc.combos || [])];
         
         // 添加属性
-        batchPropsToAdd.forEach(vid => {
-            const hasIt = newCombos.some(combo => Array.isArray(combo) && combo.includes(vid));
-            if (!hasIt) newCombos.push([vid]);
-        });
+        if (batchPropsToAdd.length > 0) {
+            if (batchAddAsCombo) {
+                // 复合模式：将所有选中的属性作为一个复合组添加
+                // 使用normalizeCombo规范化，确保顺序一致
+                const normalizedAdd = normalizeCombo(batchPropsToAdd);
+                // 检查是否已存在相同的复合组（使用combosEqual比较）
+                const exists = newCombos.some(combo => combosEqual(combo, normalizedAdd));
+                if (!exists) {
+                    newCombos.push([...normalizedAdd]);
+                }
+            } else {
+                // 独立模式：每个属性单独添加
+                batchPropsToAdd.forEach(vid => {
+                    const hasIt = newCombos.some(combo => Array.isArray(combo) && combo.includes(vid));
+                    if (!hasIt) newCombos.push([vid]);
+                });
+            }
+        }
         
         // 移除属性
-        batchPropsToRemove.forEach(vid => {
-            newCombos = newCombos.map(combo => {
-                if (!Array.isArray(combo)) return combo;
-                return combo.filter(v => v !== vid);
-            }).filter(combo => Array.isArray(combo) && combo.length > 0);
-        });
+        if (batchPropsToRemove.length > 0) {
+            if (batchAddAsCombo) {
+                // 复合模式：只移除完全匹配的复合组（使用combosEqual比较）
+                const normalizedRemove = normalizeCombo(batchPropsToRemove);
+                newCombos = newCombos.filter(combo => !combosEqual(combo, normalizedRemove));
+            } else {
+                // 独立模式：只移除单独的标签 [vid]，不影响复合组
+                batchPropsToRemove.forEach(vid => {
+                    newCombos = newCombos.filter(combo => {
+                        if (!Array.isArray(combo)) return true;
+                        // 只移除恰好是 [vid] 的单独标签
+                        return !(combo.length === 1 && combo[0] === vid);
+                    });
+                });
+            }
+        }
         
         try {
             const res = await fetch(API + `/accounts/${accId}`, {
@@ -3441,3 +3881,138 @@ async function checkVersionUpgrade() {
 if (token && user) {
     setTimeout(checkVersionUpgrade, 2000);
 }
+
+// ==================== 键盘快捷键 ====================
+
+document.addEventListener('keydown', (e) => {
+    // 如果在输入框中，不触发快捷键（除了 Escape）
+    const isInput = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName);
+    const isModalOpen = document.querySelector('.modal-overlay.show') || document.querySelector('.totp-popup');
+    
+    // Escape - 关闭弹窗/退出模式
+    if (e.key === 'Escape') {
+        if (document.querySelector('.totp-popup')) {
+            document.querySelector('.totp-popup .totp-close')?.click();
+            return;
+        }
+        if (document.querySelector('.modal-overlay.show')) {
+            document.querySelector('.modal-overlay.show .btn-close')?.click();
+            return;
+        }
+        if (batchMode) {
+            toggleBatchMode();
+            return;
+        }
+        // 清空搜索
+        const searchInput = document.getElementById('searchInput');
+        if (searchInput && searchInput.value) {
+            searchInput.value = '';
+            filterAccounts();
+            return;
+        }
+    }
+    
+    // 以下快捷键在输入框中不触发
+    if (isInput) return;
+    
+    // 以下快捷键在弹窗打开时不触发
+    if (isModalOpen) return;
+    
+    // Ctrl/Cmd + K 或 / - 聚焦搜索框
+    if ((e.key === 'k' && (e.ctrlKey || e.metaKey)) || e.key === '/') {
+        e.preventDefault();
+        document.getElementById('searchInput')?.focus();
+        return;
+    }
+    
+    // Ctrl/Cmd + N - 新建账号
+    if (e.key === 'n' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        openAddModal();
+        return;
+    }
+    
+    // B - 切换批量模式
+    if (e.key === 'b' || e.key === 'B') {
+        toggleBatchMode();
+        return;
+    }
+    
+    // R - 刷新数据
+    if (e.key === 'r' || e.key === 'R') {
+        loadData();
+        showToast('🔄 刷新中...');
+        return;
+    }
+    
+    // ? - 显示快捷键帮助
+    if (e.key === '?' && e.shiftKey) {
+        showShortcutsHelp();
+        return;
+    }
+});
+
+// 显示快捷键帮助
+function showShortcutsHelp() {
+    const shortcuts = [
+        ['/', '聚焦搜索框'],
+        ['Ctrl + K', '聚焦搜索框'],
+        ['Ctrl + N', '新建账号'],
+        ['B', '切换批量模式'],
+        ['R', '刷新数据'],
+        ['Esc', '关闭弹窗 / 退出模式 / 清空搜索'],
+        ['Shift + ?', '显示此帮助']
+    ];
+    
+    const html = `
+        <div class="shortcuts-help" onclick="this.remove()">
+            <div class="shortcuts-content" onclick="event.stopPropagation()">
+                <div class="shortcuts-header">
+                    <span>⌨️ 键盘快捷键</span>
+                    <button class="btn-close" onclick="this.closest('.shortcuts-help').remove()">✕</button>
+                </div>
+                <div class="shortcuts-list">
+                    ${shortcuts.map(([key, desc]) => `
+                        <div class="shortcut-item">
+                            <kbd>${key}</kbd>
+                            <span>${desc}</span>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.insertAdjacentHTML('beforeend', html);
+}
+
+// ==================== Ripple 点击效果 ====================
+
+function createRipple(event) {
+    const element = event.currentTarget;
+    
+    // 移除旧的 ripple
+    const oldRipple = element.querySelector('.ripple');
+    if (oldRipple) oldRipple.remove();
+    
+    const rect = element.getBoundingClientRect();
+    const size = Math.max(rect.width, rect.height);
+    const x = event.clientX - rect.left - size / 2;
+    const y = event.clientY - rect.top - size / 2;
+    
+    const ripple = document.createElement('span');
+    ripple.className = 'ripple';
+    ripple.style.cssText = `width:${size}px;height:${size}px;left:${x}px;top:${y}px;`;
+    
+    element.appendChild(ripple);
+    
+    // 动画结束后移除
+    setTimeout(() => ripple.remove(), 600);
+}
+
+// 给需要 ripple 效果的元素绑定事件（使用事件委托）
+document.addEventListener('click', (e) => {
+    const target = e.target.closest('.btn-action, .btn-toolbar, .btn-primary, .btn-toolbar-sm, .nav-item, .prop-item');
+    if (target && !target.classList.contains('no-ripple')) {
+        createRipple({ currentTarget: target, clientX: e.clientX, clientY: e.clientY });
+    }
+});
