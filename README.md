@@ -81,6 +81,8 @@ python main.py
 
 使用一键更新脚本（推荐）：
 
+cd /你的安装目录
+
 ```bash
 # 首次使用需要授权
 chmod +x update.sh
