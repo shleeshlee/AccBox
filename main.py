@@ -2679,30 +2679,34 @@ def extract_verification_code(text: str) -> tuple:
     """从文本中提取验证码，返回 (code, service)"""
     import re
     
-    # 常见验证码模式
+    # 常见验证码模式 - 按优先级排序
     patterns = [
-        # 6位数字验证码
-        (r'(?:验证码|code|Code|CODE)[：:\s]*(\d{6})', 'unknown'),
-        (r'(\d{6})\s*(?:是你的|为你的|is your)', 'unknown'),
-        # 4位数字验证码  
-        (r'(?:验证码|code|Code|CODE)[：:\s]*(\d{4})', 'unknown'),
-        # 带服务名的
-        (r'(?:Google|谷歌).*?(\d{6})', 'Google'),
-        (r'(?:Microsoft|微软).*?(\d{6})', 'Microsoft'),
-        (r'(?:Apple|苹果).*?(\d{6})', 'Apple'),
-        (r'(?:Amazon|亚马逊).*?(\d{6})', 'Amazon'),
-        (r'(?:Facebook|脸书).*?(\d{6})', 'Facebook'),
-        (r'(?:Twitter|推特).*?(\d{6})', 'Twitter'),
-        (r'(?:LinkedIn).*?(\d{6})', 'LinkedIn'),
-        (r'(?:GitHub).*?(\d{6})', 'GitHub'),
-        (r'(?:Discord).*?(\d{6})', 'Discord'),
-        (r'(?:Telegram).*?(\d{5,6})', 'Telegram'),
-        (r'(?:WhatsApp).*?(\d{6})', 'WhatsApp'),
-        (r'(?:支付宝|Alipay).*?(\d{6})', '支付宝'),
-        (r'(?:微信|WeChat).*?(\d{6})', '微信'),
-        (r'(?:淘宝|Taobao).*?(\d{6})', '淘宝'),
-        (r'(?:京东|JD).*?(\d{6})', '京东'),
-        (r'(?:Steam).*?(\d{5})', 'Steam'),
+        # 明确的验证码格式（最高优先级）
+        (r'(?:verification code|验证码)[：:\s]*(\d{4,6})', 'unknown'),
+        (r'(?:code|码)[：:\s]+(\d{4,6})\b', 'unknown'),
+        (r'(\d{4,6})\s*(?:是你的|为你的|is your)', 'unknown'),
+        # Email verification code: XXXXXX 格式（针对Google）
+        (r'Email verification code[：:\s]*(\d{4,6})', 'Google'),
+        (r'verification code[：:\s]*(\d{4,6})', 'unknown'),
+        # 4-6位数字验证码  
+        (r'(?:验证码|code|Code|CODE)[：:\s]*(\d{4,6})', 'unknown'),
+        # 带服务名的（需要更严格的模式，必须跟着 code 或验证码）
+        (r'(?:Google|谷歌).*?(?:code|验证码)[：:\s]*(\d{4,6})', 'Google'),
+        (r'(?:Microsoft|微软).*?(?:code|验证码)[：:\s]*(\d{4,6})', 'Microsoft'),
+        (r'(?:Apple|苹果).*?(?:code|验证码)[：:\s]*(\d{4,6})', 'Apple'),
+        (r'(?:Amazon|亚马逊).*?(?:code|验证码)[：:\s]*(\d{4,6})', 'Amazon'),
+        (r'(?:Facebook|脸书).*?(?:code|验证码)[：:\s]*(\d{4,6})', 'Facebook'),
+        (r'(?:Twitter|推特).*?(?:code|验证码)[：:\s]*(\d{4,6})', 'Twitter'),
+        (r'(?:LinkedIn).*?(?:code|验证码)[：:\s]*(\d{4,6})', 'LinkedIn'),
+        (r'(?:GitHub).*?(?:code|验证码)[：:\s]*(\d{4,6})', 'GitHub'),
+        (r'(?:Discord).*?(?:code|验证码)[：:\s]*(\d{4,6})', 'Discord'),
+        (r'(?:Telegram).*?(?:code|验证码)[：:\s]*(\d{5,6})', 'Telegram'),
+        (r'(?:WhatsApp).*?(?:code|验证码)[：:\s]*(\d{4,6})', 'WhatsApp'),
+        (r'(?:支付宝|Alipay).*?(?:code|验证码)[：:\s]*(\d{4,6})', '支付宝'),
+        (r'(?:微信|WeChat).*?(?:code|验证码)[：:\s]*(\d{4,6})', '微信'),
+        (r'(?:淘宝|Taobao).*?(?:code|验证码)[：:\s]*(\d{4,6})', '淘宝'),
+        (r'(?:京东|JD).*?(?:code|验证码)[：:\s]*(\d{4,6})', '京东'),
+        (r'(?:Steam).*?(?:code|验证码)[：:\s]*(\d{5})', 'Steam'),
     ]
     
     for pattern, service in patterns:
@@ -2710,10 +2714,18 @@ def extract_verification_code(text: str) -> tuple:
         if match:
             return match.group(1), service
     
-    # 通用6位数字
-    match = re.search(r'\b(\d{6})\b', text)
+    # 通用：查找 "code: XXXXXX" 或 "code XXXXXX" 模式
+    match = re.search(r'\bcode[:\s]+(\d{4,6})\b', text, re.IGNORECASE)
     if match:
         return match.group(1), 'unknown'
+    
+    # 最后尝试：独立的6位数字（但不要匹配年份等）
+    match = re.search(r'(?<![0-9])(\d{6})(?![0-9])', text)
+    if match:
+        code = match.group(1)
+        # 排除可能是年份的数字（如202x, 201x等）
+        if not code.startswith('20') and not code.startswith('19'):
+            return code, 'unknown'
     
     return None, None
 
