@@ -6395,3 +6395,19 @@ html:not([data-theme="light"]) .toast-code {
     transform: translateY(-1px);
     box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3);
 }
+
+/* 刷新按钮旋转动画 */
+.btn-refresh {
+    display: inline-block;
+    transition: transform 0.3s ease;
+}
+
+.btn-refresh.spinning {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
