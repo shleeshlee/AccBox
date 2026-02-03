@@ -2872,7 +2872,9 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                     
                     # 合并内容进行验证码提取
                     full_text = snippet + ' ' + body_data
+                    print(f"[DEBUG] 邮件ID: {msg_id}, snippet: {snippet[:100] if snippet else '空'}...")
                     code, service = extract_verification_code(full_text)
+                    print(f"[DEBUG] 提取结果: code={code}, service={service}")
                     
                     if code:
                         # 获取发件人作为 service（如果未识别）
@@ -2889,7 +2891,11 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                             WHERE email = ? AND code = ? AND created_at > datetime('now', '-5 minutes')
                         """, (email_address, code))
                         
-                        if not cursor.fetchone():
+                        existing = cursor.fetchone()
+                        if existing:
+                            print(f"[DEBUG] 验证码 {code} 已存在，跳过")
+                        
+                        if not existing:
                             # 插入新验证码
                             conn.execute(f"""
                                 INSERT INTO user_{user_id}_verification_codes 
@@ -2897,6 +2903,7 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                                 VALUES (?, ?, ?, ?, 0, datetime('now', '+5 minutes'), datetime('now'))
                             """, (email_address, service[:50], code, ''))
                             conn.commit()
+                            print(f"[DEBUG] ✅ 新验证码已保存: {code} from {service}")
                             
                             new_codes.append({
                                 "email": email_address,
