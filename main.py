@@ -1184,7 +1184,7 @@ def export_data(include_emails: bool = False, user: dict = Depends(get_current_u
                 pass
     
     result = {
-        "version": "5.1.3",
+        "version": "5.1.4",
         "exported_at": datetime.now().isoformat(),
         "user": user["username"],
         "account_types": types,
@@ -2051,6 +2051,11 @@ class OAuthConfigSave(BaseModel):
 # 存储OAuth状态（生产环境应用Redis）
 oauth_states: Dict[str, Dict] = {}
 
+# IMAP 请求频率限制（防止QQ等邮箱封号）
+# 格式: {email_address: last_fetch_timestamp}
+imap_last_fetch: Dict[str, float] = {}
+IMAP_MIN_INTERVAL = 60  # 最少间隔60秒
+
 @app.get("/api/emails")
 def get_emails(user: dict = Depends(get_current_user)):
     """获取已授权和待授权邮箱列表"""
@@ -2249,7 +2254,7 @@ def start_oauth(data: EmailOAuthStart, request: Request, user: dict = Depends(ge
             'client_id': client_id,
             'redirect_uri': redirect_uri,
             'response_type': 'code',
-            'scope': 'https://outlook.office.com/IMAP.AccessAsUser.All offline_access',
+            'scope': 'https://graph.microsoft.com/Mail.Read offline_access',
             'prompt': 'select_account',
             'state': state
         })
@@ -2674,34 +2679,30 @@ def extract_verification_code(text: str) -> tuple:
     """从文本中提取验证码，返回 (code, service)"""
     import re
     
-    # 常见验证码模式 - 按优先级排序
+    # 常见验证码模式
     patterns = [
-        # 明确的验证码格式（最高优先级）
-        (r'(?:verification code|验证码)[：:\s]*(\d{4,6})', 'unknown'),
-        (r'(?:code|码)[：:\s]+(\d{4,6})\b', 'unknown'),
-        (r'(\d{4,6})\s*(?:是你的|为你的|is your)', 'unknown'),
-        # Email verification code: XXXXXX 格式（针对Google）
-        (r'Email verification code[：:\s]*(\d{4,6})', 'Google'),
-        (r'verification code[：:\s]*(\d{4,6})', 'unknown'),
-        # 4-6位数字验证码  
-        (r'(?:验证码|code|Code|CODE)[：:\s]*(\d{4,6})', 'unknown'),
-        # 带服务名的（需要更严格的模式）
-        (r'(?:Google|谷歌).*?(?:code|验证码)[：:\s]*(\d{4,6})', 'Google'),
-        (r'(?:Microsoft|微软).*?(?:code|验证码)[：:\s]*(\d{4,6})', 'Microsoft'),
-        (r'(?:Apple|苹果).*?(?:code|验证码)[：:\s]*(\d{4,6})', 'Apple'),
-        (r'(?:Amazon|亚马逊).*?(?:code|验证码)[：:\s]*(\d{4,6})', 'Amazon'),
-        (r'(?:Facebook|脸书).*?(?:code|验证码)[：:\s]*(\d{4,6})', 'Facebook'),
-        (r'(?:Twitter|推特).*?(?:code|验证码)[：:\s]*(\d{4,6})', 'Twitter'),
-        (r'(?:LinkedIn).*?(?:code|验证码)[：:\s]*(\d{4,6})', 'LinkedIn'),
-        (r'(?:GitHub).*?(?:code|验证码)[：:\s]*(\d{4,6})', 'GitHub'),
-        (r'(?:Discord).*?(?:code|验证码)[：:\s]*(\d{4,6})', 'Discord'),
-        (r'(?:Telegram).*?(?:code|验证码)[：:\s]*(\d{5,6})', 'Telegram'),
-        (r'(?:WhatsApp).*?(?:code|验证码)[：:\s]*(\d{4,6})', 'WhatsApp'),
-        (r'(?:支付宝|Alipay).*?(?:code|验证码)[：:\s]*(\d{4,6})', '支付宝'),
-        (r'(?:微信|WeChat).*?(?:code|验证码)[：:\s]*(\d{4,6})', '微信'),
-        (r'(?:淘宝|Taobao).*?(?:code|验证码)[：:\s]*(\d{4,6})', '淘宝'),
-        (r'(?:京东|JD).*?(?:code|验证码)[：:\s]*(\d{4,6})', '京东'),
-        (r'(?:Steam).*?(?:code|验证码)[：:\s]*(\d{5})', 'Steam'),
+        # 6位数字验证码
+        (r'(?:验证码|code|Code|CODE)[：:\s]*(\d{6})', 'unknown'),
+        (r'(\d{6})\s*(?:是你的|为你的|is your)', 'unknown'),
+        # 4位数字验证码  
+        (r'(?:验证码|code|Code|CODE)[：:\s]*(\d{4})', 'unknown'),
+        # 带服务名的
+        (r'(?:Google|谷歌).*?(\d{6})', 'Google'),
+        (r'(?:Microsoft|微软).*?(\d{6})', 'Microsoft'),
+        (r'(?:Apple|苹果).*?(\d{6})', 'Apple'),
+        (r'(?:Amazon|亚马逊).*?(\d{6})', 'Amazon'),
+        (r'(?:Facebook|脸书).*?(\d{6})', 'Facebook'),
+        (r'(?:Twitter|推特).*?(\d{6})', 'Twitter'),
+        (r'(?:LinkedIn).*?(\d{6})', 'LinkedIn'),
+        (r'(?:GitHub).*?(\d{6})', 'GitHub'),
+        (r'(?:Discord).*?(\d{6})', 'Discord'),
+        (r'(?:Telegram).*?(\d{5,6})', 'Telegram'),
+        (r'(?:WhatsApp).*?(\d{6})', 'WhatsApp'),
+        (r'(?:支付宝|Alipay).*?(\d{6})', '支付宝'),
+        (r'(?:微信|WeChat).*?(\d{6})', '微信'),
+        (r'(?:淘宝|Taobao).*?(\d{6})', '淘宝'),
+        (r'(?:京东|JD).*?(\d{6})', '京东'),
+        (r'(?:Steam).*?(\d{5})', 'Steam'),
     ]
     
     for pattern, service in patterns:
@@ -2709,216 +2710,440 @@ def extract_verification_code(text: str) -> tuple:
         if match:
             return match.group(1), service
     
-    # 通用：查找 "code: XXXXXX" 或 "code XXXXXX" 模式
-    match = re.search(r'\bcode[:\s]+(\d{4,6})\b', text, re.IGNORECASE)
+    # 通用6位数字
+    match = re.search(r'\b(\d{6})\b', text)
     if match:
         return match.group(1), 'unknown'
     
-    # 最后尝试：独立的6位数字（但不要匹配年份等）
-    match = re.search(r'(?<![0-9])(\d{6})(?![0-9])', text)
-    if match:
-        code = match.group(1)
-        # 排除可能是年份的数字（如202x, 201x等）
-        if not code.startswith('20') and not code.startswith('19'):
-            return code, 'unknown'
-    
     return None, None
+
+def refresh_gmail_token(refresh_token: str, email_id: int, user_id: int) -> str:
+    """使用 refresh_token 刷新 Gmail access_token"""
+    import urllib.request
+    import urllib.error
+    
+    # 获取 OAuth 凭证
+    client_id, client_secret = get_oauth_credentials('gmail')
+    if not client_id or not client_secret:
+        return None
+    
+    # 请求新的 access_token
+    token_url = "https://oauth2.googleapis.com/token"
+    token_data = urllib.parse.urlencode({
+        'client_id': client_id,
+        'client_secret': client_secret,
+        'refresh_token': refresh_token,
+        'grant_type': 'refresh_token'
+    }).encode()
+    
+    try:
+        req = urllib.request.Request(token_url, data=token_data, method='POST')
+        req.add_header('Content-Type', 'application/x-www-form-urlencoded')
+        
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            token_resp = json.loads(resp.read().decode())
+        
+        new_access_token = token_resp.get('access_token')
+        if not new_access_token:
+            return None
+        
+        # 更新数据库中的凭证
+        with get_db() as conn:
+            # 获取现有凭证
+            cursor = conn.execute(f"SELECT credentials FROM user_{user_id}_emails WHERE id = ?", (email_id,))
+            row = cursor.fetchone()
+            if row:
+                creds = json.loads(decrypt_password(row["credentials"]))
+                creds['access_token'] = new_access_token
+                # 如果返回了新的 refresh_token，也更新
+                if token_resp.get('refresh_token'):
+                    creds['refresh_token'] = token_resp['refresh_token']
+                if token_resp.get('expires_in'):
+                    creds['expires_in'] = token_resp['expires_in']
+                
+                # 保存更新后的凭证
+                conn.execute(
+                    f"UPDATE user_{user_id}_emails SET credentials = ? WHERE id = ?",
+                    (encrypt_password(json.dumps(creds)), email_id)
+                )
+                conn.commit()
+        
+        return new_access_token
+    except Exception as e:
+        print(f"刷新 Gmail token 失败: {e}")
+        return None
+
+def refresh_outlook_token(refresh_token: str, email_id: int, user_id: int) -> str:
+    """使用 refresh_token 刷新 Outlook access_token"""
+    import urllib.request
+    import urllib.error
+    
+    # 获取 OAuth 凭证
+    client_id, client_secret = get_oauth_credentials('outlook')
+    if not client_id or not client_secret:
+        return None
+    
+    # 请求新的 access_token
+    token_url = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+    token_data = urllib.parse.urlencode({
+        'client_id': client_id,
+        'client_secret': client_secret,
+        'refresh_token': refresh_token,
+        'grant_type': 'refresh_token',
+        'scope': 'https://graph.microsoft.com/Mail.Read offline_access'
+    }).encode()
+    
+    try:
+        req = urllib.request.Request(token_url, data=token_data, method='POST')
+        req.add_header('Content-Type', 'application/x-www-form-urlencoded')
+        
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            token_resp = json.loads(resp.read().decode())
+        
+        new_access_token = token_resp.get('access_token')
+        if not new_access_token:
+            return None
+        
+        # 更新数据库中的凭证
+        with get_db() as conn:
+            cursor = conn.execute(f"SELECT credentials FROM user_{user_id}_emails WHERE id = ?", (email_id,))
+            row = cursor.fetchone()
+            if row:
+                creds = json.loads(decrypt_password(row["credentials"]))
+                creds['access_token'] = new_access_token
+                if token_resp.get('refresh_token'):
+                    creds['refresh_token'] = token_resp['refresh_token']
+                if token_resp.get('expires_in'):
+                    creds['expires_in'] = token_resp['expires_in']
+                
+                conn.execute(
+                    f"UPDATE user_{user_id}_emails SET credentials = ? WHERE id = ?",
+                    (encrypt_password(json.dumps(creds)), email_id)
+                )
+                conn.commit()
+        
+        return new_access_token
+    except Exception as e:
+        print(f"刷新 Outlook token 失败: {e}")
+        return None
+
+def fetch_imap_emails(email_address: str, creds: dict) -> list:
+    """通过 IMAP 获取最近5分钟的邮件"""
+    import imaplib
+    import email
+    from email.header import decode_header
+    from email.utils import parsedate_to_datetime
+    from datetime import datetime, timedelta, timezone
+    
+    server = creds.get('server')
+    port = creds.get('port', 993)
+    password = creds.get('password')
+    
+    if not server or not password:
+        return []
+    
+    emails_content = []
+    
+    # 固定查询5分钟前
+    since_datetime = datetime.now(timezone.utc) - timedelta(minutes=5)
+    
+    try:
+        # 设置超时，避免卡死
+        imaplib.IMAP4.timeout = 10
+        imap = imaplib.IMAP4_SSL(server, port)
+        imap.login(email_address, password)
+        imap.select('INBOX', readonly=True)
+        
+        # IMAP只支持按日期搜索
+        months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+        since_date = f"{since_datetime.day:02d}-{months[since_datetime.month-1]}-{since_datetime.year}"
+        status, messages = imap.search(None, f'SINCE {since_date}')
+        
+        if status != 'OK':
+            imap.logout()
+            return []
+        
+        msg_nums = messages[0].split()
+        # 只取最近5封
+        msg_nums = msg_nums[-5:] if len(msg_nums) > 5 else msg_nums
+        
+        for num in reversed(msg_nums):  # 从新到旧
+            try:
+                # 只获取邮件头和文本部分
+                status, msg_data = imap.fetch(num, '(BODY.PEEK[HEADER] BODY.PEEK[TEXT])')
+                if status != 'OK':
+                    continue
+                
+                # 解析邮件
+                raw_header = msg_data[0][1] if msg_data[0] else b''
+                raw_body = msg_data[1][1] if len(msg_data) > 1 and msg_data[1] else b''
+                
+                raw_email = raw_header + b'\r\n' + raw_body
+                msg = email.message_from_bytes(raw_email)
+                
+                # 检查邮件时间，只要最近5分钟的邮件
+                date_str = msg.get('Date', '')
+                if date_str:
+                    try:
+                        mail_datetime = parsedate_to_datetime(date_str)
+                        if mail_datetime < since_datetime:
+                            continue  # 跳过5分钟前的邮件
+                    except:
+                        pass
+                
+                # 获取发件人
+                from_header = msg.get('From', '')
+                
+                # 获取邮件内容
+                body = ''
+                if msg.is_multipart():
+                    for part in msg.walk():
+                        if part.get_content_type() == 'text/plain':
+                            charset = part.get_content_charset() or 'utf-8'
+                            try:
+                                payload = part.get_payload(decode=True)
+                                if payload:
+                                    body = payload.decode(charset, errors='ignore')
+                            except:
+                                pass
+                            break
+                else:
+                    charset = msg.get_content_charset() or 'utf-8'
+                    try:
+                        payload = msg.get_payload(decode=True)
+                        if payload:
+                            body = payload.decode(charset, errors='ignore')
+                    except:
+                        pass
+                
+                if body:
+                    emails_content.append({
+                        'from': from_header,
+                        'body': body
+                    })
+            except Exception as e:
+                continue
+        
+        imap.logout()
+    except Exception as e:
+        print(f"IMAP 获取邮件失败 ({server}): {e}")
+    
+    return emails_content
+
+def fetch_outlook_emails(access_token: str) -> list:
+    """通过 Microsoft Graph API 获取最近5分钟的 Outlook 邮件"""
+    import urllib.request
+    import urllib.error
+    from datetime import datetime, timedelta, timezone
+    
+    emails_content = []
+    
+    try:
+        # 固定查询最近5分钟
+        since_time = datetime.now(timezone.utc) - timedelta(minutes=5)
+        since_iso = since_time.strftime('%Y-%m-%dT%H:%M:%SZ')
+        
+        base_url = "https://graph.microsoft.com/v1.0/me/messages"
+        params = [
+            "$top=10", 
+            "$orderby=receivedDateTime desc", 
+            "$select=from,body,subject",
+            f"$filter=receivedDateTime ge {since_iso}"
+        ]
+        
+        url = f"{base_url}?{'&'.join(params)}"
+        
+        req = urllib.request.Request(url)
+        req.add_header('Authorization', f'Bearer {access_token}')
+        
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode())
+        
+        for msg in data.get('value', []):
+            from_addr = msg.get('from', {}).get('emailAddress', {}).get('address', '')
+            body = msg.get('body', {}).get('content', '')
+            # 去除 HTML 标签（简单处理）
+            import re
+            body = re.sub(r'<[^>]+>', '', body)
+            
+            emails_content.append({
+                'from': from_addr,
+                'body': body
+            })
+    except Exception as e:
+        print(f"Outlook 获取邮件失败: {e}")
+    
+    return emails_content
 
 @app.post("/api/emails/refresh")
 def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
-    """刷新邮箱，获取最新验证码"""
-    import sys
-    print(f"[DEBUG] refresh_emails 被调用, user_id: {user['id']}", flush=True)
-    sys.stdout.flush()
-    
+    """刷新邮箱，获取最新验证码（支持 Gmail、Outlook、QQ、IMAP）"""
     user_id = user['id']
     new_codes = []
     
+    # 获取客户端传来的启动时间戳（只检测此时间之后的邮件）
     with get_db() as conn:
         # 获取已授权的邮箱
         try:
             cursor = conn.execute(f"SELECT id, address, provider, credentials FROM user_{user_id}_emails WHERE status = 'active'")
             emails = cursor.fetchall()
-            print(f"[DEBUG] 找到 {len(emails)} 个已授权邮箱")
-        except Exception as e:
-            print(f"[DEBUG] 获取邮箱列表失败: {e}")
+        except:
             return {"success": False, "message": "无法获取邮箱列表", "codes": []}
         
         for email_row in emails:
             email_address = email_row["address"]
+            email_id = email_row["id"]
             provider = email_row["provider"]
             encrypted_creds = email_row["credentials"]
             
-            print(f"[DEBUG] 处理邮箱: {email_address}, provider: {provider}")
-            
-            if provider != 'gmail':
-                print(f"[DEBUG] 跳过非Gmail邮箱")
-                continue
-            
             try:
-                # 解密凭证
                 creds = json.loads(decrypt_password(encrypted_creds))
-                access_token = creds.get('access_token')
+                emails_content = []
                 
-                if not access_token:
-                    print(f"[DEBUG] 无access_token")
-                    continue
-                
-                print(f"[DEBUG] access_token存在，长度: {len(access_token)}")
-                
-                import urllib.request
-                import urllib.error
-                import time
-                
-                # 使用 epoch 时间戳精确查询最近5分钟的邮件
-                # Gmail API 支持 after:EPOCH_SECONDS 格式
-                five_minutes_ago = int(time.time()) - 300
-                query = f"after:{five_minutes_ago}"
-                
-                list_url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages?q={urllib.parse.quote(query)}&maxResults=50"
-                
-                req = urllib.request.Request(list_url)
-                req.add_header('Authorization', f'Bearer {access_token}')
-                
-                print(f"[DEBUG] 请求Gmail API: {list_url}")
-                
-                try:
-                    with urllib.request.urlopen(req, timeout=10) as resp:
-                        messages_data = json.loads(resp.read().decode())
-                        print(f"[DEBUG] Gmail API返回: {messages_data}")
-                except urllib.error.HTTPError as e:
-                    print(f"[DEBUG] Gmail API错误: {e.code} - {e.reason}")
-                    if e.code == 401:
-                        print(f"[DEBUG] Token过期，尝试刷新")
-                        # Token 过期，尝试刷新
-                        refresh_token = creds.get('refresh_token')
-                        if refresh_token:
-                            try:
-                                # 优先从环境变量读取，否则从数据库读取
-                                client_id = os.environ.get('GOOGLE_CLIENT_ID')
-                                client_secret = os.environ.get('GOOGLE_CLIENT_SECRET')
-                                
-                                if not client_id or not client_secret:
-                                    # 从数据库读取OAuth配置
-                                    oauth_cursor = conn.execute("SELECT client_id, client_secret FROM oauth_configs WHERE provider = 'google'")
-                                    oauth_row = oauth_cursor.fetchone()
-                                    if oauth_row:
-                                        client_id = oauth_row['client_id']
-                                        client_secret = oauth_row['client_secret']
-                                
-                                print(f"[DEBUG] client_id存在: {bool(client_id)}, client_secret存在: {bool(client_secret)}")
-                                if client_id and client_secret:
-                                    refresh_data = urllib.parse.urlencode({
-                                        'client_id': client_id,
-                                        'client_secret': client_secret,
-                                        'refresh_token': refresh_token,
-                                        'grant_type': 'refresh_token'
-                                    }).encode()
-                                    refresh_req = urllib.request.Request(
-                                        'https://oauth2.googleapis.com/token',
-                                        data=refresh_data,
-                                        method='POST'
-                                    )
-                                    with urllib.request.urlopen(refresh_req, timeout=10) as refresh_resp:
-                                        new_tokens = json.loads(refresh_resp.read().decode())
-                                        new_access_token = new_tokens.get('access_token')
-                                        print(f"[DEBUG] 刷新成功，新token长度: {len(new_access_token) if new_access_token else 0}")
-                                        if new_access_token:
-                                            # 更新凭证
-                                            creds['access_token'] = new_access_token
-                                            encrypted_new_creds = encrypt_password(json.dumps(creds))
-                                            conn.execute(f"UPDATE user_{user_id}_emails SET credentials = ? WHERE id = ?", 
-                                                        (encrypted_new_creds, email_row['id']))
-                                            conn.commit()
-                                            access_token = new_access_token
-                                            # 重试请求
-                                            req = urllib.request.Request(list_url)
-                                            req.add_header('Authorization', f'Bearer {access_token}')
-                                            with urllib.request.urlopen(req, timeout=10) as resp:
-                                                messages_data = json.loads(resp.read().decode())
-                                                print(f"[DEBUG] 重试成功: {messages_data}")
-                                        else:
-                                            continue
-                                else:
+                # ==================== Gmail ====================
+                if provider == 'gmail':
+                    access_token = creds.get('access_token')
+                    refresh_token = creds.get('refresh_token')
+                    
+                    if not access_token:
+                        continue
+                    
+                    import urllib.request
+                    import urllib.error
+                    
+                    # 使用时间戳查询
+                    # 固定查询最近5分钟的邮件，不依赖前端时间戳
+                    query = "newer_than:5m"
+                    
+                    list_url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages?q={urllib.parse.quote(query)}&maxResults=10"
+                    
+                    # 尝试请求，如果401则刷新token重试
+                    messages_data = None
+                    for attempt in range(2):
+                        req = urllib.request.Request(list_url)
+                        req.add_header('Authorization', f'Bearer {access_token}')
+                        
+                        try:
+                            with urllib.request.urlopen(req, timeout=10) as resp:
+                                messages_data = json.loads(resp.read().decode())
+                            break
+                        except urllib.error.HTTPError as e:
+                            if e.code == 401 and attempt == 0 and refresh_token:
+                                new_token = refresh_gmail_token(refresh_token, email_id, user_id)
+                                if new_token:
+                                    access_token = new_token
                                     continue
-                            except Exception as refresh_err:
-                                print(f"[DEBUG] 刷新失败: {refresh_err}")
-                                continue
-                        else:
-                            print(f"[DEBUG] 无refresh_token")
+                            break
+                    
+                    if not messages_data:
+                        print(f"[Gmail] {email_address}: messages_data 为空")
+                        continue
+                    
+                    print(f"[Gmail] {email_address}: 获取到 {len(messages_data.get('messages', []))} 封邮件")
+                    
+                    for msg in messages_data.get('messages', []):
+                        msg_id = msg['id']
+                        detail_url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{msg_id}?format=full"
+                        req = urllib.request.Request(detail_url)
+                        req.add_header('Authorization', f'Bearer {access_token}')
+                        
+                        try:
+                            with urllib.request.urlopen(req, timeout=10) as resp:
+                                msg_data = json.loads(resp.read().decode())
+                        except:
                             continue
-                    else:
-                        continue
-                except Exception as e:
-                    print(f"[DEBUG] 请求异常: {e}")
-                    continue
-                
-                messages = messages_data.get('messages', [])
-                print(f"[DEBUG] 找到 {len(messages)} 封邮件")
-                
-                for msg in messages:
-                    msg_id = msg['id']
-                    
-                    # 获取邮件详情
-                    detail_url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{msg_id}?format=full"
-                    req = urllib.request.Request(detail_url)
-                    req.add_header('Authorization', f'Bearer {access_token}')
-                    
-                    try:
-                        with urllib.request.urlopen(req, timeout=10) as resp:
-                            msg_data = json.loads(resp.read().decode())
-                    except:
-                        continue
-                    
-                    # 提取邮件内容
-                    snippet = msg_data.get('snippet', '')
-                    
-                    # 从 payload 中获取完整内容
-                    payload = msg_data.get('payload', {})
-                    body_data = ''
-                    
-                    if 'body' in payload and payload['body'].get('data'):
-                        body_data = base64.urlsafe_b64decode(payload['body']['data']).decode('utf-8', errors='ignore')
-                    elif 'parts' in payload:
-                        for part in payload['parts']:
-                            if part.get('mimeType') == 'text/plain' and part.get('body', {}).get('data'):
-                                body_data = base64.urlsafe_b64decode(part['body']['data']).decode('utf-8', errors='ignore')
-                                break
-                    
-                    # 合并内容进行验证码提取
-                    full_text = snippet + ' ' + body_data
-                    print(f"[DEBUG] 邮件ID: {msg_id}, snippet: {snippet[:100] if snippet else '空'}...")
-                    code, service = extract_verification_code(full_text)
-                    print(f"[DEBUG] 提取结果: code={code}, service={service}")
-                    
-                    if code:
-                        # 获取发件人作为 service（如果未识别）
-                        if service == 'unknown':
-                            headers = payload.get('headers', [])
-                            for h in headers:
-                                if h['name'].lower() == 'from':
-                                    service = h['value'].split('<')[0].strip() or h['value']
+                        
+                        snippet = msg_data.get('snippet', '')
+                        payload = msg_data.get('payload', {})
+                        body_data = ''
+                        
+                        if 'body' in payload and payload['body'].get('data'):
+                            body_data = base64.urlsafe_b64decode(payload['body']['data']).decode('utf-8', errors='ignore')
+                        elif 'parts' in payload:
+                            for part in payload['parts']:
+                                if part.get('mimeType') == 'text/plain' and part.get('body', {}).get('data'):
+                                    body_data = base64.urlsafe_b64decode(part['body']['data']).decode('utf-8', errors='ignore')
                                     break
                         
-                        # 检查是否已存在
+                        from_addr = ''
+                        for h in payload.get('headers', []):
+                            if h['name'].lower() == 'from':
+                                from_addr = h['value']
+                                break
+                        
+                        emails_content.append({
+                            'from': from_addr,
+                            'body': snippet + ' ' + body_data
+                        })
+                        print(f"[Gmail] 添加邮件: from={from_addr[:30]}..., body长度={len(snippet + body_data)}")
+                
+                # ==================== Outlook ====================
+                elif provider == 'outlook':
+                    access_token = creds.get('access_token')
+                    refresh_token = creds.get('refresh_token')
+                    
+                    if not access_token:
+                        continue
+                    
+                    import urllib.request
+                    import urllib.error
+                    
+                    # 尝试获取邮件，如果401则刷新token
+                    for attempt in range(2):
+                        try:
+                            emails_content = fetch_outlook_emails(access_token)
+                            break
+                        except urllib.error.HTTPError as e:
+                            if e.code == 401 and attempt == 0 and refresh_token:
+                                new_token = refresh_outlook_token(refresh_token, email_id, user_id)
+                                if new_token:
+                                    access_token = new_token
+                                    continue
+                            break
+                        except:
+                            break
+                
+                # ==================== QQ / IMAP ====================
+                elif provider in ['qq', 'imap']:
+                    # 频率限制：防止频繁登录被封号
+                    import time
+                    now = time.time()
+                    last_fetch = imap_last_fetch.get(email_address, 0)
+                    if now - last_fetch < IMAP_MIN_INTERVAL:
+                        # 距离上次请求不足60秒，跳过
+                        continue
+                    
+                    emails_content = fetch_imap_emails(email_address, creds)
+                    imap_last_fetch[email_address] = now  # 更新最后请求时间
+                
+                # ==================== 提取验证码 ====================
+                print(f"[验证码] emails_content 数量: {len(emails_content)}")
+                for email_data in emails_content:
+                    full_text = email_data.get('body', '')
+                    from_addr = email_data.get('from', '')
+                    
+                    code, service = extract_verification_code(full_text)
+                    print(f"[验证码] 提取结果: code={code}, service={service}")
+                    
+                    if code:
+                        # 如果服务未识别，用发件人
+                        if service == 'unknown':
+                            service = from_addr.split('<')[0].strip() or from_addr
+                        
+                        # 检查是否已存在（同邮箱同验证码24小时内不重复）
                         cursor = conn.execute(f"""
                             SELECT id FROM user_{user_id}_verification_codes 
-                            WHERE email = ? AND code = ? AND created_at > datetime('now', '-5 minutes')
+                            WHERE email = ? AND code = ? AND created_at > datetime('now', '-24 hours')
                         """, (email_address, code))
                         
-                        existing = cursor.fetchone()
-                        if existing:
-                            print(f"[DEBUG] 验证码 {code} 已存在，跳过")
-                        
-                        if not existing:
-                            # 插入新验证码
+                        if not cursor.fetchone():
+                            # 验证码有效期3分钟（大多数验证码有效期在1-5分钟）
                             conn.execute(f"""
                                 INSERT INTO user_{user_id}_verification_codes 
                                 (email, service, code, account_name, is_read, expires_at, created_at)
-                                VALUES (?, ?, ?, ?, 0, datetime('now', '+5 minutes'), datetime('now'))
+                                VALUES (?, ?, ?, ?, 0, datetime('now', '+3 minutes'), datetime('now'))
                             """, (email_address, service[:50], code, ''))
                             conn.commit()
-                            print(f"[DEBUG] ✅ 新验证码已保存: {code} from {service}")
                             
                             new_codes.append({
                                 "email": email_address,
@@ -2927,20 +3152,10 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                             })
             
             except Exception as e:
+                print(f"处理邮箱 {email_address} 失败: {e}")
                 continue
     
     return {"success": True, "new_codes": new_codes}
-
-@app.post("/api/emails/codes/read-all")
-def mark_all_codes_read(user: dict = Depends(get_current_user)):
-    """标记所有验证码已读"""
-    user_id = user['id']
-    
-    with get_db() as conn:
-        conn.execute(f"UPDATE user_{user_id}_verification_codes SET is_read = 1 WHERE is_read = 0")
-        conn.commit()
-    
-    return {"success": True}
 
 @app.post("/api/emails/codes/{code_id}/read")
 def mark_code_read(code_id: int, user: dict = Depends(get_current_user)):
@@ -2949,6 +3164,17 @@ def mark_code_read(code_id: int, user: dict = Depends(get_current_user)):
     
     with get_db() as conn:
         conn.execute(f"UPDATE user_{user_id}_verification_codes SET is_read = 1 WHERE id = ?", (code_id,))
+        conn.commit()
+    
+    return {"success": True}
+
+@app.post("/api/emails/codes/read-all")
+def mark_all_codes_read(user: dict = Depends(get_current_user)):
+    """标记所有验证码已读"""
+    user_id = user['id']
+    
+    with get_db() as conn:
+        conn.execute(f"UPDATE user_{user_id}_verification_codes SET is_read = 1")
         conn.commit()
     
     return {"success": True}
