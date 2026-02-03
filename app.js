@@ -31,6 +31,7 @@ let isPageVisible = true;
 let pollingInterval = 30000; // 默认30秒轮询
 let pollingIntervalFast = 10000; // 高频模式10秒轮询
 let fastModeEndTime = 0; // 高频模式结束时间
+let pollingStartTime = null; // 轮询启动时间，只检测此时间之后的邮件
 
 // ==================== 补丁：核心 API 请求函数 ====================
 async function apiRequest(endpoint, options = {}) {
@@ -4579,31 +4580,40 @@ async function checkNewEmails() {
     try {
         const res = await apiRequest('/emails/refresh', { 
             method: 'POST',
-            body: JSON.stringify({})
+            body: JSON.stringify({ since: pollingStartTime })
         });
         if (res.ok) {
             const data = await res.json();
             if (data.new_codes && data.new_codes.length > 0) {
-                // 直接和本地已有验证码对比去重
-                data.new_codes.forEach(code => {
-                    const exists = verificationCodes.some(c => c.code === code.code && c.email === code.email);
-                    if (!exists) {
-                        verificationCodes.unshift(code);
-                        if (pushSettings.notify) {
-                            showToast(`📬 ${code.service || '验证码'}: ${code.code}`);
-                        }
-                        if (pushSettings.toast) {
-                            showCodeToast(code);
-                        }
-                    }
+                const now = new Date();
+                // 过滤掉已过期的验证码
+                const validCodes = data.new_codes.filter(code => {
+                    if (!code.expires_at) return true;
+                    return new Date(code.expires_at) > now;
                 });
                 
-                // 保留最近10条
-                verificationCodes = verificationCodes.slice(0, 10);
-                
-                renderCodesList();
-                updateNotifyBadge();
-                if (pushSettings.badge) updateCardBadges();
+                if (validCodes.length > 0) {
+                    validCodes.forEach(code => {
+                        // 检查是否已存在
+                        const exists = verificationCodes.some(c => c.code === code.code && c.email === code.email);
+                        if (!exists) {
+                            verificationCodes.unshift(code);
+                            if (pushSettings.notify) {
+                                showToast(`📬 ${code.service || '验证码'}: ${code.code}`);
+                            }
+                            if (pushSettings.toast) {
+                                showCodeToast(code);
+                            }
+                        }
+                    });
+                    
+                    // 保留最近10条
+                    verificationCodes = verificationCodes.slice(0, 10);
+                    
+                    renderCodesList();
+                    updateNotifyBadge();
+                    if (pushSettings.badge) updateCardBadges();
+                }
             }
         }
     } catch (err) {
@@ -4629,6 +4639,11 @@ function cleanExpiredCodes() {
 
 function startEmailPolling() {
     if (emailPollingInterval) clearInterval(emailPollingInterval);
+    
+    // 记录轮询启动时间，只检测此时间之后的邮件
+    if (!pollingStartTime) {
+        pollingStartTime = Date.now();
+    }
     
     // 立即执行一次
     checkNewEmails();
@@ -5512,11 +5527,11 @@ function renderCodesList() {
 
 // === 初始化 ===
 // 在用户登录后调用
-async function initEmailFeature() {
+function initEmailFeature() {
     setupVisibilityDetection(); // 设置页面可见性检测
-    await loadEmailData();      // 等待邮箱数据加载完成
-    loadVerificationCodes();    // 加载已有验证码（不需要等待）
-    startEmailPolling();        // 启动轮询（此时authorizedEmails已加载）
+    loadEmailData();
+    loadVerificationCodes();
+    startEmailPolling();
 }
 
 // 页面卸载时停止轮询
