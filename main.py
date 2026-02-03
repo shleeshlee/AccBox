@@ -2757,8 +2757,8 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                 import urllib.request
                 import urllib.error
                 
-                # 查询最近5分钟的邮件
-                query = "newer_than:5m"
+                # 查询最近1小时的邮件（Gmail newer_than 不太精确，用代码过滤）
+                query = "newer_than:1h"
                 
                 list_url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages?q={urllib.parse.quote(query)}&maxResults=10"
                 
@@ -2841,6 +2841,10 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                 messages = messages_data.get('messages', [])
                 print(f"[DEBUG] 找到 {len(messages)} 封邮件")
                 
+                # 计算5分钟前的时间戳（毫秒）
+                import time
+                five_minutes_ago_ms = int((time.time() - 300) * 1000)
+                
                 for msg in messages:
                     msg_id = msg['id']
                     
@@ -2853,6 +2857,12 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                         with urllib.request.urlopen(req, timeout=10) as resp:
                             msg_data = json.loads(resp.read().decode())
                     except:
+                        continue
+                    
+                    # 检查邮件时间戳，过滤掉旧邮件
+                    internal_date = int(msg_data.get('internalDate', 0))
+                    if internal_date < five_minutes_ago_ms:
+                        print(f"[DEBUG] 邮件ID: {msg_id} 太旧，跳过 (时间: {internal_date}, 阈值: {five_minutes_ago_ms})")
                         continue
                     
                     # 提取邮件内容
