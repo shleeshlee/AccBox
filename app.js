@@ -27,9 +27,7 @@ let codeToastTimer = null; // 验证码弹窗定时器
 let emailPollingInterval = null; // 邮箱轮询定时器
 
 // v5.1.4 新增：智能轮询 - 页面可见性检测
-let isPageVisible = true;
-let pollingIntervalActive = 10000; // 活跃时10秒轮询
-let pollingIntervalInactive = 120000; // 非活跃时2分钟轮询
+let pollingStartTime = null; // 轮询启动时间
 let pollingStartTime = null; // 轮询启动时间，只检测此时间之后的邮件
 
 // ==================== 补丁：核心 API 请求函数 ====================
@@ -2384,13 +2382,13 @@ async function doImport() {
 async function exportData() {
     // 询问是否包含邮箱配置
     const includeEmails = authorizedEmails.length > 0 ? confirm(
-        '📬 检测到已授权邮箱 即将导出：\n\n' +
+        '📬 检测到已授权邮箱\n\n' +
+        '导出内容：\n' +
         '• OAuth 应用凭证（Client ID / Secret）\n' +
         '• 待授权邮箱列表\n\n' +
-        '请注意：\n' +
+        '安全说明：\n' +
         '• 不会导出邮箱访问令牌（Access Token）\n' +
         '• 导入新环境后需要重新授权每个邮箱\n' +
-        '• 不同域名/地址 需要添加新的 URI 具体请查看教程\n' +
         '点击「确定」导出邮箱配置，点击「取消」仅导出账号数据'
     ) : false;
     
@@ -4387,45 +4385,7 @@ async function copyToastCode() {
     await copyCode(code);
 }
 
-// === 邮箱轮询（简单实现，后续可改为 WebSocket） ===
-function startEmailPolling() {
-    // 每 30 秒轮询一次
-    if (emailPollingInterval) clearInterval(emailPollingInterval);
-    
-    emailPollingInterval = setInterval(async () => {
-        if (authorizedEmails.length === 0) return;
-        
-        try {
-            const res = await apiRequest('/emails/check-new');
-            if (res.ok) {
-                const data = await res.json();
-                if (data.new_codes && data.new_codes.length > 0) {
-                    // 有新验证码
-                    data.new_codes.forEach(code => {
-                        verificationCodes.unshift(code);
-                        if (pushSettings.toast) showCodeToast(code);
-                    });
-                    
-                    // 保持最多 5 条
-                    verificationCodes = verificationCodes.slice(0, 5);
-                    
-                    renderCodesList();
-                    updateNotifyBadge();
-                    if (pushSettings.badge) updateCardBadges();
-                }
-            }
-        } catch (err) {
-            console.error('邮箱轮询失败:', err);
-        }
-    }, 30000);
-}
-
-function stopEmailPolling() {
-    if (emailPollingInterval) {
-        clearInterval(emailPollingInterval);
-        emailPollingInterval = null;
-    }
-}
+// === 邮箱轮询 - 实际实现在下方的智能轮询部分 ===
 
 // 页面关闭时停止轮询
 window.addEventListener('beforeunload', () => {
@@ -4562,36 +4522,7 @@ function copyToastCode() {
     copyCode(code);
 }
 
-// === 智能轮询（根据页面可见性调整频率） ===
-
-// 页面可见性检测
-function setupVisibilityDetection() {
-    // 页面可见性变化
-    document.addEventListener('visibilitychange', () => {
-        isPageVisible = !document.hidden;
-        console.log('页面可见性变化:', isPageVisible ? '活跃' : '后台');
-        restartEmailPolling();
-    });
-    
-    // 窗口焦点变化
-    window.addEventListener('focus', () => {
-        isPageVisible = true;
-        restartEmailPolling();
-    });
-    
-    window.addEventListener('blur', () => {
-        isPageVisible = false;
-        restartEmailPolling();
-    });
-}
-
-// 重启轮询（根据当前状态调整间隔）
-function restartEmailPolling() {
-    stopEmailPolling();
-    if (authorizedEmails.length > 0) {
-        startEmailPolling();
-    }
-}
+// === 邮箱轮询（固定30秒） ===
 
 // 执行一次邮件检查
 async function checkNewEmails() {
@@ -4665,18 +4596,11 @@ function startEmailPolling() {
         pollingStartTime = Date.now();
     }
     
-    // 根据页面可见性选择轮询间隔
-    const interval = isPageVisible ? pollingIntervalActive : pollingIntervalInactive;
-    
-    // 立即执行一次
-    if (isPageVisible) {
-        checkNewEmails();
-    }
-    
+    // 固定30秒轮询
     emailPollingInterval = setInterval(() => {
         checkNewEmails();
-        cleanExpiredCodes(); // 每次轮询时清理过期验证码
-    }, interval);
+        cleanExpiredCodes();
+    }, 30000);
 }
 
 function stopEmailPolling() {
@@ -5542,7 +5466,6 @@ function renderCodesList() {
 // === 初始化 ===
 // 在用户登录后调用
 function initEmailFeature() {
-    setupVisibilityDetection(); // 设置页面可见性检测
     loadEmailData();
     loadVerificationCodes();
     startEmailPolling();
