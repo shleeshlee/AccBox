@@ -26,9 +26,8 @@ let pushSettings = JSON.parse(localStorage.getItem('pushSettings') || '{"notify"
 let codeToastTimer = null; // 验证码弹窗定时器
 let emailPollingInterval = null; // 邮箱轮询定时器
 
-// v5.1.4 新增：智能轮询 - 页面可见性检测
+// v5.1.3 邮箱轮询
 let pollingStartTime = null; // 轮询启动时间
-let pollingStartTime = null; // 轮询启动时间，只检测此时间之后的邮件
 
 // ==================== 补丁：核心 API 请求函数 ====================
 async function apiRequest(endpoint, options = {}) {
