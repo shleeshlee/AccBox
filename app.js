@@ -4714,9 +4714,6 @@ async function checkAndUpdateOAuthStatus() {
                         <span>凭证只需配置一次。点击下方按钮可授权多个 ${providerName} 账号，每次选择不同账号即可</span>
                     </div>
                 `;
-                // 显示回调URL备用方案
-                const fallbackDiv = document.getElementById(`${provider}Fallback`);
-                if (fallbackDiv) fallbackDiv.style.display = 'block';
             }
         } catch (e) {}
     }
@@ -4749,65 +4746,6 @@ function showOAuthInputs(provider) {
             <a href="${credentialsUrl}" target="_blank" class="btn-get-credentials">🔗 前往获取</a>
         </div>
     `;
-}
-
-// 切换回调URL备用方案的展开/收起
-function toggleFallback(provider) {
-    const content = document.getElementById(`${provider}FallbackContent`);
-    const toggle = document.querySelector(`#${provider}Fallback .fallback-toggle`);
-    if (content && toggle) {
-        const isHidden = content.style.display === 'none';
-        content.style.display = isHidden ? 'block' : 'none';
-        toggle.textContent = isHidden ? '▲' : '▼';
-    }
-}
-
-// 从回调URL手动提取凭证
-async function submitCallbackUrl(provider) {
-    const urlInput = document.getElementById(`${provider}CallbackUrl`);
-    if (!urlInput) return;
-    
-    const callbackUrl = urlInput.value.trim();
-    if (!callbackUrl) {
-        showToast('❌ 请粘贴回调URL', true);
-        return;
-    }
-    
-    // 解析URL参数
-    try {
-        const url = new URL(callbackUrl);
-        const code = url.searchParams.get('code');
-        const state = url.searchParams.get('state');
-        
-        if (!code) {
-            showToast('❌ URL中没有找到授权码(code)', true);
-            return;
-        }
-        
-        // 调用后端处理
-        const res = await apiRequest('/emails/oauth/callback-manual', {
-            method: 'POST',
-            body: JSON.stringify({ provider, code, state })
-        });
-        
-        if (res.ok) {
-            const data = await res.json();
-            if (data.status === 'success') {
-                showToast(`✅ 授权成功: ${data.email || ''}`);
-                urlInput.value = '';
-                closeAddEmailModal();
-                loadEmailData();
-                renderAuthorizedEmails();
-            } else {
-                showToast(`❌ 授权失败: ${data.message || '未知错误'}`, true);
-            }
-        } else {
-            const err = await res.json();
-            showToast(`❌ ${err.detail || '请求失败'}`, true);
-        }
-    } catch (e) {
-        showToast('❌ URL格式无效', true);
-    }
 }
 
 function closeAddEmailModal() {

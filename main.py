@@ -2094,12 +2094,13 @@ def start_oauth(data: EmailOAuthStart, request: Request, user: dict = Depends(ge
         })
         auth_url = f"https://login.microsoftonline.com/common/oauth2/v2.0/authorize?{params}"
     
-    # 保存state
+    # 保存state（包含redirect_uri用于token交换）
     oauth_states[state] = {
         "user_id": user['id'],
         "provider": provider,
         "client_id": client_id,
         "client_secret": client_secret,
+        "redirect_uri": redirect_uri,
         "created_at": time.time()
     }
     
@@ -2133,7 +2134,8 @@ def oauth_callback(code: str = None, state: str = None, error: str = None):
         import urllib.request
         import urllib.parse
         
-        redirect_uri = os.environ.get('OAUTH_REDIRECT_URI', 'http://localhost:9111/api/emails/oauth/callback')
+        # 使用授权时保存的 redirect_uri
+        redirect_uri = state_data.get('redirect_uri') or os.environ.get('OAUTH_REDIRECT_URI', 'http://localhost:9111/api/emails/oauth/callback')
         
         if provider == 'gmail':
             # 用code换取token
