@@ -2067,7 +2067,7 @@ def start_oauth(data: EmailOAuthStart, user: dict = Depends(get_current_user)):
             "response_type=code&"
             "scope=https://www.googleapis.com/auth/gmail.readonly&"
             "access_type=offline&"
-            "prompt=consent&"
+            "prompt=consent%20select_account&"
             f"state={state}"
         )
     else:  # outlook
@@ -2077,6 +2077,7 @@ def start_oauth(data: EmailOAuthStart, user: dict = Depends(get_current_user)):
             f"redirect_uri={redirect_uri}&"
             "response_type=code&"
             "scope=https://outlook.office.com/IMAP.AccessAsUser.All offline_access&"
+            "prompt=select_account&"
             f"state={state}"
         )
     

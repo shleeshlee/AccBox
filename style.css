@@ -6009,3 +6009,258 @@ html:not([data-theme="light"]) .toast-code {
     padding: 2px 6px;
     border-radius: 4px;
 }
+
+/* ============================================
+   邮箱配置帮助按钮和弹窗
+   ============================================ */
+
+/* 帮助按钮组 */
+.oauth-help-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.btn-help {
+    padding: 6px 12px;
+    font-size: 0.85rem;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-help:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.btn-get-credentials {
+    padding: 6px 12px;
+    font-size: 0.85rem;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    text-decoration: none;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-get-credentials:hover {
+    background: var(--bg-hover);
+    color: var(--primary);
+    border-color: var(--primary);
+}
+
+/* 帮助弹窗 */
+.help-modal {
+    max-width: 600px;
+    max-height: 80vh;
+}
+
+.help-modal-body {
+    padding: 20px;
+    overflow-y: auto;
+    max-height: calc(80vh - 60px);
+}
+
+.help-section {
+    margin-bottom: 24px;
+}
+
+.help-section:last-child {
+    margin-bottom: 0;
+}
+
+.help-step {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 16px;
+    padding: 12px;
+    background: var(--bg-input);
+    border-radius: 8px;
+    border-left: 3px solid var(--primary);
+}
+
+.help-step-num {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    background: var(--primary);
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+.help-step-content {
+    flex: 1;
+}
+
+.help-step-title {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+.help-step-desc {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+.help-step-desc code {
+    background: var(--bg-card);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 0.85rem;
+    color: var(--primary);
+}
+
+.help-tip {
+    background: rgba(var(--primary-rgb, 59, 130, 246), 0.1);
+    border: 1px solid rgba(var(--primary-rgb, 59, 130, 246), 0.3);
+    border-radius: 8px;
+    padding: 12px;
+    margin-top: 16px;
+}
+
+.help-tip-title {
+    font-weight: 600;
+    color: var(--primary);
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.help-tip-content {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+.help-warning {
+    background: rgba(245, 158, 11, 0.1);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    border-radius: 8px;
+    padding: 12px;
+    margin-top: 16px;
+}
+
+.help-warning-title {
+    font-weight: 600;
+    color: #f59e0b;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.help-warning-content {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+.help-copy-box {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 12px;
+    margin-top: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.help-copy-box code {
+    font-family: monospace;
+    font-size: 0.85rem;
+    color: var(--text-primary);
+    word-break: break-all;
+}
+
+.help-copy-box .btn-copy {
+    flex-shrink: 0;
+    padding: 4px 8px;
+    font-size: 0.8rem;
+}
+
+/* 配置完成后的下一步引导 */
+.oauth-next-step {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+    padding: 10px 12px;
+    background: rgba(34, 197, 94, 0.1);
+    border: 1px dashed rgba(34, 197, 94, 0.4);
+    border-radius: 6px;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.next-step-icon {
+    font-size: 1rem;
+    animation: bounce 1s infinite;
+}
+
+@keyframes bounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(3px); }
+}
+
+/* 小号帮助按钮 */
+.btn-help-small {
+    padding: 2px 6px;
+    font-size: 0.75rem;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-muted);
+    cursor: pointer;
+    margin-left: auto;
+}
+
+.btn-help-small:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+/* 已配置提示优化 */
+.oauth-configured-hint {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: rgba(34, 197, 94, 0.1);
+    border-radius: 6px;
+    font-size: 0.9rem;
+}
+
+.oauth-configured-hint .configured-icon {
+    font-size: 1rem;
+}
+
+.oauth-configured-hint .btn-reconfigure {
+    padding: 3px 8px;
+    font-size: 0.8rem;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+.oauth-configured-hint .btn-reconfigure:hover {
+    background: var(--bg-hover);
+}

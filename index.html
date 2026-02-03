@@ -732,8 +732,9 @@
                                     <label class="form-label">Client Secret</label>
                                     <input type="password" class="form-input" id="gmailClientSecret" placeholder="从 Google Cloud Console 获取">
                                 </div>
-                                <div class="oauth-help-link">
-                                    <a href="https://console.cloud.google.com/apis/credentials" target="_blank">📖 如何获取 Gmail OAuth 凭证？</a>
+                                <div class="oauth-help-actions">
+                                    <button type="button" class="btn-help" onclick="showHelpModal('gmail')" title="查看详细教程">❓ 教程</button>
+                                    <a href="https://console.cloud.google.com/apis/credentials" target="_blank" class="btn-get-credentials">🔗 前往获取</a>
                                 </div>
                             </div>
                             <div class="provider-auth-info">
@@ -766,8 +767,9 @@
                                     <label class="form-label">Client Secret</label>
                                     <input type="password" class="form-input" id="outlookClientSecret" placeholder="从 Azure Portal 获取">
                                 </div>
-                                <div class="oauth-help-link">
-                                    <a href="https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank">📖 如何获取 Outlook OAuth 凭证？</a>
+                                <div class="oauth-help-actions">
+                                    <button type="button" class="btn-help" onclick="showHelpModal('outlook')" title="查看详细教程">❓ 教程</button>
+                                    <a href="https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank" class="btn-get-credentials">🔗 前往获取</a>
                                 </div>
                             </div>
                             <div class="provider-auth-info">
@@ -800,8 +802,9 @@
                                     <label class="form-label">授权码 <span class="label-hint">（非QQ密码）</span></label>
                                     <input type="password" class="form-input" id="qqPassword" placeholder="在QQ邮箱设置中获取">
                                 </div>
-                                <div class="oauth-help-link">
-                                    <a href="https://mail.qq.com" target="_blank">📖 如何获取QQ邮箱授权码？</a>
+                                <div class="oauth-help-actions">
+                                    <button type="button" class="btn-help" onclick="showHelpModal('qq')" title="查看详细教程">❓ 教程</button>
+                                    <a href="https://mail.qq.com" target="_blank" class="btn-get-credentials">🔗 前往获取</a>
                                 </div>
                             </div>
                             <div class="provider-auth-info">
@@ -912,6 +915,19 @@
             <div class="mobile-menu-item" onclick="openEmailManager();closeMoreMenu()">
                 <span class="menu-icon">📬</span>邮箱授权
                 <span class="menu-badge" id="mobileEmailBadge" style="display:none">0</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- 邮箱配置帮助弹窗 -->
+    <div class="modal-overlay" id="helpModal">
+        <div class="modal help-modal">
+            <div class="modal-header">
+                <h3 id="helpModalTitle">配置教程</h3>
+                <button class="btn-close" onclick="closeHelpModal()">✕</button>
+            </div>
+            <div class="modal-body help-modal-body" id="helpModalContent">
+                <!-- 内容由 JS 动态填充 -->
             </div>
         </div>
     </div>

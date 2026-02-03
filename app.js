@@ -4701,11 +4701,17 @@ async function checkAndUpdateOAuthStatus() {
         try {
             const status = await checkOAuthConfig(provider);
             if (status.configured) {
+                const providerName = provider === 'gmail' ? 'Gmail' : 'Outlook';
                 configDiv.innerHTML = `
                     <div class="oauth-configured-hint">
                         <span class="configured-icon">✅</span>
                         <span>OAuth 凭证已配置</span>
                         <button class="btn-reconfigure" onclick="showOAuthInputs('${provider}')">重新配置</button>
+                        <button class="btn-help-small" onclick="showHelpModal('${provider}')" title="查看教程">❓</button>
+                    </div>
+                    <div class="oauth-next-step">
+                        <span class="next-step-icon">👇</span>
+                        <span>点击下方按钮授权你的 ${providerName} 邮箱，可授权多个</span>
                     </div>
                 `;
             }
@@ -4722,6 +4728,10 @@ function showOAuthInputs(provider) {
         ? '从 Google Cloud Console 获取' 
         : '从 Azure Portal 获取';
     
+    const credentialsUrl = provider === 'gmail' 
+        ? 'https://console.cloud.google.com/apis/credentials' 
+        : 'https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade';
+    
     configDiv.innerHTML = `
         <div class="form-group">
             <label class="form-label">Client ID</label>
@@ -4731,8 +4741,9 @@ function showOAuthInputs(provider) {
             <label class="form-label">Client Secret</label>
             <input type="password" class="form-input" id="${provider}ClientSecret" placeholder="${placeholderText}">
         </div>
-        <div class="oauth-help-link">
-            <a href="${provider === 'gmail' ? 'https://console.cloud.google.com/apis/credentials' : 'https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade'}" target="_blank">📖 如何获取 ${provider === 'gmail' ? 'Gmail' : 'Outlook'} OAuth 凭证？</a>
+        <div class="oauth-help-actions">
+            <button type="button" class="btn-help" onclick="showHelpModal('${provider}')" title="查看详细教程">❓ 教程</button>
+            <a href="${credentialsUrl}" target="_blank" class="btn-get-credentials">🔗 前往获取</a>
         </div>
     `;
 }
@@ -5246,3 +5257,358 @@ function initEmailFeature() {
 
 // 页面卸载时停止轮询
 window.addEventListener('beforeunload', stopEmailPolling);
+
+// ============================================
+// 邮箱配置帮助教程
+// ============================================
+
+const helpContents = {
+    gmail: {
+        title: 'Gmail OAuth 配置教程',
+        content: `
+            <div class="help-section">
+                <div class="help-step">
+                    <div class="help-step-num">1</div>
+                    <div class="help-step-content">
+                        <div class="help-step-title">打开 Google Cloud Console</div>
+                        <div class="help-step-desc">
+                            访问 <a href="https://console.cloud.google.com/" target="_blank">console.cloud.google.com</a>，使用你的 Google 账号登录
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="help-step">
+                    <div class="help-step-num">2</div>
+                    <div class="help-step-content">
+                        <div class="help-step-title">创建新项目</div>
+                        <div class="help-step-desc">
+                            点击顶部的项目选择器 → <strong>新建项目</strong> → 输入项目名称（如 "AccBox"）→ 点击<strong>创建</strong>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="help-step">
+                    <div class="help-step-num">3</div>
+                    <div class="help-step-content">
+                        <div class="help-step-title">启用 Gmail API</div>
+                        <div class="help-step-desc">
+                            左侧菜单选择 <strong>API和服务</strong> → <strong>库</strong> → 搜索 "Gmail API" → 点击进入 → 点击<strong>启用</strong>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="help-step">
+                    <div class="help-step-num">4</div>
+                    <div class="help-step-content">
+                        <div class="help-step-title">配置 OAuth 权限请求页面</div>
+                        <div class="help-step-desc">
+                            左侧菜单 → <strong>OAuth 权限请求页面</strong> → 选择<strong>外部</strong> → 填写应用名称 → 填写用户支持邮箱 → 填写开发者邮箱 → 点击<strong>保存并继续</strong>（作用域页面直接跳过）
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="help-step">
+                    <div class="help-step-num">5</div>
+                    <div class="help-step-content">
+                        <div class="help-step-title">添加测试用户</div>
+                        <div class="help-step-desc">
+                            左侧菜单 → <strong>OAuth 权限请求页面</strong> → 下拉选择<strong>目标对象</strong> → 在测试用户下点击<strong>+ ADD USERS</strong> → 输入你要授权的 Gmail 地址 → 保存
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="help-step">
+                    <div class="help-step-num">6</div>
+                    <div class="help-step-content">
+                        <div class="help-step-title">创建 OAuth 凭证</div>
+                        <div class="help-step-desc">
+                            左侧菜单 → <strong>凭据</strong> → 点击顶部<strong>+ 创建凭据</strong> → 选择 <strong>OAuth 客户端 ID</strong> → 应用类型选<strong>Web 应用</strong> → 输入名称
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="help-step">
+                    <div class="help-step-num">7</div>
+                    <div class="help-step-content">
+                        <div class="help-step-title">添加重定向 URI</div>
+                        <div class="help-step-desc">
+                            在"已授权的重定向 URI"处点击<strong>添加 URI</strong>，填入你的回调地址：
+                            <div class="help-copy-box">
+                                <code id="gmailRedirectUri">http://你的域名:9111/api/emails/oauth/callback</code>
+                                <button class="btn btn-copy" onclick="copyHelpText('gmailRedirectUri')">复制</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="help-step">
+                    <div class="help-step-num">8</div>
+                    <div class="help-step-content">
+                        <div class="help-step-title">复制凭证</div>
+                        <div class="help-step-desc">
+                            点击<strong>创建</strong>后会弹出窗口，复制 <strong>Client ID</strong> 和 <strong>Client Secret</strong>，粘贴到上方输入框
+                        </div>
+                    </div>
+                </div>
+                
+            </div>
+        `
+    },
+    
+    outlook: {
+        title: 'Outlook OAuth 配置教程',
+        content: `
+            <div class="help-section">
+                <div class="help-step">
+                    <div class="help-step-num">1</div>
+                    <div class="help-step-content">
+                        <div class="help-step-title">打开 Azure 门户</div>
+                        <div class="help-step-desc">
+                            访问 <a href="https://portal.azure.com/" target="_blank">portal.azure.com</a>，使用你的 Microsoft 账号登录
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="help-step">
+                    <div class="help-step-num">2</div>
+                    <div class="help-step-content">
+                        <div class="help-step-title">进入应用注册</div>
+                        <div class="help-step-desc">
+                            搜索并进入 <strong>Microsoft Entra ID</strong>（原 Azure AD）→ 左侧菜单选择<strong>应用注册</strong> → 点击<strong>+ 新注册</strong>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="help-step">
+                    <div class="help-step-num">3</div>
+                    <div class="help-step-content">
+                        <div class="help-step-title">注册应用</div>
+                        <div class="help-step-desc">
+                            输入应用名称（如 "AccBox"）→ 账户类型选<strong>任何组织目录中的账户和个人 Microsoft 账户</strong> → 重定向 URI 类型选 <strong>Web</strong>，填入：
+                            <div class="help-copy-box">
+                                <code id="outlookRedirectUri">http://你的域名:9111/api/emails/oauth/callback</code>
+                                <button class="btn btn-copy" onclick="copyHelpText('outlookRedirectUri')">复制</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="help-step">
+                    <div class="help-step-num">4</div>
+                    <div class="help-step-content">
+                        <div class="help-step-title">复制 Client ID</div>
+                        <div class="help-step-desc">
+                            点击<strong>注册</strong>后，在概述页面复制<strong>应用程序(客户端) ID</strong>，这就是 Client ID
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="help-step">
+                    <div class="help-step-num">5</div>
+                    <div class="help-step-content">
+                        <div class="help-step-title">创建 Client Secret</div>
+                        <div class="help-step-desc">
+                            左侧菜单 → <strong>证书和密码</strong> → <strong>客户端密码</strong>标签 → 点击<strong>+ 新客户端密码</strong> → 输入描述 → 选择有效期 → 点击<strong>添加</strong>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="help-step">
+                    <div class="help-step-num">6</div>
+                    <div class="help-step-content">
+                        <div class="help-step-title">复制 Secret 值</div>
+                        <div class="help-step-desc">
+                            <strong>立即复制</strong>"值"列的内容（不是"密码 ID"），这就是 Client Secret。离开页面后无法再查看！
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="help-warning">
+                    <div class="help-warning-title">⚠️ 重要</div>
+                    <div class="help-warning-content">
+                        Client Secret 只显示一次，创建后必须立即复制保存。如果忘记了只能重新创建一个新的。
+                    </div>
+                </div>
+            </div>
+        `
+    },
+    
+    qq: {
+        title: 'QQ邮箱授权码获取教程',
+        content: `
+            <div class="help-section">
+                <div class="help-step">
+                    <div class="help-step-num">1</div>
+                    <div class="help-step-content">
+                        <div class="help-step-title">登录 QQ 邮箱</div>
+                        <div class="help-step-desc">
+                            访问 <a href="https://mail.qq.com" target="_blank">mail.qq.com</a>，使用 QQ 账号登录网页版邮箱
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="help-step">
+                    <div class="help-step-num">2</div>
+                    <div class="help-step-content">
+                        <div class="help-step-title">进入设置</div>
+                        <div class="help-step-desc">
+                            点击页面顶部的<strong>设置</strong> → 选择<strong>账户</strong>标签页
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="help-step">
+                    <div class="help-step-num">3</div>
+                    <div class="help-step-content">
+                        <div class="help-step-title">开启 IMAP 服务</div>
+                        <div class="help-step-desc">
+                            向下滚动找到 <strong>POP3/IMAP/SMTP/Exchange/CardDAV/CalDAV服务</strong> → 开启 <strong>IMAP/SMTP服务</strong>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="help-step">
+                    <div class="help-step-num">4</div>
+                    <div class="help-step-content">
+                        <div class="help-step-title">验证身份</div>
+                        <div class="help-step-desc">
+                            按照提示用手机 QQ 扫码或发送短信验证身份
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="help-step">
+                    <div class="help-step-num">5</div>
+                    <div class="help-step-content">
+                        <div class="help-step-title">获取授权码</div>
+                        <div class="help-step-desc">
+                            验证成功后会显示一个 <strong>16位授权码</strong>，复制并填入上方"授权码"输入框
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="help-tip">
+                    <div class="help-tip-title">💡 提示</div>
+                    <div class="help-tip-content">
+                        授权码不是你的 QQ 密码，是专门用于第三方客户端登录的独立密码。每次生成的授权码都不同，可以随时生成新的或撤销旧的。
+                    </div>
+                </div>
+            </div>
+        `
+    },
+    
+    imap: {
+        title: '通用 IMAP 配置说明',
+        content: `
+            <div class="help-section">
+                <div class="help-step">
+                    <div class="help-step-num">1</div>
+                    <div class="help-step-content">
+                        <div class="help-step-title">确认邮箱支持 IMAP</div>
+                        <div class="help-step-desc">
+                            登录你的邮箱网页版，在设置中确认已开启 IMAP 服务。大部分邮箱默认开启，但有些需要手动启用。
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="help-step">
+                    <div class="help-step-num">2</div>
+                    <div class="help-step-content">
+                        <div class="help-step-title">获取 IMAP 服务器地址</div>
+                        <div class="help-step-desc">
+                            常见邮箱的 IMAP 服务器地址：
+                            <ul style="margin: 8px 0 0 20px; color: var(--text-secondary);">
+                                <li>163邮箱：<code>imap.163.com</code></li>
+                                <li>126邮箱：<code>imap.126.com</code></li>
+                                <li>新浪邮箱：<code>imap.sina.com</code></li>
+                                <li>阿里企业邮箱：<code>imap.qiye.aliyun.com</code></li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="help-step">
+                    <div class="help-step-num">3</div>
+                    <div class="help-step-content">
+                        <div class="help-step-title">获取密码或授权码</div>
+                        <div class="help-step-desc">
+                            部分邮箱（如163、126）需要在邮箱设置中单独开启 IMAP 并生成<strong>客户端授权码</strong>，用授权码代替邮箱密码登录。
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="help-step">
+                    <div class="help-step-num">4</div>
+                    <div class="help-step-content">
+                        <div class="help-step-title">填写配置</div>
+                        <div class="help-step-desc">
+                            在上方填入邮箱地址、IMAP服务器地址、端口（默认993）、密码或授权码，点击验证连接。
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="help-tip">
+                    <div class="help-tip-title">💡 快速配置</div>
+                    <div class="help-tip-content">
+                        点击上方的 <strong>163</strong>、<strong>126</strong>、<strong>新浪</strong> 按钮可以自动填入对应的服务器地址和端口。
+                    </div>
+                </div>
+            </div>
+        `
+    }
+};
+
+function showHelpModal(provider) {
+    const modal = document.getElementById('helpModal');
+    const title = document.getElementById('helpModalTitle');
+    const content = document.getElementById('helpModalContent');
+    
+    const help = helpContents[provider];
+    if (!help) return;
+    
+    title.textContent = help.title;
+    content.innerHTML = help.content;
+    
+    // 替换回调地址中的域名为实际地址
+    const currentHost = window.location.origin;
+    const redirectUri = `${currentHost}/api/emails/oauth/callback`;
+    
+    const gmailUri = document.getElementById('gmailRedirectUri');
+    const outlookUri = document.getElementById('outlookRedirectUri');
+    
+    if (gmailUri) gmailUri.textContent = redirectUri;
+    if (outlookUri) outlookUri.textContent = redirectUri;
+    
+    modal.classList.add('show');
+}
+
+function closeHelpModal() {
+    document.getElementById('helpModal')?.classList.remove('show');
+}
+
+function copyHelpText(elementId) {
+    const element = document.getElementById(elementId);
+    if (!element) return;
+    
+    const text = element.textContent;
+    navigator.clipboard.writeText(text).then(() => {
+        showToast('✅ 已复制');
+    }).catch(() => {
+        // 降级方案
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        showToast('✅ 已复制');
+    });
+}
+
+// 点击弹窗外部关闭
+document.addEventListener('click', function(e) {
+    const helpModal = document.getElementById('helpModal');
+    if (e.target === helpModal) {
+        closeHelpModal();
+    }
+});
