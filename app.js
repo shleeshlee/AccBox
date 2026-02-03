@@ -5518,11 +5518,11 @@ function renderCodesList() {
                     <span class="code-service">${escapeHtml(code.service || '验证码')}</span>
                     ${!isExpired ? `<span class="code-timer ${timerClass}">${timerText}</span>` : ''}
                 </div>
-                <div class="code-value">${escapeHtml(code.code)}</div>
-                <div class="code-footer">
-                    <span class="code-account">${escapeHtml(code.account_name || code.email || '')}</span>
+                <div class="code-value-row">
+                    <span class="code-value">${escapeHtml(code.code)}</span>
                     ${isExpired ? '<span class="code-expired-tag">已过期</span>' : ''}
                 </div>
+                <div class="code-account">${escapeHtml(code.account_name || code.email || '')}</div>
             </div>
         `;
     }).join('');
