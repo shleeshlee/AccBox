@@ -3005,7 +3005,6 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
             email_id = email_row["id"]
             provider = email_row["provider"]
             encrypted_creds = email_row["credentials"]
-            print(f"[Debug] 处理邮箱: {email_address}, provider: {provider}, id: {email_id}")
             
             try:
                 creds = json.loads(decrypt_password(encrypted_creds))
@@ -3015,22 +3014,21 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                 if provider == 'gmail':
                     access_token = creds.get('access_token')
                     refresh_token = creds.get('refresh_token')
-                    print(f"[Gmail Debug] 邮箱: {email_address}")
-                    print(f"[Gmail Debug] access_token 存在: {bool(access_token)}")
-                    print(f"[Gmail Debug] refresh_token 存在: {bool(refresh_token)}")
                     
                     if not access_token:
-                        print(f"[Gmail Debug] 无 access_token，跳过")
                         continue
                     
                     import urllib.request
                     import urllib.error
                     
-                    # 固定查询最近5分钟的邮件
-                    query = "newer_than:5m"
+                    # 使用时间戳查询
+                    if since_timestamp:
+                        since_sec = int(since_timestamp / 1000) if since_timestamp > 9999999999 else since_timestamp
+                        query = f"after:{since_sec}"
+                    else:
+                        query = "newer_than:2m"
                     
                     list_url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages?q={urllib.parse.quote(query)}&maxResults=10"
-                    print(f"[Gmail Debug] 请求URL: {list_url}")
                     
                     # 尝试请求，如果401则刷新token重试
                     messages_data = None
@@ -3041,29 +3039,20 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                         try:
                             with urllib.request.urlopen(req, timeout=10) as resp:
                                 messages_data = json.loads(resp.read().decode())
-                            print(f"[Gmail Debug] 获取邮件列表成功: {messages_data}")
                             break
                         except urllib.error.HTTPError as e:
-                            print(f"[Gmail Debug] HTTP错误: {e.code} - {e.reason}")
                             if e.code == 401 and attempt == 0 and refresh_token:
-                                print(f"[Gmail Debug] 尝试刷新token...")
                                 new_token = refresh_gmail_token(refresh_token, email_id, user_id)
                                 if new_token:
                                     access_token = new_token
-                                    print(f"[Gmail Debug] token刷新成功")
                                     continue
-                                else:
-                                    print(f"[Gmail Debug] token刷新失败")
-                            break
-                        except Exception as e:
-                            print(f"[Gmail Debug] 其他错误: {e}")
                             break
                     
                     if not messages_data:
-                        print(f"[Gmail Debug] messages_data 为空，跳过")
+                        print(f"[Gmail] {email_address}: messages_data 为空")
                         continue
                     
-                    print(f"[Gmail Debug] 找到 {len(messages_data.get('messages', []))} 封邮件")
+                    print(f"[Gmail] {email_address}: 获取到 {len(messages_data.get('messages', []))} 封邮件")
                     
                     for msg in messages_data.get('messages', []):
                         msg_id = msg['id']
@@ -3099,6 +3088,7 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                             'from': from_addr,
                             'body': snippet + ' ' + body_data
                         })
+                        print(f"[Gmail] 添加邮件: from={from_addr[:30]}..., body长度={len(snippet + body_data)}")
                 
                 # ==================== Outlook ====================
                 elif provider == 'outlook':
@@ -3140,11 +3130,13 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                     imap_last_fetch[email_address] = now  # 更新最后请求时间
                 
                 # ==================== 提取验证码 ====================
+                print(f"[验证码] emails_content 数量: {len(emails_content)}")
                 for email_data in emails_content:
                     full_text = email_data.get('body', '')
                     from_addr = email_data.get('from', '')
                     
                     code, service = extract_verification_code(full_text)
+                    print(f"[验证码] 提取结果: code={code}, service={service}")
                     
                     if code:
                         # 如果服务未识别，用发件人
@@ -3166,15 +3158,10 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                             """, (email_address, service[:50], code, ''))
                             conn.commit()
                             
-                            # 计算过期时间（当前时间+3分钟）
-                            from datetime import datetime, timedelta
-                            expires_at = (datetime.now() + timedelta(minutes=3)).isoformat()
-                            
                             new_codes.append({
                                 "email": email_address,
                                 "service": service,
-                                "code": code,
-                                "expires_at": expires_at
+                                "code": code
                             })
             
             except Exception as e:
