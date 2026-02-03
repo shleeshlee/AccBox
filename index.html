@@ -742,6 +742,18 @@
                                 <span class="auth-hint">只读权限，不存储密码</span>
                             </div>
                             <button class="btn-provider-auth" onclick="startProviderAuth('gmail')">🔗 开始授权</button>
+                            <!-- 无法回源时的备用方案 -->
+                            <div class="oauth-fallback" id="gmailFallback" style="display:none;">
+                                <div class="fallback-header" onclick="toggleFallback('gmail')">
+                                    <span>🔧 无法回调？试试手动方式</span>
+                                    <span class="fallback-toggle">▼</span>
+                                </div>
+                                <div class="fallback-content" id="gmailFallbackContent" style="display:none;">
+                                    <div class="fallback-hint">授权成功后，复制浏览器地址栏的完整URL粘贴到下方：</div>
+                                    <input type="text" class="form-input" id="gmailCallbackUrl" placeholder="粘贴回调URL，例如: https://...?code=xxx&state=xxx">
+                                    <button class="btn-fallback-submit" onclick="submitCallbackUrl('gmail')">从回调URL获取凭证</button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                     
@@ -777,6 +789,18 @@
                                 <span class="auth-hint">只读权限，不存储密码</span>
                             </div>
                             <button class="btn-provider-auth" onclick="startProviderAuth('outlook')">🔗 开始授权</button>
+                            <!-- 无法回源时的备用方案 -->
+                            <div class="oauth-fallback" id="outlookFallback" style="display:none;">
+                                <div class="fallback-header" onclick="toggleFallback('outlook')">
+                                    <span>🔧 无法回调？试试手动方式</span>
+                                    <span class="fallback-toggle">▼</span>
+                                </div>
+                                <div class="fallback-content" id="outlookFallbackContent" style="display:none;">
+                                    <div class="fallback-hint">授权成功后，复制浏览器地址栏的完整URL粘贴到下方：</div>
+                                    <input type="text" class="form-input" id="outlookCallbackUrl" placeholder="粘贴回调URL，例如: https://...?code=xxx&state=xxx">
+                                    <button class="btn-fallback-submit" onclick="submitCallbackUrl('outlook')">从回调URL获取凭证</button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                     

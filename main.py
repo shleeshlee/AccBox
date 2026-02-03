@@ -1921,6 +1921,7 @@ def get_version():
 
 class EmailOAuthStart(BaseModel):
     provider: str  # gmail, outlook
+    origin: Optional[str] = None  # 前端传递的 window.location.origin
 
 class EmailIMAPAdd(BaseModel):
     provider: str  # qq, imap
@@ -2059,13 +2060,17 @@ def start_oauth(data: EmailOAuthStart, request: Request, user: dict = Depends(ge
     # 生成state
     state = secrets.token_urlsafe(32)
     
-    # 自动检测回调地址：优先 .env 配置，否则从请求头获取
+    # 自动检测回调地址：优先 .env 配置，其次前端传递的 origin，最后从请求头获取
     redirect_uri = os.environ.get('OAUTH_REDIRECT_URI')
     if not redirect_uri:
-        # 从请求头获取实际访问的域名
-        host = request.headers.get('x-forwarded-host') or request.headers.get('host') or 'localhost:9111'
-        scheme = request.headers.get('x-forwarded-proto') or 'http'
-        redirect_uri = f"{scheme}://{host}/api/emails/oauth/callback"
+        if data.origin:
+            # 使用前端传递的 origin（最可靠，包含正确的 scheme）
+            redirect_uri = f"{data.origin}/api/emails/oauth/callback"
+        else:
+            # 从请求头获取
+            host = request.headers.get('x-forwarded-host') or request.headers.get('host') or 'localhost:9111'
+            scheme = request.headers.get('x-forwarded-proto') or 'http'
+            redirect_uri = f"{scheme}://{host}/api/emails/oauth/callback"
     
     if provider == 'gmail':
         params = urllib.parse.urlencode({
@@ -2272,6 +2277,127 @@ def get_oauth_status(state: str, user: dict = Depends(get_current_user)):
         "message": state_data.get("message", ""),
         "email": state_data.get("email", "")
     }
+
+class ManualCallbackData(BaseModel):
+    provider: str
+    code: str
+    state: Optional[str] = None
+
+@app.post("/api/emails/oauth/callback-manual")
+def oauth_callback_manual(data: ManualCallbackData, user: dict = Depends(get_current_user)):
+    """手动处理OAuth回调（用于无法自动回调的情况）"""
+    provider = data.provider.lower()
+    code = data.code
+    user_id = user['id']
+    
+    if provider not in ['gmail', 'outlook']:
+        raise HTTPException(status_code=400, detail="不支持的邮箱类型")
+    
+    # 获取OAuth凭证
+    client_id, client_secret = get_oauth_credentials(provider)
+    if not client_id or not client_secret:
+        raise HTTPException(status_code=400, detail="OAuth凭证未配置")
+    
+    # 使用 urn:ietf:wg:oauth:2.0:oob 作为回调URI（适用于手动方式）
+    # 或者尝试从 state 获取原始的 redirect_uri
+    redirect_uri = 'urn:ietf:wg:oauth:2.0:oob'
+    
+    try:
+        if provider == 'gmail':
+            # Google OAuth token交换
+            token_url = "https://oauth2.googleapis.com/token"
+            token_data = urllib.parse.urlencode({
+                "code": code,
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "redirect_uri": redirect_uri,
+                "grant_type": "authorization_code"
+            }).encode()
+            
+            req = urllib.request.Request(token_url, data=token_data, method='POST')
+            req.add_header('Content-Type', 'application/x-www-form-urlencoded')
+            
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                token_resp = json.loads(resp.read().decode())
+            
+            access_token = token_resp.get('access_token')
+            refresh_token = token_resp.get('refresh_token')
+            
+            # 获取用户邮箱
+            profile_url = "https://www.googleapis.com/oauth2/v2/userinfo"
+            req = urllib.request.Request(profile_url)
+            req.add_header('Authorization', f'Bearer {access_token}')
+            
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                profile = json.loads(resp.read().decode())
+            
+            email = profile.get('email')
+            
+            # 存储到数据库
+            with get_db() as conn:
+                credentials = json.dumps({
+                    "access_token": access_token,
+                    "refresh_token": refresh_token,
+                    "token_type": token_resp.get('token_type'),
+                    "expires_in": token_resp.get('expires_in')
+                })
+                encrypted_creds = encrypt_password(credentials)
+                
+                conn.execute(f"""
+                    INSERT OR REPLACE INTO user_{user_id}_emails (address, provider, status, credentials)
+                    VALUES (?, 'gmail', 'active', ?)
+                """, (email, encrypted_creds))
+                conn.commit()
+            
+            return {"status": "success", "email": email}
+            
+        elif provider == 'outlook':
+            # Microsoft OAuth token交换
+            token_url = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+            token_data = urllib.parse.urlencode({
+                "code": code,
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "redirect_uri": redirect_uri,
+                "grant_type": "authorization_code"
+            }).encode()
+            
+            req = urllib.request.Request(token_url, data=token_data, method='POST')
+            req.add_header('Content-Type', 'application/x-www-form-urlencoded')
+            
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                token_resp = json.loads(resp.read().decode())
+            
+            access_token = token_resp.get('access_token')
+            refresh_token = token_resp.get('refresh_token')
+            
+            # 获取用户邮箱
+            profile_url = "https://graph.microsoft.com/v1.0/me"
+            req = urllib.request.Request(profile_url)
+            req.add_header('Authorization', f'Bearer {access_token}')
+            
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                profile = json.loads(resp.read().decode())
+            
+            email = profile.get('mail') or profile.get('userPrincipalName')
+            
+            with get_db() as conn:
+                credentials = json.dumps({
+                    "access_token": access_token,
+                    "refresh_token": refresh_token
+                })
+                encrypted_creds = encrypt_password(credentials)
+                
+                conn.execute(f"""
+                    INSERT OR REPLACE INTO user_{user_id}_emails (address, provider, status, credentials)
+                    VALUES (?, 'outlook', 'active', ?)
+                """, (email, encrypted_creds))
+                conn.commit()
+            
+            return {"status": "success", "email": email}
+            
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 @app.post("/api/emails/imap/add")
 def add_imap_email(data: EmailIMAPAdd, user: dict = Depends(get_current_user)):
