@@ -2715,6 +2715,10 @@ def extract_verification_code(text: str) -> tuple:
 @app.post("/api/emails/refresh")
 def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
     """刷新邮箱，获取最新验证码"""
+    import sys
+    print(f"[DEBUG] refresh_emails 被调用, user_id: {user['id']}", flush=True)
+    sys.stdout.flush()
+    
     user_id = user['id']
     new_codes = []
     
