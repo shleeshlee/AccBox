@@ -4641,6 +4641,21 @@ body.no-particles .season-particles {
     color: var(--red);
 }
 
+.code-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 4px;
+}
+
+.code-expired-tag {
+    font-size: 0.7rem;
+    color: var(--red);
+    background: rgba(239, 68, 68, 0.1);
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
 .btn-copy-sm {
     padding: 5px 10px;
     background: var(--accent-dim);

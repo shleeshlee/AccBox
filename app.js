@@ -5516,10 +5516,13 @@ function renderCodesList() {
             <div class="code-item ${isExpired ? 'expired' : ''} ${code.is_read ? '' : 'unread'}" onclick="copyCode('${escapeHtml(code.code)}')">
                 <div class="code-item-header">
                     <span class="code-service">${escapeHtml(code.service || '验证码')}</span>
-                    <span class="code-timer ${timerClass}">${isExpired ? '已过期' : timerText}</span>
+                    ${!isExpired ? `<span class="code-timer ${timerClass}">${timerText}</span>` : ''}
                 </div>
                 <div class="code-value">${escapeHtml(code.code)}</div>
-                <div class="code-account">${escapeHtml(code.account_name || code.email || '')}</div>
+                <div class="code-footer">
+                    <span class="code-account">${escapeHtml(code.account_name || code.email || '')}</span>
+                    ${isExpired ? '<span class="code-expired-tag">已过期</span>' : ''}
+                </div>
             </div>
         `;
     }).join('');
