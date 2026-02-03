@@ -3010,12 +3010,14 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                     
                     import urllib.request
                     import urllib.error
+                    import time
                     
-                    # 使用时间戳查询
-                    # 固定查询最近5分钟的邮件，不依赖前端时间戳
-                    query = "newer_than:5m"
+                    # 使用 epoch 时间戳精确查询最近5分钟的邮件
+                    # Gmail API 支持 after:EPOCH_SECONDS 格式，比 newer_than 更精确
+                    five_minutes_ago = int(time.time()) - 300
+                    query = f"after:{five_minutes_ago}"
                     
-                    list_url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages?q={urllib.parse.quote(query)}&maxResults=10"
+                    list_url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages?q={urllib.parse.quote(query)}&maxResults=50"
                     
                     # 尝试请求，如果401则刷新token重试
                     messages_data = None
