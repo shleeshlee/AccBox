@@ -6411,3 +6411,10 @@ html:not([data-theme="light"]) .toast-code {
     to { transform: rotate(360deg); }
 }
 
+
+.panel-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+

@@ -158,8 +158,10 @@
                 <div class="notification-panel" id="notificationPanel">
                     <div class="panel-header">
                         <span class="panel-title">🔔 验证码</span>
-                        <button class="btn-text" onclick="markAllCodesRead()">全部已读</button>
-                        <button class="btn-text btn-refresh" id="btnRefreshEmails" onclick="fetchEmailsNow()" title="立即刷新">🔄</button>
+                        <div class="panel-actions">
+                            <button class="btn-text" onclick="markAllCodesRead()">全部已读</button>
+                            <button class="btn-text btn-refresh" id="btnRefreshEmails" onclick="fetchEmailsNow()" title="立即刷新">🔄</button>
+                        </div>
                     </div>
                     <div class="panel-body" id="codesPanelBody">
                         <div class="codes-empty">暂无验证码</div>
