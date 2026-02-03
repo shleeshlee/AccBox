@@ -2712,6 +2712,62 @@ def extract_verification_code(text: str) -> tuple:
     
     return None, None
 
+def refresh_gmail_token(refresh_token: str, email_id: int, user_id: int) -> str:
+    """使用 refresh_token 刷新 Gmail access_token"""
+    import urllib.request
+    import urllib.error
+    
+    # 获取 OAuth 凭证
+    client_id, client_secret = get_oauth_credentials('gmail')
+    if not client_id or not client_secret:
+        return None
+    
+    # 请求新的 access_token
+    token_url = "https://oauth2.googleapis.com/token"
+    token_data = urllib.parse.urlencode({
+        'client_id': client_id,
+        'client_secret': client_secret,
+        'refresh_token': refresh_token,
+        'grant_type': 'refresh_token'
+    }).encode()
+    
+    try:
+        req = urllib.request.Request(token_url, data=token_data, method='POST')
+        req.add_header('Content-Type', 'application/x-www-form-urlencoded')
+        
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            token_resp = json.loads(resp.read().decode())
+        
+        new_access_token = token_resp.get('access_token')
+        if not new_access_token:
+            return None
+        
+        # 更新数据库中的凭证
+        with get_db() as conn:
+            # 获取现有凭证
+            cursor = conn.execute(f"SELECT credentials FROM user_{user_id}_emails WHERE id = ?", (email_id,))
+            row = cursor.fetchone()
+            if row:
+                creds = json.loads(decrypt_password(row["credentials"]))
+                creds['access_token'] = new_access_token
+                # 如果返回了新的 refresh_token，也更新
+                if token_resp.get('refresh_token'):
+                    creds['refresh_token'] = token_resp['refresh_token']
+                if token_resp.get('expires_in'):
+                    creds['expires_in'] = token_resp['expires_in']
+                
+                # 保存更新后的凭证
+                conn.execute(
+                    f"UPDATE user_{user_id}_emails SET credentials = ? WHERE id = ?",
+                    (encrypt_password(json.dumps(creds)), email_id)
+                )
+                conn.commit()
+        
+        return new_access_token
+    except Exception as e:
+        print(f"刷新 Gmail token 失败: {e}")
+        return None
+
 @app.post("/api/emails/refresh")
 def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
     """刷新邮箱，获取最新验证码"""
@@ -2733,6 +2789,7 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
         
         for email_row in emails:
             email_address = email_row["address"]
+            email_id = email_row["id"]
             provider = email_row["provider"]
             encrypted_creds = email_row["credentials"]
             
@@ -2743,6 +2800,7 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                 # 解密凭证
                 creds = json.loads(decrypt_password(encrypted_creds))
                 access_token = creds.get('access_token')
+                refresh_token = creds.get('refresh_token')
                 
                 if not access_token:
                     continue
@@ -2760,17 +2818,26 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                 
                 list_url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages?q={urllib.parse.quote(query)}&maxResults=10"
                 
-                req = urllib.request.Request(list_url)
-                req.add_header('Authorization', f'Bearer {access_token}')
+                # 尝试请求，如果401则刷新token重试一次
+                messages_data = None
+                for attempt in range(2):
+                    req = urllib.request.Request(list_url)
+                    req.add_header('Authorization', f'Bearer {access_token}')
+                    
+                    try:
+                        with urllib.request.urlopen(req, timeout=10) as resp:
+                            messages_data = json.loads(resp.read().decode())
+                        break  # 成功，跳出重试循环
+                    except urllib.error.HTTPError as e:
+                        if e.code == 401 and attempt == 0 and refresh_token:
+                            # Token 过期，尝试刷新
+                            new_token = refresh_gmail_token(refresh_token, email_id, user_id)
+                            if new_token:
+                                access_token = new_token
+                                continue  # 用新 token 重试
+                        break  # 其他错误或刷新失败，跳出
                 
-                try:
-                    with urllib.request.urlopen(req, timeout=10) as resp:
-                        messages_data = json.loads(resp.read().decode())
-                except urllib.error.HTTPError as e:
-                    if e.code == 401:
-                        # Token 过期，需要刷新
-                        # TODO: 实现 token 刷新
-                        continue
+                if not messages_data:
                     continue
                 
                 messages = messages_data.get('messages', [])
