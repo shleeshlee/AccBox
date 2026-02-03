@@ -5521,9 +5521,9 @@ function renderCodesList() {
 
 // === 初始化 ===
 // 在用户登录后调用
-function initEmailFeature() {
+async function initEmailFeature() {
     setupVisibilityDetection(); // 设置页面可见性检测
-    loadEmailData();
+    await loadEmailData();      // 等待邮箱数据加载完成
     loadVerificationCodes();
     startEmailPolling();
 }
