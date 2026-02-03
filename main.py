@@ -2779,8 +2779,18 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                         refresh_token = creds.get('refresh_token')
                         if refresh_token:
                             try:
+                                # 优先从环境变量读取，否则从数据库读取
                                 client_id = os.environ.get('GOOGLE_CLIENT_ID')
                                 client_secret = os.environ.get('GOOGLE_CLIENT_SECRET')
+                                
+                                if not client_id or not client_secret:
+                                    # 从数据库读取OAuth配置
+                                    oauth_cursor = conn.execute("SELECT client_id, client_secret FROM oauth_configs WHERE provider = 'google'")
+                                    oauth_row = oauth_cursor.fetchone()
+                                    if oauth_row:
+                                        client_id = oauth_row['client_id']
+                                        client_secret = oauth_row['client_secret']
+                                
                                 print(f"[DEBUG] client_id存在: {bool(client_id)}, client_secret存在: {bool(client_secret)}")
                                 if client_id and client_secret:
                                     refresh_data = urllib.parse.urlencode({
