@@ -2384,13 +2384,13 @@ async function doImport() {
 async function exportData() {
     // 询问是否包含邮箱配置
     const includeEmails = authorizedEmails.length > 0 ? confirm(
-        '📬 检测到已授权邮箱\n\n' +
-        '导出内容：\n' +
+        '📬 检测到已授权邮箱 即将导出：\n\n' +
         '• OAuth 应用凭证（Client ID / Secret）\n' +
         '• 待授权邮箱列表\n\n' +
-        '安全说明：\n' +
+        '请注意：\n' +
         '• 不会导出邮箱访问令牌（Access Token）\n' +
         '• 导入新环境后需要重新授权每个邮箱\n' +
+        '• 不同域名/地址 需要添加新的 URI 具体请查看教程\n' +
         '点击「确定」导出邮箱配置，点击「取消」仅导出账号数据'
     ) : false;
     
