@@ -2039,7 +2039,7 @@ def get_oauth_credentials(provider: str):
     return None, None
 
 @app.post("/api/emails/oauth/start")
-def start_oauth(data: EmailOAuthStart, user: dict = Depends(get_current_user)):
+def start_oauth(data: EmailOAuthStart, request: Request, user: dict = Depends(get_current_user)):
     """启动OAuth授权流程"""
     provider = data.provider.lower()
     
@@ -2057,29 +2057,36 @@ def start_oauth(data: EmailOAuthStart, user: dict = Depends(get_current_user)):
     
     # 生成state
     state = secrets.token_urlsafe(32)
-    redirect_uri = os.environ.get('OAUTH_REDIRECT_URI', 'http://localhost:9111/api/emails/oauth/callback')
+    
+    # 自动检测回调地址：优先 .env 配置，否则从请求头获取
+    redirect_uri = os.environ.get('OAUTH_REDIRECT_URI')
+    if not redirect_uri:
+        # 从请求头获取实际访问的域名
+        host = request.headers.get('x-forwarded-host') or request.headers.get('host') or 'localhost:9111'
+        scheme = request.headers.get('x-forwarded-proto') or 'http'
+        redirect_uri = f"{scheme}://{host}/api/emails/oauth/callback"
     
     if provider == 'gmail':
-        auth_url = (
-            "https://accounts.google.com/o/oauth2/v2/auth?"
-            f"client_id={client_id}&"
-            f"redirect_uri={redirect_uri}&"
-            "response_type=code&"
-            "scope=https://www.googleapis.com/auth/gmail.readonly&"
-            "access_type=offline&"
-            "prompt=consent%20select_account&"
-            f"state={state}"
-        )
+        params = urllib.parse.urlencode({
+            'client_id': client_id,
+            'redirect_uri': redirect_uri,
+            'response_type': 'code',
+            'scope': 'https://www.googleapis.com/auth/gmail.readonly',
+            'access_type': 'offline',
+            'prompt': 'consent select_account',
+            'state': state
+        })
+        auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?{params}"
     else:  # outlook
-        auth_url = (
-            "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?"
-            f"client_id={client_id}&"
-            f"redirect_uri={redirect_uri}&"
-            "response_type=code&"
-            "scope=https://outlook.office.com/IMAP.AccessAsUser.All offline_access&"
-            "prompt=select_account&"
-            f"state={state}"
-        )
+        params = urllib.parse.urlencode({
+            'client_id': client_id,
+            'redirect_uri': redirect_uri,
+            'response_type': 'code',
+            'scope': 'https://outlook.office.com/IMAP.AccessAsUser.All offline_access',
+            'prompt': 'select_account',
+            'state': state
+        })
+        auth_url = f"https://login.microsoftonline.com/common/oauth2/v2.0/authorize?{params}"
     
     # 保存state
     oauth_states[state] = {
