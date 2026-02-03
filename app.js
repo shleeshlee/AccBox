@@ -4340,10 +4340,10 @@ async function fetchEmailsNow() {
     
     const btn = document.getElementById('btnRefreshEmails');
     
-    // 开始旋转动画
+    // 开始心跳动画
     if (btn) btn.classList.add('beating');
     
-    showToast('🔄 已开启1分钟高频模式');
+    showToast('💓 已开启1分钟加速模式');
     
     // 设置1分钟后结束高频模式
     fastModeEndTime = Date.now() + 1 * 60 * 1000;
@@ -4354,14 +4354,11 @@ async function fetchEmailsNow() {
     // 1分钟后停止动画
     fastModeTimer = setTimeout(() => {
         if (btn) btn.classList.remove('beating');
-        showToast('⏱️ 高频模式已结束');
+        showToast('⏱️ 加速模式已结束');
     }, 1 * 60 * 1000);
     
     // 立即获取一次
     await checkNewEmails();
-    
-    // 重启轮询（会自动使用高频间隔）
-    restartEmailPolling();
 }
 
 function markAllCodesRead() {
@@ -4651,25 +4648,23 @@ function startEmailPolling() {
     // 立即执行一次
     checkNewEmails();
     
-    // 根据是否在高频模式选择间隔
-    const interval = Date.now() < fastModeEndTime ? pollingIntervalFast : pollingInterval;
-    
-    emailPollingInterval = setInterval(() => {
-        // 检查高频模式是否结束，需要切换回普通模式
-        if (Date.now() >= fastModeEndTime && fastModeEndTime > 0) {
-            fastModeEndTime = 0;
-            restartEmailPolling(); // 切换回30秒轮询
-            return;
-        }
+    // 使用动态间隔：每次执行后根据当前模式决定下次间隔
+    function scheduleNext() {
+        const interval = Date.now() < fastModeEndTime ? pollingIntervalFast : pollingInterval;
         
-        checkNewEmails();
-        cleanExpiredCodes();
-    }, interval);
+        emailPollingInterval = setTimeout(() => {
+            checkNewEmails();
+            cleanExpiredCodes();
+            scheduleNext(); // 递归调度下一次
+        }, interval);
+    }
+    
+    scheduleNext();
 }
 
 function stopEmailPolling() {
     if (emailPollingInterval) {
-        clearInterval(emailPollingInterval);
+        clearTimeout(emailPollingInterval);
         emailPollingInterval = null;
     }
 }

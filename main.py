@@ -3137,24 +3137,30 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                         if service == 'unknown':
                             service = from_addr.split('<')[0].strip() or from_addr
                         
-                        # 检查是否已存在
+                        # 检查是否已存在（同邮箱同验证码5分钟内不重复）
                         cursor = conn.execute(f"""
                             SELECT id FROM user_{user_id}_verification_codes 
                             WHERE email = ? AND code = ? AND created_at > datetime('now', '-5 minutes')
                         """, (email_address, code))
                         
                         if not cursor.fetchone():
+                            # 验证码有效期3分钟（大多数验证码有效期在1-5分钟）
                             conn.execute(f"""
                                 INSERT INTO user_{user_id}_verification_codes 
                                 (email, service, code, account_name, is_read, expires_at, created_at)
-                                VALUES (?, ?, ?, ?, 0, datetime('now', '+5 minutes'), datetime('now'))
+                                VALUES (?, ?, ?, ?, 0, datetime('now', '+3 minutes'), datetime('now'))
                             """, (email_address, service[:50], code, ''))
                             conn.commit()
+                            
+                            # 计算过期时间（当前时间+3分钟）
+                            from datetime import datetime, timedelta
+                            expires_at = (datetime.now() + timedelta(minutes=3)).isoformat()
                             
                             new_codes.append({
                                 "email": email_address,
                                 "service": service,
-                                "code": code
+                                "code": code,
+                                "expires_at": expires_at
                             })
             
             except Exception as e:
