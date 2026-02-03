@@ -60,6 +60,7 @@ import re
 import shutil
 import hmac
 import struct
+import urllib.parse
 from datetime import datetime, timedelta
 from contextlib import contextmanager
 from pathlib import Path
