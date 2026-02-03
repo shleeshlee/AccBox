@@ -4798,11 +4798,11 @@ function openAddEmailModal() {
     const imapPort = document.getElementById('imapPort');
     if (imapPort) imapPort.value = '993';
     
-    // 异步检查OAuth配置状态
+    // 异步检查OAuth配置状态并自动填充
     checkAndUpdateOAuthStatus();
 }
 
-// 检查OAuth配置状态并更新UI
+// 检查OAuth配置状态并更新UI（自动填充已保存的凭证）
 async function checkAndUpdateOAuthStatus() {
     for (const provider of ['gmail', 'outlook']) {
         const configDiv = document.getElementById(`${provider}OauthConfig`);
@@ -4812,18 +4812,38 @@ async function checkAndUpdateOAuthStatus() {
             const status = await checkOAuthConfig(provider);
             if (status.configured) {
                 const providerName = provider === 'gmail' ? 'Gmail' : 'Outlook';
-                configDiv.innerHTML = `
-                    <div class="oauth-configured-hint">
-                        <span class="configured-icon">✅</span>
-                        <span>OAuth 凭证已配置</span>
-                        <button class="btn-reconfigure" onclick="showOAuthInputs('${provider}')">重新配置</button>
-                        <button class="btn-help-small" onclick="showHelpModal('${provider}')" title="查看教程">❓</button>
-                    </div>
-                    <div class="oauth-next-step">
-                        <span class="next-step-icon">👇</span>
-                        <span>凭证只需配置一次。点击下方按钮可授权多个 ${providerName} 账号，每次选择不同账号即可</span>
-                    </div>
-                `;
+                
+                // 如果从数据库读取到凭证，自动填充到输入框
+                if (status.source === 'db' && status.client_id) {
+                    // 保持输入框显示，并填充已保存的凭证
+                    const clientIdInput = document.getElementById(`${provider}ClientId`);
+                    const clientSecretInput = document.getElementById(`${provider}ClientSecret`);
+                    if (clientIdInput) clientIdInput.value = status.client_id || '';
+                    if (clientSecretInput && status.client_secret) clientSecretInput.value = status.client_secret || '';
+                    
+                    // 显示已填充提示
+                    const hintEl = configDiv.querySelector('.oauth-autofill-hint');
+                    if (!hintEl) {
+                        const hint = document.createElement('div');
+                        hint.className = 'oauth-autofill-hint';
+                        hint.innerHTML = '<span class="configured-icon">✅</span> OAuth 凭证已自动填充，可直接点击「开始授权」';
+                        hint.style.cssText = 'color: #4caf50; font-size: 12px; margin-top: 8px; display: flex; align-items: center; gap: 4px;';
+                        configDiv.appendChild(hint);
+                    }
+                } else {
+                    // 环境变量配置，显示已配置状态
+                    configDiv.innerHTML = `
+                        <div class="oauth-configured-hint">
+                            <span class="configured-icon">✅</span>
+                            <span>OAuth 凭证已配置（来自环境变量）</span>
+                            <button class="btn-help-small" onclick="showHelpModal('${provider}')" title="查看教程">❓</button>
+                        </div>
+                        <div class="oauth-next-step">
+                            <span class="next-step-icon">👇</span>
+                            <span>凭证只需配置一次。点击下方按钮可授权多个 ${providerName} 账号，每次选择不同账号即可</span>
+                        </div>
+                    `;
+                }
             }
         } catch (e) {}
     }

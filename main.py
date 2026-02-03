@@ -2122,24 +2122,30 @@ def sync_pending_emails(data: dict, user: dict = Depends(get_current_user)):
 
 @app.get("/api/emails/oauth/config-status")
 def get_oauth_config_status(provider: str, user: dict = Depends(get_current_user)):
-    """检查OAuth是否已配置"""
+    """检查OAuth是否已配置，如果已配置则返回client_id用于前端显示"""
     provider = provider.lower()
     
     # 先检查环境变量
     if provider == 'gmail':
         if os.environ.get('GOOGLE_CLIENT_ID') and os.environ.get('GOOGLE_CLIENT_SECRET'):
-            return {"configured": True, "source": "env"}
+            return {"configured": True, "source": "env", "client_id": os.environ.get('GOOGLE_CLIENT_ID')}
     elif provider == 'outlook':
         if os.environ.get('MICROSOFT_CLIENT_ID') and os.environ.get('MICROSOFT_CLIENT_SECRET'):
-            return {"configured": True, "source": "env"}
+            return {"configured": True, "source": "env", "client_id": os.environ.get('MICROSOFT_CLIENT_ID')}
     
     # 再检查数据库（表在init_db中已创建）
     with get_db() as conn:
         try:
-            cursor = conn.execute("SELECT client_id FROM oauth_configs WHERE provider = ?", (provider,))
+            cursor = conn.execute("SELECT client_id, client_secret FROM oauth_configs WHERE provider = ?", (provider,))
             row = cursor.fetchone()
             if row:
-                return {"configured": True, "source": "db"}
+                # 返回 client_id 和 client_secret（解密后）用于前端自动填充
+                return {
+                    "configured": True, 
+                    "source": "db", 
+                    "client_id": row["client_id"],
+                    "client_secret": decrypt_password(row["client_secret"])
+                }
         except:
             pass
     
