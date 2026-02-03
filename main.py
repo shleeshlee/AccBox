@@ -2168,8 +2168,8 @@ def oauth_callback(code: str = None, state: str = None, error: str = None):
                 oauth_states[state]["message"] = f"未获取到access_token: {token_resp}"
                 return JSONResponse(content={"status": "error", "message": "未获取到access_token"})
             
-            # 获取用户邮箱
-            profile_url = "https://www.googleapis.com/oauth2/v2/userinfo"
+            # 获取用户邮箱 - 使用 Gmail API
+            profile_url = "https://gmail.googleapis.com/gmail/v1/users/me/profile"
             req = urllib.request.Request(profile_url)
             req.add_header('Authorization', f'Bearer {access_token}')
             
@@ -2182,7 +2182,7 @@ def oauth_callback(code: str = None, state: str = None, error: str = None):
                 oauth_states[state]["message"] = f"获取用户信息失败: {e.code} - {error_body}"
                 return JSONResponse(content={"status": "error", "message": f"获取用户信息失败: {error_body}"})
             
-            email = profile.get('email')
+            email = profile.get('emailAddress')
             
             # 存储到数据库（表在init_user_tables中已创建）
             with get_db() as conn:
