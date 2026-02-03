@@ -2385,14 +2385,12 @@ async function exportData() {
     // 询问是否包含邮箱配置
     const includeEmails = authorizedEmails.length > 0 ? confirm(
         '📬 检测到已授权邮箱\n\n' +
-        '是否将邮箱配置一并导出？\n\n' +
         '导出内容：\n' +
         '• OAuth 应用凭证（Client ID / Secret）\n' +
         '• 待授权邮箱列表\n\n' +
         '安全说明：\n' +
         '• 不会导出邮箱访问令牌（Access Token）\n' +
         '• 导入新环境后需要重新授权每个邮箱\n' +
-        '• 即使文件泄露，他人也无法直接访问您的邮箱\n\n' +
         '点击「确定」导出邮箱配置，点击「取消」仅导出账号数据'
     ) : false;
     
