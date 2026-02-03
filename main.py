@@ -2478,11 +2478,11 @@ def remove_email(email_id: int, user: dict = Depends(get_current_user)):
 
 @app.get("/api/emails/codes")
 def get_verification_codes(user: dict = Depends(get_current_user)):
-    """获取最近的验证码（占位，需要后台任务轮询邮箱）"""
+    """获取最近的验证码"""
     user_id = user['id']
     
     with get_db() as conn:
-        # 获取最近5分钟内的验证码（表在init_user_tables中已创建）
+        # 获取最近5分钟内的验证码
         try:
             cursor = conn.execute(f"""
                 SELECT id, email, service, code, account_name, is_read, expires_at, created_at
@@ -2508,6 +2508,169 @@ def get_verification_codes(user: dict = Depends(get_current_user)):
             codes = []
     
     return {"codes": codes}
+
+def extract_verification_code(text: str) -> tuple:
+    """从文本中提取验证码，返回 (code, service)"""
+    import re
+    
+    # 常见验证码模式
+    patterns = [
+        # 6位数字验证码
+        (r'(?:验证码|code|Code|CODE)[：:\s]*(\d{6})', 'unknown'),
+        (r'(\d{6})\s*(?:是你的|为你的|is your)', 'unknown'),
+        # 4位数字验证码  
+        (r'(?:验证码|code|Code|CODE)[：:\s]*(\d{4})', 'unknown'),
+        # 带服务名的
+        (r'(?:Google|谷歌).*?(\d{6})', 'Google'),
+        (r'(?:Microsoft|微软).*?(\d{6})', 'Microsoft'),
+        (r'(?:Apple|苹果).*?(\d{6})', 'Apple'),
+        (r'(?:Amazon|亚马逊).*?(\d{6})', 'Amazon'),
+        (r'(?:Facebook|脸书).*?(\d{6})', 'Facebook'),
+        (r'(?:Twitter|推特).*?(\d{6})', 'Twitter'),
+        (r'(?:LinkedIn).*?(\d{6})', 'LinkedIn'),
+        (r'(?:GitHub).*?(\d{6})', 'GitHub'),
+        (r'(?:Discord).*?(\d{6})', 'Discord'),
+        (r'(?:Telegram).*?(\d{5,6})', 'Telegram'),
+        (r'(?:WhatsApp).*?(\d{6})', 'WhatsApp'),
+        (r'(?:支付宝|Alipay).*?(\d{6})', '支付宝'),
+        (r'(?:微信|WeChat).*?(\d{6})', '微信'),
+        (r'(?:淘宝|Taobao).*?(\d{6})', '淘宝'),
+        (r'(?:京东|JD).*?(\d{6})', '京东'),
+        (r'(?:Steam).*?(\d{5})', 'Steam'),
+    ]
+    
+    for pattern, service in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            return match.group(1), service
+    
+    # 通用6位数字
+    match = re.search(r'\b(\d{6})\b', text)
+    if match:
+        return match.group(1), 'unknown'
+    
+    return None, None
+
+@app.post("/api/emails/refresh")
+def refresh_emails(user: dict = Depends(get_current_user)):
+    """刷新邮箱，获取最新验证码"""
+    user_id = user['id']
+    new_codes = []
+    
+    with get_db() as conn:
+        # 获取已授权的邮箱
+        try:
+            cursor = conn.execute(f"SELECT id, address, provider, credentials FROM user_{user_id}_emails WHERE status = 'active'")
+            emails = cursor.fetchall()
+        except:
+            return {"success": False, "message": "无法获取邮箱列表", "codes": []}
+        
+        for email_row in emails:
+            email_address = email_row["address"]
+            provider = email_row["provider"]
+            encrypted_creds = email_row["credentials"]
+            
+            if provider != 'gmail':
+                continue  # 暂时只支持 Gmail
+            
+            try:
+                # 解密凭证
+                creds = json.loads(decrypt_password(encrypted_creds))
+                access_token = creds.get('access_token')
+                
+                if not access_token:
+                    continue
+                
+                # 获取最近的邮件（最近10封，1分钟内的）
+                import urllib.request
+                import urllib.error
+                
+                # 搜索最近1分钟内的邮件
+                query = "newer_than:1m"
+                list_url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages?q={urllib.parse.quote(query)}&maxResults=10"
+                
+                req = urllib.request.Request(list_url)
+                req.add_header('Authorization', f'Bearer {access_token}')
+                
+                try:
+                    with urllib.request.urlopen(req, timeout=10) as resp:
+                        messages_data = json.loads(resp.read().decode())
+                except urllib.error.HTTPError as e:
+                    if e.code == 401:
+                        # Token 过期，需要刷新
+                        # TODO: 实现 token 刷新
+                        continue
+                    continue
+                
+                messages = messages_data.get('messages', [])
+                
+                for msg in messages:
+                    msg_id = msg['id']
+                    
+                    # 获取邮件详情
+                    detail_url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{msg_id}?format=full"
+                    req = urllib.request.Request(detail_url)
+                    req.add_header('Authorization', f'Bearer {access_token}')
+                    
+                    try:
+                        with urllib.request.urlopen(req, timeout=10) as resp:
+                            msg_data = json.loads(resp.read().decode())
+                    except:
+                        continue
+                    
+                    # 提取邮件内容
+                    snippet = msg_data.get('snippet', '')
+                    
+                    # 从 payload 中获取完整内容
+                    payload = msg_data.get('payload', {})
+                    body_data = ''
+                    
+                    if 'body' in payload and payload['body'].get('data'):
+                        body_data = base64.urlsafe_b64decode(payload['body']['data']).decode('utf-8', errors='ignore')
+                    elif 'parts' in payload:
+                        for part in payload['parts']:
+                            if part.get('mimeType') == 'text/plain' and part.get('body', {}).get('data'):
+                                body_data = base64.urlsafe_b64decode(part['body']['data']).decode('utf-8', errors='ignore')
+                                break
+                    
+                    # 合并内容进行验证码提取
+                    full_text = snippet + ' ' + body_data
+                    code, service = extract_verification_code(full_text)
+                    
+                    if code:
+                        # 获取发件人作为 service（如果未识别）
+                        if service == 'unknown':
+                            headers = payload.get('headers', [])
+                            for h in headers:
+                                if h['name'].lower() == 'from':
+                                    service = h['value'].split('<')[0].strip() or h['value']
+                                    break
+                        
+                        # 检查是否已存在
+                        cursor = conn.execute(f"""
+                            SELECT id FROM user_{user_id}_verification_codes 
+                            WHERE email = ? AND code = ? AND created_at > datetime('now', '-5 minutes')
+                        """, (email_address, code))
+                        
+                        if not cursor.fetchone():
+                            # 插入新验证码
+                            conn.execute(f"""
+                                INSERT INTO user_{user_id}_verification_codes 
+                                (email, service, code, account_name, is_read, expires_at, created_at)
+                                VALUES (?, ?, ?, ?, 0, datetime('now', '+5 minutes'), datetime('now'))
+                            """, (email_address, service[:50], code, ''))
+                            conn.commit()
+                            
+                            new_codes.append({
+                                "email": email_address,
+                                "service": service,
+                                "code": code
+                            })
+            
+            except Exception as e:
+                continue
+    
+    return {"success": True, "new_codes": new_codes}
 
 @app.post("/api/emails/codes/{code_id}/read")
 def mark_code_read(code_id: int, user: dict = Depends(get_current_user)):

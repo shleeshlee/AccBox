@@ -1050,7 +1050,10 @@ function renderCards() {
 
 function getFilteredAccounts() {
     let result = [...accounts];
-    const search = document.getElementById('searchInput').value.toLowerCase();
+    // 同时检查PC端和移动端搜索框
+    const pcSearch = document.getElementById('searchInput')?.value || '';
+    const mobileSearch = document.getElementById('mobileSearchInput')?.value || '';
+    const search = (pcSearch || mobileSearch).toLowerCase();
     if (currentView === 'favorites') result = result.filter(a => a.is_favorite);
     else if (currentView === 'nocombo') result = result.filter(a => !a.combos || a.combos.length === 0 || a.combos.every(c => !c || c.length === 0));
     
@@ -4540,7 +4543,7 @@ function startEmailPolling() {
         if (authorizedEmails.length === 0) return;
         
         try {
-            const res = await apiRequest('/emails/check-new');
+            const res = await apiRequest('/emails/refresh', { method: 'POST' });
             if (res.ok) {
                 const data = await res.json();
                 if (data.new_codes && data.new_codes.length > 0) {
