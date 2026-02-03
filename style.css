@@ -6398,12 +6398,29 @@ html:not([data-theme="light"]) .toast-code {
 
 /* 刷新按钮旋转动画 */
 .btn-refresh {
-    display: inline-block;
-    transition: transform 0.3s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--bg-hover);
+    border: none;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    font-size: 14px;
+    padding: 0;
+}
+
+.btn-refresh:hover {
+    background: var(--primary);
+    color: white;
 }
 
 .btn-refresh.spinning {
     animation: spin 1s linear infinite;
+    background: var(--primary);
+    color: white;
 }
 
 @keyframes spin {

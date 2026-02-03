@@ -29,7 +29,7 @@ let emailPollingInterval = null; // 邮箱轮询定时器
 // v5.1.4 新增：智能轮询 - 页面可见性检测
 let isPageVisible = true;
 let pollingInterval = 30000; // 默认30秒轮询
-let pollingIntervalFast = 5000; // 高频模式5秒轮询
+let pollingIntervalFast = 10000; // 高频模式10秒轮询
 let fastModeEndTime = 0; // 高频模式结束时间
 let pollingStartTime = null; // 轮询启动时间，只检测此时间之后的邮件
 
@@ -4329,7 +4329,7 @@ async function copyCode(code) {
     }
 }
 
-// 立即获取验证码，并进入5分钟高频轮询模式
+// 立即获取验证码，并进入1分钟高频轮询模式
 let fastModeTimer = null;
 
 async function fetchEmailsNow() {
@@ -4343,19 +4343,19 @@ async function fetchEmailsNow() {
     // 开始旋转动画
     if (btn) btn.classList.add('spinning');
     
-    showToast('🔄 已开启5分钟高频模式');
+    showToast('🔄 已开启1分钟高频模式');
     
-    // 设置5分钟后结束高频模式
-    fastModeEndTime = Date.now() + 5 * 60 * 1000;
+    // 设置1分钟后结束高频模式
+    fastModeEndTime = Date.now() + 1 * 60 * 1000;
     
     // 清除之前的计时器
     if (fastModeTimer) clearTimeout(fastModeTimer);
     
-    // 5分钟后停止动画
+    // 1分钟后停止动画
     fastModeTimer = setTimeout(() => {
         if (btn) btn.classList.remove('spinning');
         showToast('⏱️ 高频模式已结束');
-    }, 5 * 60 * 1000);
+    }, 1 * 60 * 1000);
     
     // 立即获取一次
     await checkNewEmails();
