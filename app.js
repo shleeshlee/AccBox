@@ -22,7 +22,7 @@ let authorizedEmails = []; // 已授权邮箱列表
 let pendingEmails = []; // 待授权邮箱列表（从账号辅助邮箱收集）
 let verificationCodes = []; // 验证码列表（最近5条）
 let selectedProvider = 'gmail'; // 当前选择的邮箱类型
-let pushSettings = JSON.parse(localStorage.getItem('pushSettings') || '{"notify":true,"toast":true,"badge":true}');
+let pushSettings = JSON.parse(localStorage.getItem('pushSettings') || '{"notify":true,"toast":true}');
 let codeToastTimer = null; // 验证码弹窗定时器
 let emailPollingInterval = null; // 邮箱轮询定时器
 
@@ -4123,20 +4123,9 @@ async function loadKeyInfo() {
 function savePushSettings() {
     pushSettings = {
         notify: document.getElementById('pushNotify')?.checked ?? true,
-        toast: document.getElementById('pushToast')?.checked ?? true,
-        badge: document.getElementById('pushBadge')?.checked ?? true
+        toast: document.getElementById('pushToast')?.checked ?? true
     };
     localStorage.setItem('pushSettings', JSON.stringify(pushSettings));
-    
-    // 更新角标显示
-    if (pushSettings.badge) {
-        updateNotifyBadge();
-    } else {
-        // 隐藏角标
-        const badges = document.querySelectorAll('.notify-badge');
-        badges.forEach(b => b.style.display = 'none');
-    }
-    
     showToast('✅ 设置已保存');
 }
 
@@ -4144,7 +4133,6 @@ function savePushSettings() {
 function initPushSettingsUI() {
     document.getElementById('pushNotify').checked = pushSettings.notify;
     document.getElementById('pushToast').checked = pushSettings.toast;
-    document.getElementById('pushBadge').checked = pushSettings.badge;
 }
 
 
@@ -4283,43 +4271,7 @@ document.addEventListener('click', (e) => {
     }
 });
 
-function updateCardBadges() {
-    // 移除所有现有徽章
-    document.querySelectorAll('.card-code-badge').forEach(b => b.remove());
-    
-    if (!pushSettings.badge) return;
-    
-    // 为有验证码的账号添加徽章
-    verificationCodes.forEach(code => {
-        if (code.is_expired) return;
-        
-        // 找到对应的账号卡片
-        const account = accounts.find(a => 
-            a.backup_email?.toLowerCase() === code.email?.toLowerCase() ||
-            a.email?.toLowerCase() === code.email?.toLowerCase()
-        );
-        
-        if (!account) return;
-        
-        const card = document.querySelector(`.account-card[data-id="${account.id}"]`);
-        if (!card || card.querySelector('.card-code-badge')) return;
-        
-        const remaining = code.expires_at ? Math.max(0, Math.floor((new Date(code.expires_at) - new Date()) / 1000)) : 300;
-        const timerClass = remaining < 60 ? 'danger' : remaining < 180 ? 'warning' : '';
-        const timerText = `${Math.floor(remaining / 60)}:${(remaining % 60).toString().padStart(2, '0')}`;
-        
-        const badgeHtml = `
-            <div class="card-code-badge" onclick="event.stopPropagation();copyCode('${escapeHtml(code.code)}')" title="点击复制验证码">
-                <span class="badge-icon">📬</span>
-                <span class="badge-code">${escapeHtml(code.code)}</span>
-                <span class="badge-timer ${timerClass}">${timerText}</span>
-                <button class="badge-copy">📋</button>
-            </div>
-        `;
-        
-        card.insertAdjacentHTML('afterbegin', badgeHtml);
-    });
-}
+// 卡片角标功能已移除
 
 async function copyCode(code) {
     const success = await copyToClipboard(code);
@@ -4438,52 +4390,6 @@ function updateNotifyBadge() {
                 b.style.display = 'flex';
             } else {
                 b.style.display = 'none';
-            }
-        }
-    });
-}
-
-function updateCardBadges() {
-    // 为有验证码的卡片添加徽章
-    const activeEmails = new Map();
-    verificationCodes.forEach(code => {
-        if (!code.expires_at || new Date(code.expires_at) > new Date()) {
-            const email = code.email?.toLowerCase();
-            if (email && !activeEmails.has(email)) {
-                activeEmails.set(email, code);
-            }
-        }
-    });
-    
-    // 移除所有现有徽章
-    document.querySelectorAll('.card-code-badge').forEach(b => b.remove());
-    
-    // 为匹配的卡片添加徽章
-    accounts.forEach(acc => {
-        if (acc.backup_email) {
-            const code = activeEmails.get(acc.backup_email.toLowerCase());
-            if (code) {
-                const card = document.querySelector(`.account-card[data-id="${acc.id}"]`);
-                if (card) {
-                    const remaining = code.expires_at ? Math.max(0, Math.floor((new Date(code.expires_at) - new Date()) / 1000)) : 300;
-                    const timerClass = remaining < 60 ? 'danger' : remaining < 180 ? 'warning' : '';
-                    const timerText = `${Math.floor(remaining / 60)}:${(remaining % 60).toString().padStart(2, '0')}`;
-                    
-                    const badge = document.createElement('div');
-                    badge.className = 'card-code-badge';
-                    badge.innerHTML = `
-                        <span class="badge-icon">📬</span>
-                        <span class="badge-code">${escapeHtml(code.code)}</span>
-                        <span class="badge-timer ${timerClass}">${timerText}</span>
-                        <button class="badge-copy" onclick="event.stopPropagation();copyCode('${escapeHtml(code.code)}')">📋</button>
-                    `;
-                    badge.onclick = (e) => {
-                        if (!e.target.classList.contains('badge-copy')) {
-                            copyCode(code.code);
-                        }
-                    };
-                    card.appendChild(badge);
-                }
             }
         }
     });
@@ -4611,7 +4517,6 @@ async function checkNewEmails() {
                     
                     renderCodesList();
                     updateNotifyBadge();
-                    if (pushSettings.badge) updateCardBadges();
                 }
             }
         }
@@ -4632,7 +4537,6 @@ function cleanExpiredCodes() {
     if (verificationCodes.length !== beforeCount) {
         renderCodesList();
         updateNotifyBadge();
-        if (pushSettings.badge) updateCardBadges();
     }
 }
 
@@ -5478,7 +5382,6 @@ async function loadVerificationCodes() {
             verificationCodes = data.codes || [];
             renderCodesList();
             updateNotifyBadge();
-            if (pushSettings.badge) updateCardBadges();
         }
     } catch (err) {
         console.log('验证码加载失败（可能未启用此功能）:', err.message);
