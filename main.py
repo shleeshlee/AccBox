@@ -2648,18 +2648,26 @@ def get_verification_codes(user: dict = Depends(get_current_user)):
     user_id = user['id']
     
     with get_db() as conn:
-        # 获取最近5分钟内的验证码
+        # 获取未过期的验证码（expires_at > 当前UTC时间）
         try:
             cursor = conn.execute(f"""
                 SELECT id, email, service, code, account_name, is_read, expires_at, created_at
                 FROM user_{user_id}_verification_codes
-                WHERE created_at > datetime('now', '-5 minutes')
+                WHERE expires_at > datetime('now')
                 ORDER BY created_at DESC
                 LIMIT 10
             """)
             
             codes = []
             for row in cursor.fetchall():
+                # 为时间字符串添加UTC时区标记，确保前端正确解析
+                expires_at = row["expires_at"]
+                if expires_at and not expires_at.endswith('Z'):
+                    expires_at = expires_at + 'Z'
+                created_at = row["created_at"]
+                if created_at and not created_at.endswith('Z'):
+                    created_at = created_at + 'Z'
+                    
                 codes.append({
                     "id": row["id"],
                     "email": row["email"],
@@ -2667,8 +2675,8 @@ def get_verification_codes(user: dict = Depends(get_current_user)):
                     "code": row["code"],
                     "account_name": row["account_name"],
                     "is_read": bool(row["is_read"]),
-                    "expires_at": row["expires_at"],
-                    "created_at": row["created_at"]
+                    "expires_at": expires_at,
+                    "created_at": created_at
                 })
         except:
             codes = []
@@ -3152,9 +3160,9 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                             """, (email_address, service[:50], code, ''))
                             conn.commit()
                             
-                            # 计算过期时间（当前时间+3分钟）
-                            from datetime import datetime, timedelta
-                            expires_at = (datetime.now() + timedelta(minutes=3)).isoformat()
+                            # 计算过期时间（当前UTC时间+3分钟，添加Z后缀表示UTC）
+                            from datetime import datetime, timedelta, timezone
+                            expires_at = (datetime.now(timezone.utc) + timedelta(minutes=3)).strftime('%Y-%m-%dT%H:%M:%SZ')
                             
                             new_codes.append({
                                 "email": email_address,
