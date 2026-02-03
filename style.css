@@ -4641,22 +4641,6 @@ body.no-particles .season-particles {
     color: var(--red);
 }
 
-.code-value-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: 2px;
-}
-
-.code-expired-tag {
-    font-size: 0.7rem;
-    color: var(--red);
-    background: rgba(239, 68, 68, 0.1);
-    padding: 2px 6px;
-    border-radius: 4px;
-    flex-shrink: 0;
-}
-
 .btn-copy-sm {
     padding: 5px 10px;
     background: var(--accent-dim);
@@ -6411,49 +6395,3 @@ html:not([data-theme="light"]) .toast-code {
     transform: translateY(-1px);
     box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3);
 }
-
-/* 心形刷新按钮 */
-.btn-heart {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    background: transparent;
-    border: none;
-    cursor: pointer;
-    color: #a78bfa;
-    transition: all 0.3s ease;
-    padding: 0;
-}
-
-.btn-heart:hover {
-    color: #c4b5fd;
-    transform: scale(1.1);
-}
-
-.btn-heart .heart-icon {
-    display: inline-block;
-}
-
-.btn-heart.beating .heart-icon {
-    animation: heartbeat 1.5s infinite ease-in-out;
-}
-
-/* 心跳动画定义 */
-@keyframes heartbeat {
-    0% { transform: scale(1); }
-    15% { transform: scale(1.15); }
-    30% { transform: scale(1); }
-    45% { transform: scale(1.15); }
-    60% { transform: scale(1); }
-    100% { transform: scale(1); }
-}
-
-.panel-actions {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-

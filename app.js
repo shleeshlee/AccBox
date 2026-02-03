@@ -28,9 +28,9 @@ let emailPollingInterval = null; // 邮箱轮询定时器
 
 // v5.1.4 新增：智能轮询 - 页面可见性检测
 let isPageVisible = true;
-let pollingInterval = 30000; // 默认30秒轮询
-let pollingIntervalFast = 10000; // 高频模式10秒轮询
-let fastModeEndTime = 0; // 高频模式结束时间
+let pollingIntervalActive = 10000; // 活跃时10秒轮询
+let pollingIntervalInactive = 120000; // 非活跃时2分钟轮询
+let pollingStartTime = null; // 轮询启动时间，只检测此时间之后的邮件
 
 // ==================== 补丁：核心 API 请求函数 ====================
 async function apiRequest(endpoint, options = {}) {
@@ -4328,38 +4328,6 @@ async function copyCode(code) {
     }
 }
 
-// 立即获取验证码，并进入1分钟高频轮询模式
-let fastModeTimer = null;
-
-async function fetchEmailsNow() {
-    if (authorizedEmails.length === 0) {
-        showToast('请先授权邮箱', true);
-        return;
-    }
-    
-    const btn = document.getElementById('btnRefreshEmails');
-    
-    // 开始心跳动画
-    if (btn) btn.classList.add('beating');
-    
-    showToast('💓 已开启1分钟加速模式');
-    
-    // 设置1分钟后结束高频模式
-    fastModeEndTime = Date.now() + 1 * 60 * 1000;
-    
-    // 清除之前的计时器
-    if (fastModeTimer) clearTimeout(fastModeTimer);
-    
-    // 1分钟后停止动画
-    fastModeTimer = setTimeout(() => {
-        if (btn) btn.classList.remove('beating');
-        showToast('⏱️ 加速模式已结束');
-    }, 1 * 60 * 1000);
-    
-    // 立即获取一次
-    await checkNewEmails();
-}
-
 function markAllCodesRead() {
     verificationCodes.forEach(c => c.is_read = true);
     renderCodesList();
@@ -4419,7 +4387,45 @@ async function copyToastCode() {
     await copyCode(code);
 }
 
-// === 邮箱轮询函数已移至后面统一定义 ===
+// === 邮箱轮询（简单实现，后续可改为 WebSocket） ===
+function startEmailPolling() {
+    // 每 30 秒轮询一次
+    if (emailPollingInterval) clearInterval(emailPollingInterval);
+    
+    emailPollingInterval = setInterval(async () => {
+        if (authorizedEmails.length === 0) return;
+        
+        try {
+            const res = await apiRequest('/emails/check-new');
+            if (res.ok) {
+                const data = await res.json();
+                if (data.new_codes && data.new_codes.length > 0) {
+                    // 有新验证码
+                    data.new_codes.forEach(code => {
+                        verificationCodes.unshift(code);
+                        if (pushSettings.toast) showCodeToast(code);
+                    });
+                    
+                    // 保持最多 5 条
+                    verificationCodes = verificationCodes.slice(0, 5);
+                    
+                    renderCodesList();
+                    updateNotifyBadge();
+                    if (pushSettings.badge) updateCardBadges();
+                }
+            }
+        } catch (err) {
+            console.error('邮箱轮询失败:', err);
+        }
+    }, 30000);
+}
+
+function stopEmailPolling() {
+    if (emailPollingInterval) {
+        clearInterval(emailPollingInterval);
+        emailPollingInterval = null;
+    }
+}
 
 // 页面关闭时停止轮询
 window.addEventListener('beforeunload', () => {
@@ -4560,8 +4566,23 @@ function copyToastCode() {
 
 // 页面可见性检测
 function setupVisibilityDetection() {
-    // 页面关闭时停止轮询（这是唯一需要处理的情况）
-    // visibilitychange 不再触发重启，因为只要页面存在就保持轮询
+    // 页面可见性变化
+    document.addEventListener('visibilitychange', () => {
+        isPageVisible = !document.hidden;
+        console.log('页面可见性变化:', isPageVisible ? '活跃' : '后台');
+        restartEmailPolling();
+    });
+    
+    // 窗口焦点变化
+    window.addEventListener('focus', () => {
+        isPageVisible = true;
+        restartEmailPolling();
+    });
+    
+    window.addEventListener('blur', () => {
+        isPageVisible = false;
+        restartEmailPolling();
+    });
 }
 
 // 重启轮询（根据当前状态调整间隔）
@@ -4579,7 +4600,7 @@ async function checkNewEmails() {
     try {
         const res = await apiRequest('/emails/refresh', { 
             method: 'POST',
-            body: JSON.stringify({})
+            body: JSON.stringify({ since: pollingStartTime })
         });
         if (res.ok) {
             const data = await res.json();
@@ -4639,26 +4660,28 @@ function cleanExpiredCodes() {
 function startEmailPolling() {
     if (emailPollingInterval) clearInterval(emailPollingInterval);
     
-    // 立即执行一次
-    checkNewEmails();
-    
-    // 使用动态间隔：每次执行后根据当前模式决定下次间隔
-    function scheduleNext() {
-        const interval = Date.now() < fastModeEndTime ? pollingIntervalFast : pollingInterval;
-        
-        emailPollingInterval = setTimeout(() => {
-            checkNewEmails();
-            cleanExpiredCodes();
-            scheduleNext(); // 递归调度下一次
-        }, interval);
+    // 记录轮询启动时间，只检测此时间之后的邮件
+    if (!pollingStartTime) {
+        pollingStartTime = Date.now();
     }
     
-    scheduleNext();
+    // 根据页面可见性选择轮询间隔
+    const interval = isPageVisible ? pollingIntervalActive : pollingIntervalInactive;
+    
+    // 立即执行一次
+    if (isPageVisible) {
+        checkNewEmails();
+    }
+    
+    emailPollingInterval = setInterval(() => {
+        checkNewEmails();
+        cleanExpiredCodes(); // 每次轮询时清理过期验证码
+    }, interval);
 }
 
 function stopEmailPolling() {
     if (emailPollingInterval) {
-        clearTimeout(emailPollingInterval);
+        clearInterval(emailPollingInterval);
         emailPollingInterval = null;
     }
 }
@@ -5505,12 +5528,9 @@ function renderCodesList() {
             <div class="code-item ${isExpired ? 'expired' : ''} ${code.is_read ? '' : 'unread'}" onclick="copyCode('${escapeHtml(code.code)}')">
                 <div class="code-item-header">
                     <span class="code-service">${escapeHtml(code.service || '验证码')}</span>
-                    ${!isExpired ? `<span class="code-timer ${timerClass}">${timerText}</span>` : ''}
+                    <span class="code-timer ${timerClass}">${isExpired ? '已过期' : timerText}</span>
                 </div>
-                <div class="code-value-row">
-                    <span class="code-value">${escapeHtml(code.code)}</span>
-                    ${isExpired ? '<span class="code-expired-tag">已过期</span>' : ''}
-                </div>
+                <div class="code-value">${escapeHtml(code.code)}</div>
                 <div class="code-account">${escapeHtml(code.account_name || code.email || '')}</div>
             </div>
         `;
@@ -5521,9 +5541,9 @@ function renderCodesList() {
 
 // === 初始化 ===
 // 在用户登录后调用
-async function initEmailFeature() {
+function initEmailFeature() {
     setupVisibilityDetection(); // 设置页面可见性检测
-    await loadEmailData();      // 等待邮箱数据加载完成
+    loadEmailData();
     loadVerificationCodes();
     startEmailPolling();
 }
