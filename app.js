@@ -4580,7 +4580,7 @@ async function checkNewEmails() {
     try {
         const res = await apiRequest('/emails/refresh', { 
             method: 'POST',
-            body: JSON.stringify({ since: pollingStartTime })
+            body: JSON.stringify({})
         });
         if (res.ok) {
             const data = await res.json();
