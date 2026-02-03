@@ -1,5 +1,5 @@
 const API = '/api';
-const VERSION = 'v5.1.4'; // 辅助邮箱联想 + 智能轮询 + 导入导出邮箱凭证 + 移动端搜索栏优化
+const VERSION = 'v5.1.3'; // 辅助邮箱联想 + 智能轮询 + 导入导出邮箱凭证 + 移动端搜索栏优化
 let token = localStorage.getItem('token');
 let user = JSON.parse(localStorage.getItem('user') || 'null');
 let accounts = [], accountTypes = [], propertyGroups = [];

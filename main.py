@@ -1184,7 +1184,7 @@ def export_data(include_emails: bool = False, user: dict = Depends(get_current_u
                 pass
     
     result = {
-        "version": "5.1.4",
+        "version": "5.1.3",
         "exported_at": datetime.now().isoformat(),
         "user": user["username"],
         "account_types": types,
@@ -2842,6 +2842,17 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                 continue
     
     return {"success": True, "new_codes": new_codes}
+
+@app.post("/api/emails/codes/read-all")
+def mark_all_codes_read(user: dict = Depends(get_current_user)):
+    """标记所有验证码已读"""
+    user_id = user['id']
+    
+    with get_db() as conn:
+        conn.execute(f"UPDATE user_{user_id}_verification_codes SET is_read = 1 WHERE is_read = 0")
+        conn.commit()
+    
+    return {"success": True}
 
 @app.post("/api/emails/codes/{code_id}/read")
 def mark_code_read(code_id: int, user: dict = Depends(get_current_user)):
