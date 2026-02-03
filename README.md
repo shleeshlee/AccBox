@@ -100,7 +100,8 @@ cd /你的项目路径 && ./update.sh
 ```bash
 # 首次使用需要授权
 chmod +x update.sh
-
+```
+```bash
 # 以后每次更新
 ./update.sh
 ```
