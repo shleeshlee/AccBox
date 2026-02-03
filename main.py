@@ -2151,19 +2151,36 @@ def oauth_callback(code: str = None, state: str = None, error: str = None):
             req = urllib.request.Request(token_url, data=token_data, method='POST')
             req.add_header('Content-Type', 'application/x-www-form-urlencoded')
             
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                token_resp = json.loads(resp.read().decode())
+            try:
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    token_resp = json.loads(resp.read().decode())
+            except urllib.error.HTTPError as e:
+                error_body = e.read().decode() if e.fp else ""
+                oauth_states[state]["status"] = "error"
+                oauth_states[state]["message"] = f"Token交换失败: {e.code} - {error_body}"
+                return JSONResponse(content={"status": "error", "message": f"Token交换失败: {error_body}"})
             
             access_token = token_resp.get('access_token')
             refresh_token = token_resp.get('refresh_token')
+            
+            if not access_token:
+                oauth_states[state]["status"] = "error"
+                oauth_states[state]["message"] = f"未获取到access_token: {token_resp}"
+                return JSONResponse(content={"status": "error", "message": "未获取到access_token"})
             
             # 获取用户邮箱
             profile_url = "https://www.googleapis.com/oauth2/v2/userinfo"
             req = urllib.request.Request(profile_url)
             req.add_header('Authorization', f'Bearer {access_token}')
             
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                profile = json.loads(resp.read().decode())
+            try:
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    profile = json.loads(resp.read().decode())
+            except urllib.error.HTTPError as e:
+                error_body = e.read().decode() if e.fp else ""
+                oauth_states[state]["status"] = "error"
+                oauth_states[state]["message"] = f"获取用户信息失败: {e.code} - {error_body}"
+                return JSONResponse(content={"status": "error", "message": f"获取用户信息失败: {error_body}"})
             
             email = profile.get('email')
             
