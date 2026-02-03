@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-通用账号管家 - 后端API v5.1 (安全修复版)
+通用账号管家 - 后端API v5.1.3
 =====================================
 更新内容:
 - 🔐 密码哈希: SHA256 → bcrypt (自动迁移旧密码)
 - 🎫 Token: 随机字符串 → JWT (7天过期，兼容旧Token)
 - 🌐 CORS: * → 白名单
-- 🔑 密码强度: 4字符 → 8字符+字母+数字
+- 🔑 密码强度: 8字符+字母+数字
 - 🛡️ URL验证: 防止 javascript: XSS
-- 📦 新增备份功能
-- ⚠️ 生产环境强制密钥警告
+- 📦 备份功能
+- 📬 邮箱验证码授权 (OAuth + IMAP)
+- ⚙️ 前端OAuth配置支持
 """
 
 import sys
@@ -379,6 +380,17 @@ def init_db():
             conn.execute("ALTER TABLE users ADD COLUMN avatar TEXT DEFAULT '👤'")
         except:
             pass
+        
+        # OAuth配置表（全局，非用户级）
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS oauth_configs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                provider TEXT NOT NULL UNIQUE,
+                client_id TEXT NOT NULL,
+                client_secret TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
         conn.commit()
 
 def init_user_tables(user_id: int):
@@ -445,6 +457,32 @@ def init_user_tables(user_id: int):
                 totp_period INTEGER DEFAULT 30,
                 backup_codes TEXT DEFAULT '[]',
                 time_offset INTEGER DEFAULT 0
+            )
+        """)
+        
+        # 邮箱授权表
+        conn.execute(f"""
+            CREATE TABLE IF NOT EXISTS user_{user_id}_emails (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                address TEXT NOT NULL UNIQUE,
+                provider TEXT DEFAULT 'imap',
+                status TEXT DEFAULT 'active',
+                credentials TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # 验证码表
+        conn.execute(f"""
+            CREATE TABLE IF NOT EXISTS user_{user_id}_verification_codes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT NOT NULL,
+                service TEXT DEFAULT '',
+                code TEXT NOT NULL,
+                account_name TEXT DEFAULT '',
+                is_read INTEGER DEFAULT 0,
+                expires_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
         
@@ -1874,9 +1912,460 @@ def health_check():
 @app.get("/api/version")
 def get_version():
     """返回服务器版本"""
-    return {"server_version": "v5.1"}
+    return {"server_version": "v5.1.3"}
 
 # ==================== 静态文件 ====================
+
+# ==================== 邮箱授权 API ====================
+
+class EmailOAuthStart(BaseModel):
+    provider: str  # gmail, outlook
+
+class EmailIMAPAdd(BaseModel):
+    provider: str  # qq, imap
+    email: str
+    password: str
+    server: Optional[str] = None
+    port: Optional[int] = 993
+
+class OAuthConfigSave(BaseModel):
+    provider: str
+    client_id: str
+    client_secret: str
+
+# 存储OAuth状态（生产环境应用Redis）
+oauth_states: Dict[str, Dict] = {}
+
+@app.get("/api/emails")
+def get_emails(user: dict = Depends(get_current_user)):
+    """获取已授权和待授权邮箱列表"""
+    user_id = user['id']
+    
+    with get_db() as conn:
+        # 获取已授权邮箱（表在init_user_tables中已创建）
+        try:
+            cursor = conn.execute(f"SELECT id, address, provider, status FROM user_{user_id}_emails")
+            authorized = [{"id": row["id"], "address": row["address"], "provider": row["provider"], "status": row["status"]} for row in cursor.fetchall()]
+        except:
+            authorized = []
+        
+        # 获取待授权邮箱（从账号的辅助邮箱字段收集，排除已授权的）
+        pending = []
+        try:
+            cursor = conn.execute(f"SELECT DISTINCT backup_email FROM user_{user_id}_accounts WHERE backup_email IS NOT NULL AND backup_email != ''")
+            authorized_addresses = {e["address"] for e in authorized}
+            for row in cursor.fetchall():
+                email = row["backup_email"]
+                if email and email not in authorized_addresses:
+                    pending.append(email)
+        except:
+            pass  # backup_email字段可能不存在
+    
+    return {"authorized": authorized, "pending": pending}
+
+@app.get("/api/emails/oauth/config-status")
+def get_oauth_config_status(provider: str, user: dict = Depends(get_current_user)):
+    """检查OAuth是否已配置"""
+    provider = provider.lower()
+    
+    # 先检查环境变量
+    if provider == 'gmail':
+        if os.environ.get('GOOGLE_CLIENT_ID') and os.environ.get('GOOGLE_CLIENT_SECRET'):
+            return {"configured": True, "source": "env"}
+    elif provider == 'outlook':
+        if os.environ.get('MICROSOFT_CLIENT_ID') and os.environ.get('MICROSOFT_CLIENT_SECRET'):
+            return {"configured": True, "source": "env"}
+    
+    # 再检查数据库（表在init_db中已创建）
+    with get_db() as conn:
+        try:
+            cursor = conn.execute("SELECT client_id FROM oauth_configs WHERE provider = ?", (provider,))
+            row = cursor.fetchone()
+            if row:
+                return {"configured": True, "source": "db"}
+        except:
+            pass
+    
+    return {"configured": False}
+
+@app.post("/api/emails/oauth/config")
+def save_oauth_config(data: OAuthConfigSave, user: dict = Depends(get_current_user)):
+    """保存OAuth配置（前端填写的凭证）"""
+    provider = data.provider.lower()
+    
+    if provider not in ['gmail', 'outlook']:
+        raise HTTPException(status_code=400, detail="不支持的邮箱类型")
+    
+    if not data.client_id or not data.client_secret:
+        raise HTTPException(status_code=400, detail="Client ID 和 Client Secret 不能为空")
+    
+    with get_db() as conn:
+        # 加密存储
+        encrypted_secret = encrypt_password(data.client_secret)
+        
+        conn.execute("""
+            INSERT OR REPLACE INTO oauth_configs (provider, client_id, client_secret)
+            VALUES (?, ?, ?)
+        """, (provider, data.client_id, encrypted_secret))
+        conn.commit()
+    
+    return {"success": True}
+
+def get_oauth_credentials(provider: str):
+    """获取OAuth凭证（优先环境变量，其次数据库）"""
+    if provider == 'gmail':
+        client_id = os.environ.get('GOOGLE_CLIENT_ID')
+        client_secret = os.environ.get('GOOGLE_CLIENT_SECRET')
+        if client_id and client_secret:
+            return client_id, client_secret
+    elif provider == 'outlook':
+        client_id = os.environ.get('MICROSOFT_CLIENT_ID')
+        client_secret = os.environ.get('MICROSOFT_CLIENT_SECRET')
+        if client_id and client_secret:
+            return client_id, client_secret
+    
+    # 从数据库获取
+    with get_db() as conn:
+        try:
+            cursor = conn.execute("SELECT client_id, client_secret FROM oauth_configs WHERE provider = ?", (provider,))
+            row = cursor.fetchone()
+            if row:
+                client_id = row["client_id"]
+                client_secret = decrypt_password(row["client_secret"])
+                return client_id, client_secret
+        except:
+            pass
+    
+    return None, None
+
+@app.post("/api/emails/oauth/start")
+def start_oauth(data: EmailOAuthStart, user: dict = Depends(get_current_user)):
+    """启动OAuth授权流程"""
+    provider = data.provider.lower()
+    
+    if provider not in ['gmail', 'outlook']:
+        raise HTTPException(status_code=400, detail="不支持的邮箱类型")
+    
+    # 获取OAuth凭证
+    client_id, client_secret = get_oauth_credentials(provider)
+    
+    if not client_id or not client_secret:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"{provider.title()} OAuth未配置。请填写 Client ID 和 Client Secret"
+        )
+    
+    # 生成state
+    state = secrets.token_urlsafe(32)
+    redirect_uri = os.environ.get('OAUTH_REDIRECT_URI', 'http://localhost:9111/api/emails/oauth/callback')
+    
+    if provider == 'gmail':
+        auth_url = (
+            "https://accounts.google.com/o/oauth2/v2/auth?"
+            f"client_id={client_id}&"
+            f"redirect_uri={redirect_uri}&"
+            "response_type=code&"
+            "scope=https://www.googleapis.com/auth/gmail.readonly&"
+            "access_type=offline&"
+            "prompt=consent&"
+            f"state={state}"
+        )
+    else:  # outlook
+        auth_url = (
+            "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?"
+            f"client_id={client_id}&"
+            f"redirect_uri={redirect_uri}&"
+            "response_type=code&"
+            "scope=https://outlook.office.com/IMAP.AccessAsUser.All offline_access&"
+            f"state={state}"
+        )
+    
+    # 保存state
+    oauth_states[state] = {
+        "user_id": user['id'],
+        "provider": provider,
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "created_at": time.time()
+    }
+    
+    return {"auth_url": auth_url, "state": state}
+
+@app.get("/api/emails/oauth/callback")
+def oauth_callback(code: str = None, state: str = None, error: str = None):
+    """OAuth回调处理"""
+    if error:
+        return JSONResponse(content={"status": "error", "message": error})
+    
+    if not state or state not in oauth_states:
+        return JSONResponse(content={"status": "error", "message": "无效的state"})
+    
+    state_data = oauth_states[state]
+    user_id = state_data["user_id"]
+    provider = state_data["provider"]
+    client_id = state_data.get("client_id")
+    client_secret = state_data.get("client_secret")
+    
+    # 如果state中没有凭证，尝试重新获取
+    if not client_id or not client_secret:
+        client_id, client_secret = get_oauth_credentials(provider)
+    
+    if not client_id or not client_secret:
+        oauth_states[state]["status"] = "error"
+        oauth_states[state]["message"] = "OAuth凭证丢失"
+        return JSONResponse(content={"status": "error", "message": "OAuth凭证丢失"})
+    
+    try:
+        import urllib.request
+        import urllib.parse
+        
+        redirect_uri = os.environ.get('OAUTH_REDIRECT_URI', 'http://localhost:9111/api/emails/oauth/callback')
+        
+        if provider == 'gmail':
+            # 用code换取token
+            token_url = "https://oauth2.googleapis.com/token"
+            token_data = urllib.parse.urlencode({
+                "code": code,
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "redirect_uri": redirect_uri,
+                "grant_type": "authorization_code"
+            }).encode()
+            
+            req = urllib.request.Request(token_url, data=token_data, method='POST')
+            req.add_header('Content-Type', 'application/x-www-form-urlencoded')
+            
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                token_resp = json.loads(resp.read().decode())
+            
+            access_token = token_resp.get('access_token')
+            refresh_token = token_resp.get('refresh_token')
+            
+            # 获取用户邮箱
+            profile_url = "https://www.googleapis.com/oauth2/v2/userinfo"
+            req = urllib.request.Request(profile_url)
+            req.add_header('Authorization', f'Bearer {access_token}')
+            
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                profile = json.loads(resp.read().decode())
+            
+            email = profile.get('email')
+            
+            # 存储到数据库（表在init_user_tables中已创建）
+            with get_db() as conn:
+                credentials = json.dumps({
+                    "access_token": access_token,
+                    "refresh_token": refresh_token,
+                    "token_type": token_resp.get('token_type'),
+                    "expires_in": token_resp.get('expires_in')
+                })
+                encrypted_creds = encrypt_password(credentials)
+                
+                conn.execute(f"""
+                    INSERT OR REPLACE INTO user_{user_id}_emails (address, provider, status, credentials)
+                    VALUES (?, 'gmail', 'active', ?)
+                """, (email, encrypted_creds))
+                conn.commit()
+            
+            # 更新state状态
+            oauth_states[state]["status"] = "success"
+            oauth_states[state]["email"] = email
+            
+            # 返回成功页面
+            return JSONResponse(content={
+                "status": "success",
+                "message": f"成功授权 {email}",
+                "html": f"""
+                    <html><body style="font-family:sans-serif;text-align:center;padding-top:50px;">
+                    <h2>✅ 授权成功</h2>
+                    <p>已成功授权邮箱: {email}</p>
+                    <p>您可以关闭此窗口</p>
+                    <script>setTimeout(()=>window.close(),2000)</script>
+                    </body></html>
+                """
+            })
+            
+        elif provider == 'outlook':
+            # Microsoft OAuth token交换
+            token_url = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+            token_data = urllib.parse.urlencode({
+                "code": code,
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "redirect_uri": redirect_uri,
+                "grant_type": "authorization_code"
+            }).encode()
+            
+            req = urllib.request.Request(token_url, data=token_data, method='POST')
+            req.add_header('Content-Type', 'application/x-www-form-urlencoded')
+            
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                token_resp = json.loads(resp.read().decode())
+            
+            access_token = token_resp.get('access_token')
+            refresh_token = token_resp.get('refresh_token')
+            
+            # 获取用户邮箱
+            profile_url = "https://graph.microsoft.com/v1.0/me"
+            req = urllib.request.Request(profile_url)
+            req.add_header('Authorization', f'Bearer {access_token}')
+            
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                profile = json.loads(resp.read().decode())
+            
+            email = profile.get('mail') or profile.get('userPrincipalName')
+            
+            with get_db() as conn:
+                credentials = json.dumps({
+                    "access_token": access_token,
+                    "refresh_token": refresh_token
+                })
+                encrypted_creds = encrypt_password(credentials)
+                
+                conn.execute(f"""
+                    INSERT OR REPLACE INTO user_{user_id}_emails (address, provider, status, credentials)
+                    VALUES (?, 'outlook', 'active', ?)
+                """, (email, encrypted_creds))
+                conn.commit()
+            
+            oauth_states[state]["status"] = "success"
+            oauth_states[state]["email"] = email
+            
+            return JSONResponse(content={
+                "status": "success",
+                "message": f"成功授权 {email}"
+            })
+            
+    except Exception as e:
+        oauth_states[state]["status"] = "error"
+        oauth_states[state]["message"] = str(e)
+        return JSONResponse(content={"status": "error", "message": str(e)})
+    
+    finally:
+        # 清理过期的state（超过10分钟）
+        now = time.time()
+        expired = [s for s, d in oauth_states.items() if now - d.get("created_at", 0) > 600]
+        for s in expired:
+            del oauth_states[s]
+
+@app.get("/api/emails/oauth/status")
+def get_oauth_status(state: str, user: dict = Depends(get_current_user)):
+    """查询OAuth授权状态"""
+    if state not in oauth_states:
+        return {"status": "expired", "message": "授权已过期"}
+    
+    state_data = oauth_states[state]
+    if state_data.get("user_id") != user['id']:
+        return {"status": "error", "message": "无权查询"}
+    
+    return {
+        "status": state_data.get("status", "pending"),
+        "message": state_data.get("message", ""),
+        "email": state_data.get("email", "")
+    }
+
+@app.post("/api/emails/imap/add")
+def add_imap_email(data: EmailIMAPAdd, user: dict = Depends(get_current_user)):
+    """添加IMAP邮箱"""
+    user_id = user['id']
+    
+    # 验证IMAP连接
+    import imaplib
+    
+    try:
+        if data.provider == 'qq':
+            server = 'imap.qq.com'
+            port = 993
+        elif data.provider == 'imap':
+            if not data.server:
+                raise HTTPException(status_code=400, detail="请填写IMAP服务器地址")
+            server = data.server
+            port = data.port or 993
+        else:
+            raise HTTPException(status_code=400, detail="不支持的邮箱类型")
+        
+        # 测试连接
+        imap = imaplib.IMAP4_SSL(server, port)
+        imap.login(data.email, data.password)
+        imap.logout()
+        
+        # 存储到数据库（表在init_user_tables中已创建）
+        with get_db() as conn:
+            credentials = json.dumps({
+                "server": server,
+                "port": port,
+                "password": data.password
+            })
+            encrypted_creds = encrypt_password(credentials)
+            
+            conn.execute(f"""
+                INSERT OR REPLACE INTO user_{user_id}_emails (address, provider, status, credentials)
+                VALUES (?, ?, 'active', ?)
+            """, (data.email, data.provider, encrypted_creds))
+            conn.commit()
+        
+        return {"success": True, "message": f"成功添加 {data.email}"}
+        
+    except imaplib.IMAP4.error as e:
+        raise HTTPException(status_code=400, detail=f"IMAP连接失败: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"添加失败: {str(e)}")
+
+@app.delete("/api/emails/{email_id}")
+def remove_email(email_id: int, user: dict = Depends(get_current_user)):
+    """移除授权邮箱"""
+    user_id = user['id']
+    
+    with get_db() as conn:
+        conn.execute(f"DELETE FROM user_{user_id}_emails WHERE id = ?", (email_id,))
+        conn.commit()
+    
+    return {"success": True}
+
+@app.get("/api/emails/codes")
+def get_verification_codes(user: dict = Depends(get_current_user)):
+    """获取最近的验证码（占位，需要后台任务轮询邮箱）"""
+    user_id = user['id']
+    
+    with get_db() as conn:
+        # 获取最近5分钟内的验证码（表在init_user_tables中已创建）
+        try:
+            cursor = conn.execute(f"""
+                SELECT id, email, service, code, account_name, is_read, expires_at, created_at
+                FROM user_{user_id}_verification_codes
+                WHERE created_at > datetime('now', '-5 minutes')
+                ORDER BY created_at DESC
+                LIMIT 10
+            """)
+            
+            codes = []
+            for row in cursor.fetchall():
+                codes.append({
+                    "id": row["id"],
+                    "email": row["email"],
+                    "service": row["service"],
+                    "code": row["code"],
+                    "account_name": row["account_name"],
+                    "is_read": bool(row["is_read"]),
+                    "expires_at": row["expires_at"],
+                    "created_at": row["created_at"]
+                })
+        except:
+            codes = []
+    
+    return {"codes": codes}
+
+@app.post("/api/emails/codes/{code_id}/read")
+def mark_code_read(code_id: int, user: dict = Depends(get_current_user)):
+    """标记验证码已读"""
+    user_id = user['id']
+    
+    with get_db() as conn:
+        conn.execute(f"UPDATE user_{user_id}_verification_codes SET is_read = 1 WHERE id = ?", (code_id,))
+        conn.commit()
+    
+    return {"success": True}
+
 
 STATIC_DIR = os.path.dirname(os.path.abspath(__file__))
 

@@ -99,10 +99,8 @@
                     <div class="user-panel-body">
                         <div class="user-panel-item" onclick="openAvatarPicker()">🎨 更换头像</div>
                         <div class="user-panel-item" onclick="openFavStylePicker()">💌 收藏样式</div>
-                        <div class="user-panel-item" onclick="toggleTimeBadge()"><span id="timeBadgeIcon">⏰️</span> 时间提醒 <span class="toggle-status" id="timeBadgeStatus">开</span></div>
                         <div class="user-panel-item" onclick="openPasswordReset()">🔑 重置密码</div>
-                        <div class="user-panel-item" onclick="showBackupModal()">📦 数据备份</div>
-                        <div class="user-panel-item" onclick="toggleTheme()"><span id="themeBtn">🌙</span> 切换主题</div>
+                        <div class="user-panel-item" onclick="toggleTheme(event)"><span id="themeBtn">🌙</span> 切换主题</div>
                         <div class="user-panel-item" onclick="openSeasonPicker()"><span id="seasonIcon">❄️</span> 季节主题 <span class="toggle-status" id="seasonStatus">自动</span></div>
                         <a class="user-panel-item" href="https://github.com/shleeshlee/account-manager" target="_blank" style="text-decoration:none;color:inherit;">🌻 1one/GitHub</a>
                     </div>
@@ -136,28 +134,85 @@
                     <button class="btn-batch-props" onclick="openBatchPropsModal()"><span class="pc-only">🏷️ 修改属性</span><span class="mobile-only">🏷️</span></button>
                     <button class="btn-batch-delete" onclick="batchDelete()"><span class="pc-only">删除</span><span class="mobile-only">🗑️</span></button>
                 </div>
-                <!-- 搜索框 - 用form包裹并标记为搜索类型，防止密码管理器误识别 -->
-                <form class="search-box" role="search" action="javascript:void(0)" onsubmit="return false"><span class="search-icon">🔍</span><input type="search" id="searchInput" placeholder="搜索..." oninput="filterAccounts()" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-form-type="other" data-1p-ignore="true" data-protonpass-ignore="true" data-bitwarden-ignore="true" role="searchbox" name="q" aria-autocomplete="none"></form>
+                
+                <!-- === PC端工具栏 === -->
+                <!-- 搜索框 -->
+                <form class="search-box pc-only" role="search" action="javascript:void(0)" onsubmit="return false"><span class="search-icon">🔍</span><input type="search" id="searchInput" placeholder="搜索..." oninput="filterAccounts()" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-form-type="other" data-1p-ignore="true" data-protonpass-ignore="true" data-bitwarden-ignore="true" role="searchbox" name="q" aria-autocomplete="none"></form>
                 <!-- 视图切换 -->
-                <div class="view-toggle">
+                <div class="view-toggle pc-only">
                     <button class="view-btn active" data-view="card" onclick="setViewMode('card')" title="卡片视图">🃏</button>
                     <button class="view-btn" data-view="list" onclick="setViewMode('list')" title="列表视图">☰</button>
                 </div>
-                <!-- PC端按钮（带文字） -->
-                <button class="btn-toolbar pc-only" id="btnBatchMode" onclick="toggleBatchMode()" title="批量选择">✅ 勾选账号</button>
-                <button class="btn-toolbar pc-only" onclick="openImportModal()" title="导入数据">📥 导入</button>
-                <button class="btn-toolbar pc-only" onclick="exportData()" title="导出数据">📤 导出</button>
+                <!-- 勾选 -->
+                <button class="btn-toolbar pc-only" id="btnBatchMode" onclick="toggleBatchMode()" title="批量选择">✅ 勾选</button>
+                <!-- 添加账号 -->
                 <button class="btn-primary pc-only" onclick="openAddModal()">➕ 添加账号</button>
-                <!-- 移动端按钮（纯emoji） -->
-                <button class="btn-toolbar-sm mobile-only" id="btnBatchModeMobile" onclick="toggleBatchMode()" title="勾选">✅ <span class="mobile-btn-text">勾选</span></button>
-                <div class="tools-menu-wrapper mobile-only">
-                    <button class="btn-toolbar-sm" onclick="toggleToolsMenu()" title="更多">⚙️</button>
-                    <div class="tools-menu" id="toolsMenu">
-                        <div class="tools-menu-item" onclick="openAddModal();closeToolsMenu()">➕ 添加账号</div>
-                        <div class="tools-menu-item" onclick="openImportModal();closeToolsMenu()">📥 导入数据</div>
-                        <div class="tools-menu-item" onclick="exportData();closeToolsMenu()">📤 导出数据</div>
+                <!-- 🔔 验证码铃铛 -->
+                <div class="notification-wrapper pc-only">
+                    <button class="btn-tool-icon" id="notifyBtn" onclick="toggleNotificationPanel()" title="验证码">
+                        🔔
+                        <span class="notify-badge" id="notifyBadge" style="display:none">0</span>
+                    </button>
+                </div>
+                <!-- 验证码面板（独立，PC和手机共用） -->
+                <div class="notification-panel" id="notificationPanel">
+                    <div class="panel-header">
+                        <span class="panel-title">🔔 验证码</span>
+                        <button class="btn-text" onclick="markAllCodesRead()">全部已读</button>
+                    </div>
+                    <div class="panel-body" id="codesPanelBody">
+                        <div class="codes-empty">暂无验证码</div>
                     </div>
                 </div>
+                <!-- ⋮ 更多菜单 -->
+                <div class="more-menu-wrapper pc-only">
+                    <button class="btn-tool-icon" id="moreBtn" onclick="toggleMoreMenu()" title="更多">⋮</button>
+                    <div class="more-menu" id="moreMenu">
+                        <div class="menu-section">
+                            <div class="menu-item" onclick="openImportModal();closeMoreMenu()"><span class="menu-icon">📥</span><span class="menu-label">导入数据</span></div>
+                            <div class="menu-item" onclick="exportData();closeMoreMenu()"><span class="menu-icon">📤</span><span class="menu-label">导出数据</span></div>
+                        </div>
+                        <div class="menu-section">
+                            <div class="menu-item" onclick="showBackupModal();closeMoreMenu()"><span class="menu-icon">📦</span><span class="menu-label">数据备份</span></div>
+                            <div class="menu-item" onclick="toggleTimeBadge();closeMoreMenu()">
+                                <span class="menu-icon" id="menuTimeBadgeIcon">⏰️</span>
+                                <span class="menu-label">时间提醒</span>
+                                <span class="toggle-status" id="menuTimeBadgeStatus">开</span>
+                            </div>
+                        </div>
+                        <div class="menu-section">
+                            <div class="menu-section-title">邮箱验证码</div>
+                            <div class="menu-item" onclick="openEmailManager();closeMoreMenu()">
+                                <span class="menu-icon">📬</span>
+                                <span class="menu-label">邮箱授权</span>
+                                <span class="menu-hint" id="emailCountHint">未启用</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- === 移动端工具栏 === -->
+                <!-- 搜索图标 -->
+                <button class="btn-tool-icon-sm mobile-only" id="mobileSearchBtn" onclick="toggleMobileSearch()" title="搜索">🔍</button>
+                <!-- 视图切换（单按钮） -->
+                <button class="btn-tool-icon-sm mobile-only" id="mobileViewBtn" onclick="toggleViewMode()" title="切换视图">🃏</button>
+                <!-- 勾选 -->
+                <button class="btn-tool-icon-sm mobile-only" id="btnBatchModeMobile" onclick="toggleBatchMode()" title="勾选">✅</button>
+                <!-- 🔔 验证码铃铛 -->
+                <button class="btn-tool-icon-sm mobile-only" id="mobileNotifyBtn" onclick="toggleMobileNotificationPanel(event)" title="验证码">
+                    🔔
+                    <span class="notify-badge" id="mobileNotifyBadge" style="display:none">0</span>
+                </button>
+                <!-- ⋮ 更多菜单 -->
+                <button class="btn-tool-icon-sm mobile-only" id="mobileMoreBtn" onclick="toggleMoreMenu()" title="更多">⋮</button>
+            </div>
+            <!-- 移动端搜索框（展开时显示） -->
+            <div class="mobile-search-bar" id="mobileSearchBar">
+                <form class="search-box-mobile" role="search" action="javascript:void(0)" onsubmit="return false">
+                    <span class="search-icon">🔍</span>
+                    <input type="search" id="mobileSearchInput" placeholder="搜索账号..." oninput="filterAccounts()" autocomplete="off">
+                    <button type="button" class="btn-search-close" onclick="toggleMobileSearch()">✕</button>
+                </form>
             </div>
             <div class="content">
                 <div class="active-filters" id="activeFilters"></div>
@@ -215,6 +270,14 @@
                     </div>
                 </div>
                 <div class="form-group"><label class="form-label">服务状态</label><div class="combos-box" id="accCombosBox"></div></div>
+                <!-- 辅助邮箱（验证码接收） -->
+                <div class="form-group">
+                    <label class="form-label">📬 辅助邮箱 <span class="form-label-hint">（验证码接收，可选）</span></label>
+                    <div class="backup-email-wrapper">
+                        <input type="email" class="form-input" id="accBackupEmail" placeholder="如：backup@gmail.com" autocomplete="off" oninput="onBackupEmailInput(this)">
+                        <div class="backup-email-suggestions" id="backupEmailSuggestions"></div>
+                    </div>
+                </div>
                 <div class="form-group"><label class="form-label">标签</label><div class="tags-input-box" id="accTagsBox"><input type="text" class="tag-input" id="accTagInput" placeholder="回车添加" onkeydown="handleTagInput(event)"></div></div>
                 <div class="form-group"><label class="form-label">备注</label><textarea class="form-textarea" id="accNotes"></textarea></div>
             </form>
@@ -366,7 +429,7 @@
                         <div class="qr-upload-content">
                             <div class="qr-upload-icon">📸</div>
                             <div class="qr-upload-text">点击上传或拖拽二维码图片</div>
-                            <div class="qr-upload-hint">支持 Google Authenticator、Microsoft Authenticator 等</div>
+                            <div class="qr-upload-hint">支持 Ctrl+V 粘贴截图 / 右键粘贴</div>
                         </div>
                         <canvas id="qrCanvas" style="display:none"></canvas>
                     </div>
@@ -476,7 +539,7 @@
                 <details class="backup-details">
                     <summary class="backup-details-summary">⏰ 定时备份</summary>
                     <div class="backup-section">
-                        <div class="backup-row">
+                        <div class="backup-row compact">
                             <label class="backup-label">备份间隔</label>
                             <select id="autoBackupInterval" class="backup-select" onchange="saveAutoBackupSettings()">
                                 <option value="0">关闭</option>
@@ -486,14 +549,12 @@
                                 <option value="72">每 3 天</option>
                                 <option value="168">每周</option>
                             </select>
-                        </div>
-                        <div class="backup-row">
-                            <label class="backup-label">保留数量</label>
+                            <label class="backup-label" style="margin-left:12px">保留</label>
                             <select id="autoBackupKeep" class="backup-select" onchange="saveAutoBackupSettings()">
-                                <option value="5">最近 5 个</option>
-                                <option value="10" selected>最近 10 个</option>
-                                <option value="20">最近 20 个</option>
-                                <option value="50">最近 50 个</option>
+                                <option value="5">5 个</option>
+                                <option value="10" selected>10 个</option>
+                                <option value="20">20 个</option>
+                                <option value="50">50 个</option>
                             </select>
                         </div>
                         <div class="backup-status" id="autoBackupStatus">定时备份：未启用</div>
@@ -510,6 +571,9 @@
                     </ul>
                     <div class="backup-env-tip">
                         🔑 迁移服务器时，请同时备份 <code>.env</code> 文件（含加密密钥）
+                    </div>
+                    <div class="backup-env-tip" style="margin-top:8px;color:var(--yellow)">
+                        ⚠️ 容器重启后定时备份计时会重置，建议首次启用时先手动备份一次
                     </div>
                 </details>
             </div>
@@ -580,6 +644,274 @@
                         <span id="particleToggleText">开启</span>
                     </button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 邮箱授权模态框 -->
+    <div class="modal-overlay" id="emailManagerModal">
+        <div class="modal email-modal">
+            <div class="modal-header">
+                <h2 class="modal-title">📬 邮箱授权</h2>
+                <div class="modal-header-actions">
+                    <button class="btn-push-settings" onclick="togglePushSettingsPopup(event)" title="推送设置">🔔</button>
+                    <button class="btn-close" onclick="closeEmailManager()">✕</button>
+                </div>
+                <!-- 推送设置弹出层 -->
+                <div class="push-settings-popup" id="pushSettingsPopup">
+                    <div class="push-settings-title">验证码提醒方式</div>
+                    <label class="push-toggle" title="新验证码会显示在通知面板列表中">
+                        <span class="push-label">🔔 通知面板</span>
+                        <input type="checkbox" id="pushNotify" checked onchange="savePushSettings()">
+                        <span class="toggle-switch"></span>
+                    </label>
+                    <label class="push-toggle" title="收到验证码时弹出浮窗，方便快速复制">
+                        <span class="push-label">💬 即时弹窗</span>
+                        <input type="checkbox" id="pushToast" checked onchange="savePushSettings()">
+                        <span class="toggle-switch"></span>
+                    </label>
+                    <label class="push-toggle" title="在铃铛图标上显示未读验证码数量">
+                        <span class="push-label">🔢 未读角标</span>
+                        <input type="checkbox" id="pushBadge" checked onchange="savePushSettings()">
+                        <span class="toggle-switch"></span>
+                    </label>
+                </div>
+            </div>
+            <div class="modal-body email-manager-body">
+                <!-- 已授权邮箱 -->
+                <div class="email-section">
+                    <div class="email-section-title">✅ 已授权邮箱</div>
+                    <div class="authorized-emails-list" id="authorizedEmailsList">
+                        <div class="emails-empty">暂无已授权邮箱</div>
+                    </div>
+                </div>
+                <!-- 待授权邮箱 -->
+                <div class="email-section">
+                    <div class="email-section-title">💡 待授权邮箱 <span class="section-hint">从账号辅助邮箱收集</span></div>
+                    <div class="pending-emails-list" id="pendingEmailsList">
+                        <div class="emails-empty">暂无待授权邮箱</div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-cancel" onclick="closeEmailManager()">关闭</button>
+                <button class="btn-save" onclick="openAddEmailModal()">➕ 添加邮箱</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 添加授权邮箱模态框 -->
+    <div class="modal-overlay" id="addEmailModal">
+        <div class="modal email-modal">
+            <div class="modal-header">
+                <h2 class="modal-title">➕ 添加授权邮箱</h2>
+                <button class="btn-close" onclick="closeAddEmailModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <!-- 折叠式邮箱选择列表 -->
+                <div class="provider-accordion" id="providerAccordion">
+                    <!-- Gmail -->
+                    <div class="provider-item" data-provider="gmail">
+                        <div class="provider-header" onclick="toggleProviderPanel('gmail')">
+                            <div class="provider-header-left">
+                                <div class="provider-icon gmail">📧</div>
+                                <div class="provider-info">
+                                    <div class="provider-name">Gmail</div>
+                                    <div class="provider-desc">OAuth 官方授权</div>
+                                </div>
+                            </div>
+                            <div class="provider-toggle">▼</div>
+                        </div>
+                        <div class="provider-panel" id="gmailPanel">
+                            <div class="oauth-config-inner" id="gmailOauthConfig">
+                                <div class="form-group">
+                                    <label class="form-label">Client ID</label>
+                                    <input type="text" class="form-input" id="gmailClientId" placeholder="从 Google Cloud Console 获取">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Client Secret</label>
+                                    <input type="password" class="form-input" id="gmailClientSecret" placeholder="从 Google Cloud Console 获取">
+                                </div>
+                                <div class="oauth-help-link">
+                                    <a href="https://console.cloud.google.com/apis/credentials" target="_blank">📖 如何获取 Gmail OAuth 凭证？</a>
+                                </div>
+                            </div>
+                            <div class="provider-auth-info">
+                                <span class="auth-badge oauth">OAuth 2.0</span>
+                                <span class="auth-hint">只读权限，不存储密码</span>
+                            </div>
+                            <button class="btn-provider-auth" onclick="startProviderAuth('gmail')">🔗 开始授权</button>
+                        </div>
+                    </div>
+                    
+                    <!-- Outlook -->
+                    <div class="provider-item" data-provider="outlook">
+                        <div class="provider-header" onclick="toggleProviderPanel('outlook')">
+                            <div class="provider-header-left">
+                                <div class="provider-icon outlook">📧</div>
+                                <div class="provider-info">
+                                    <div class="provider-name">Outlook</div>
+                                    <div class="provider-desc">OAuth 官方授权</div>
+                                </div>
+                            </div>
+                            <div class="provider-toggle">▼</div>
+                        </div>
+                        <div class="provider-panel" id="outlookPanel">
+                            <div class="oauth-config-inner" id="outlookOauthConfig">
+                                <div class="form-group">
+                                    <label class="form-label">Client ID</label>
+                                    <input type="text" class="form-input" id="outlookClientId" placeholder="从 Azure Portal 获取">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Client Secret</label>
+                                    <input type="password" class="form-input" id="outlookClientSecret" placeholder="从 Azure Portal 获取">
+                                </div>
+                                <div class="oauth-help-link">
+                                    <a href="https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade" target="_blank">📖 如何获取 Outlook OAuth 凭证？</a>
+                                </div>
+                            </div>
+                            <div class="provider-auth-info">
+                                <span class="auth-badge oauth">OAuth 2.0</span>
+                                <span class="auth-hint">只读权限，不存储密码</span>
+                            </div>
+                            <button class="btn-provider-auth" onclick="startProviderAuth('outlook')">🔗 开始授权</button>
+                        </div>
+                    </div>
+                    
+                    <!-- QQ邮箱 -->
+                    <div class="provider-item" data-provider="qq">
+                        <div class="provider-header" onclick="toggleProviderPanel('qq')">
+                            <div class="provider-header-left">
+                                <div class="provider-icon qq">📧</div>
+                                <div class="provider-info">
+                                    <div class="provider-name">QQ邮箱</div>
+                                    <div class="provider-desc">IMAP + 授权码</div>
+                                </div>
+                            </div>
+                            <div class="provider-toggle">▼</div>
+                        </div>
+                        <div class="provider-panel" id="qqPanel">
+                            <div class="imap-config-inner">
+                                <div class="form-group">
+                                    <label class="form-label">QQ邮箱地址</label>
+                                    <input type="email" class="form-input" id="qqEmail" placeholder="123456789@qq.com">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">授权码 <span class="label-hint">（非QQ密码）</span></label>
+                                    <input type="password" class="form-input" id="qqPassword" placeholder="在QQ邮箱设置中获取">
+                                </div>
+                                <div class="oauth-help-link">
+                                    <a href="https://mail.qq.com" target="_blank">📖 如何获取QQ邮箱授权码？</a>
+                                </div>
+                            </div>
+                            <div class="provider-auth-info">
+                                <span class="auth-badge imap">IMAP</span>
+                                <span class="auth-hint">授权码加密存储</span>
+                            </div>
+                            <button class="btn-provider-auth" onclick="startProviderAuth('qq')">🔗 验证连接</button>
+                        </div>
+                    </div>
+                    
+                    <!-- 通用IMAP -->
+                    <div class="provider-item" data-provider="imap">
+                        <div class="provider-header" onclick="toggleProviderPanel('imap')">
+                            <div class="provider-header-left">
+                                <div class="provider-icon imap">⚙️</div>
+                                <div class="provider-info">
+                                    <div class="provider-name">通用IMAP</div>
+                                    <div class="provider-desc">自定义服务器</div>
+                                </div>
+                            </div>
+                            <div class="provider-toggle">▼</div>
+                        </div>
+                        <div class="provider-panel" id="imapPanel">
+                            <div class="imap-config-inner">
+                                <div class="form-group">
+                                    <label class="form-label">邮箱地址</label>
+                                    <input type="email" class="form-input" id="imapEmail" placeholder="your@email.com">
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group flex-grow">
+                                        <label class="form-label">IMAP 服务器</label>
+                                        <input type="text" class="form-input" id="imapServer" placeholder="imap.example.com">
+                                    </div>
+                                    <div class="form-group w100">
+                                        <label class="form-label">端口</label>
+                                        <input type="number" class="form-input" id="imapPort" value="993">
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">密码/授权码</label>
+                                    <input type="password" class="form-input" id="imapPassword" placeholder="邮箱密码或授权码">
+                                </div>
+                                <div class="imap-presets">
+                                    <span class="preset-label">常用配置：</span>
+                                    <button type="button" class="btn-preset" onclick="fillImapPreset('163')">163</button>
+                                    <button type="button" class="btn-preset" onclick="fillImapPreset('126')">126</button>
+                                    <button type="button" class="btn-preset" onclick="fillImapPreset('sina')">新浪</button>
+                                </div>
+                            </div>
+                            <div class="provider-auth-info">
+                                <span class="auth-badge imap">IMAP</span>
+                                <span class="auth-hint">凭证加密存储</span>
+                            </div>
+                            <button class="btn-provider-auth" onclick="startProviderAuth('imap')">🔗 验证连接</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 安全说明（底部固定） -->
+                <div class="auth-info-footer">
+                    <div class="auth-info-icon">🔒</div>
+                    <div class="auth-info-text">所有凭证均加密存储在您的服务器上，AccBox 不会上传任何数据到第三方</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-cancel" onclick="closeAddEmailModal()">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 验证码弹窗 Toast -->
+    <div class="code-toast" id="codeToast">
+        <div class="toast-header">
+            <span class="toast-title">
+                <span class="toast-icon">📬</span>
+                <span id="toastService">验证码</span>
+            </span>
+            <button class="toast-close" onclick="closeCodeToast()">✕</button>
+        </div>
+        <div class="toast-body">
+            <div class="toast-account" id="toastAccount"></div>
+            <div class="toast-code" id="toastCode" onclick="copyToastCode()">------</div>
+            <div class="toast-timer">
+                <span>⏱️ 剩余 </span>
+                <span id="toastTimer">5:00</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- 移动端更多菜单面板 -->
+    <div class="mobile-menu-overlay" id="mobileMenuOverlay" onclick="closeMoreMenu()"></div>
+    <div class="mobile-menu-panel" id="mobileMenuPanel">
+        <div class="mobile-menu-header">
+            <span>更多操作</span>
+            <button class="btn-close-sm" onclick="closeMoreMenu()">✕</button>
+        </div>
+        <div class="mobile-menu-body">
+            <div class="mobile-menu-item" onclick="openAddModal();closeMoreMenu()"><span class="menu-icon">➕</span>添加账号</div>
+            <div class="mobile-menu-item" onclick="openImportModal();closeMoreMenu()"><span class="menu-icon">📥</span>导入数据</div>
+            <div class="mobile-menu-item" onclick="exportData();closeMoreMenu()"><span class="menu-icon">📤</span>导出数据</div>
+            <div class="mobile-menu-item" onclick="showBackupModal();closeMoreMenu()"><span class="menu-icon">📦</span>数据备份</div>
+            <div class="mobile-menu-item" onclick="toggleTimeBadge();closeMoreMenu()">
+                <span class="menu-icon" id="mobileTimeBadgeIcon">⏰️</span>
+                时间提醒
+                <span class="toggle-status" id="mobileTimeBadgeStatus">开</span>
+            </div>
+            <div class="mobile-menu-divider"></div>
+            <div class="mobile-menu-item" onclick="openEmailManager();closeMoreMenu()">
+                <span class="menu-icon">📬</span>邮箱授权
+                <span class="menu-badge" id="mobileEmailBadge" style="display:none">0</span>
             </div>
         </div>
     </div>

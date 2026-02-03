@@ -1,5 +1,5 @@
 const API = '/api';
-const VERSION = 'v5.1'; // 安全修复版: bcrypt密码、JWT Token、备份功能、XSS防护 // 完整2FA支持(含Steam Guard)、二维码扫描、安全加固
+const VERSION = 'v5.1.3'; // 折叠式邮箱授权 + 手机端工具栏优化
 let token = localStorage.getItem('token');
 let user = JSON.parse(localStorage.getItem('user') || 'null');
 let accounts = [], accountTypes = [], propertyGroups = [];
@@ -16,6 +16,15 @@ let batchMode = false;
 let selectedAccounts = new Set();
 let pendingImportData = null;
 let duplicateAccounts = [];
+
+// v5.1.3 新增：邮箱验证码功能
+let authorizedEmails = []; // 已授权邮箱列表
+let pendingEmails = []; // 待授权邮箱列表（从账号辅助邮箱收集）
+let verificationCodes = []; // 验证码列表（最近5条）
+let selectedProvider = 'gmail'; // 当前选择的邮箱类型
+let pushSettings = JSON.parse(localStorage.getItem('pushSettings') || '{"notify":true,"toast":true,"badge":true}');
+let codeToastTimer = null; // 验证码弹窗定时器
+let emailPollingInterval = null; // 邮箱轮询定时器
 
 // ==================== 补丁：核心 API 请求函数 ====================
 async function apiRequest(endpoint, options = {}) {
@@ -125,7 +134,7 @@ const COUNTRY_MAP = {
 
 // 初始化
 function init() {
-    console.log('账号管家初始化', VERSION);
+    console.log('账号管家初始化', VERSION); // 保留：启动日志
     initTheme();
     initSeason(); // 初始化季节主题
     initViewMode();
@@ -180,12 +189,26 @@ function toggleTimeBadge() {
 }
 
 function updateTimeBadgeUI() {
-    const icon = document.getElementById('timeBadgeIcon');
-    const status = document.getElementById('timeBadgeStatus');
-    if (icon) icon.textContent = showTimeBadge ? '⏰️' : '😴';
-    if (status) {
-        status.textContent = showTimeBadge ? '开' : '关';
-        status.className = 'toggle-status ' + (showTimeBadge ? 'on' : 'off');
+    // PC端更多菜单中的图标和状态
+    const menuIcon = document.getElementById('menuTimeBadgeIcon');
+    const menuStatus = document.getElementById('menuTimeBadgeStatus');
+    // 移动端更多菜单中的图标和状态
+    const mobileIcon = document.getElementById('mobileTimeBadgeIcon');
+    const mobileStatus = document.getElementById('mobileTimeBadgeStatus');
+    
+    const iconText = showTimeBadge ? '⏰️' : '😴';
+    const statusText = showTimeBadge ? '开' : '关';
+    const statusClass = 'toggle-status ' + (showTimeBadge ? 'on' : 'off');
+    
+    if (menuIcon) menuIcon.textContent = iconText;
+    if (menuStatus) {
+        menuStatus.textContent = statusText;
+        menuStatus.className = statusClass;
+    }
+    if (mobileIcon) mobileIcon.textContent = iconText;
+    if (mobileStatus) {
+        mobileStatus.textContent = statusText;
+        mobileStatus.className = statusClass;
     }
 }
 
@@ -225,6 +248,15 @@ function setViewMode(mode) {
     updateViewModeClass();
 }
 
+// 移动端单按钮切换视图
+function toggleViewMode() {
+    const newMode = currentViewMode === 'card' ? 'list' : 'card';
+    setViewMode(newMode);
+    // 更新移动端按钮图标
+    const btn = document.getElementById('mobileViewBtn');
+    if (btn) btn.textContent = newMode === 'card' ? '🃏' : '☰';
+}
+
 function updateViewModeClass() {
     const grid = document.getElementById('cardsList');
     if (grid) {
@@ -254,7 +286,10 @@ let currentTheme = localStorage.getItem('theme') || 'dark';
 let isThemeSwitching = false;
 
 function initTheme() {
+    // 设置主题
     document.documentElement.setAttribute('data-theme', currentTheme === 'light' ? 'light' : '');
+    
+    // 更新按钮图标
     ['themeBtn', 'themeBtn2'].forEach(id => {
         const el = document.getElementById(id);
         if (el) {
@@ -280,11 +315,92 @@ function createPulseRings(cx, cy, toLight) {
     });
 }
 
-// 主界面用：瞬间切换（关灯效果）
-function toggleTheme() {
-    currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
-    localStorage.setItem('theme', currentTheme);
-    initTheme();
+// 主界面用：View Transition API 圆形扩散（Telegram同款）
+// 备用方案：遮罩冻结（兼容旧浏览器）
+function toggleTheme(event) {
+    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    
+    // 获取点击坐标（如果有事件），否则使用屏幕中心
+    let x, y;
+    if (event && event.clientX !== undefined) {
+        x = event.clientX;
+        y = event.clientY;
+    } else {
+        x = window.innerWidth / 2;
+        y = window.innerHeight / 2;
+    }
+    
+    // 真正执行切换的函数
+    const doSwitch = () => {
+        currentTheme = newTheme;
+        localStorage.setItem('theme', currentTheme);
+        initTheme();
+    };
+    
+    // 方案一：View Transition API（推荐）
+    if (document.startViewTransition) {
+        const transition = document.startViewTransition(doSwitch);
+        
+        // 计算从点击点到最远角落的距离
+        const endRadius = Math.hypot(
+            Math.max(x, window.innerWidth - x),
+            Math.max(y, window.innerHeight - y)
+        );
+        
+        // 圆形扩散动画
+        transition.ready.then(() => {
+            document.documentElement.animate(
+                {
+                    clipPath: [
+                        `circle(0px at ${x}px ${y}px)`,
+                        `circle(${endRadius}px at ${x}px ${y}px)`
+                    ]
+                },
+                {
+                    duration: 400,
+                    easing: 'ease-out',
+                    pseudoElement: '::view-transition-new(root)'
+                }
+            );
+        }).catch(() => {});
+        return;
+    }
+    
+    // 方案二：遮罩冻结（备用）
+    // 获取当前真实背景色（关键！避免色差）
+    const currentBg = getComputedStyle(document.body).backgroundColor;
+    
+    const mask = document.createElement('div');
+    Object.assign(mask.style, {
+        position: 'fixed',
+        top: '0',
+        left: '0',
+        right: '0',
+        bottom: '0',
+        backgroundColor: currentBg,
+        zIndex: '99999',
+        pointerEvents: 'none',
+        transition: 'opacity 0.25s ease-out',
+        opacity: '1'
+    });
+    
+    document.body.appendChild(mask);
+    
+    // 强制渲染一帧，确保遮罩显示
+    requestAnimationFrame(() => {
+        // 在遮罩掩护下切换主题
+        doSwitch();
+        
+        // 下一帧开始淡出
+        requestAnimationFrame(() => {
+            mask.style.opacity = '0';
+        });
+        
+        // 动画结束后清理
+        setTimeout(() => {
+            mask.remove();
+        }, 250);
+    });
 }
 
 // 登录页用：带脉冲动画的主题切换
@@ -649,6 +765,8 @@ async function loadData() {
         showSkeletonCards();
         await Promise.all([loadAccountTypes(), loadPropertyGroups(), loadAccounts()]);
         renderSidebar(); renderCards();
+        // 初始化邮箱验证码功能
+        initEmailFeature();
     } catch (e) {
         console.error('loadData错误:', e);
     }
@@ -1556,6 +1674,9 @@ function openAddModal() {
     document.getElementById('accType').innerHTML = accountTypes.map(t => `<option value="${t.id}">${escapeHtml(t.icon)} ${escapeHtml(t.name)}</option>`).join('');
     ['accName', 'accEmail', 'accPassword', 'accNotes'].forEach(id => document.getElementById(id).value = '');
     document.getElementById('accCountry').value = '🌍';
+    // 辅助邮箱清空
+    const backupEmail = document.getElementById('accBackupEmail');
+    if (backupEmail) backupEmail.value = '';
     // 密码默认隐藏
     const pwdField = document.getElementById('accPassword');
     if (pwdField) { pwdField.classList.add('pwd-hidden'); }
@@ -1578,6 +1699,9 @@ function openEditModal(id) {
     document.getElementById('accPassword').value = acc.password || '';
     document.getElementById('accCountry').value = acc.country || '🌍';
     document.getElementById('accNotes').value = acc.notes || '';
+    // 辅助邮箱
+    const backupEmail = document.getElementById('accBackupEmail');
+    if (backupEmail) backupEmail.value = acc.backup_email || '';
     // 密码默认隐藏
     const pwdField = document.getElementById('accPassword');
     if (pwdField) { pwdField.classList.add('pwd-hidden'); }
@@ -1737,14 +1861,11 @@ function cancelComboSelector() {
 
 function confirmComboSelector() {
     const selected = document.querySelectorAll('#comboSelectorOverlay .combo-option.selected');
-    console.log('选中的元素数量:', selected.length);
     // 【修复】使用normalizeCombo规范化，确保与批量修改逻辑一致
     const rawCombo = Array.from(selected).map(el => parseInt(el.dataset.vid));
     const combo = normalizeCombo(rawCombo);
-    console.log('生成的combo:', combo);
     if (combo.length > 0) {
         editingCombos.push(combo);
-        console.log('当前editingCombos:', editingCombos);
         renderCombosBox();
     }
     cancelComboSelector();
@@ -1872,12 +1993,18 @@ async function saveAccount() {
         customName: document.getElementById('accName').value, 
         combos: editingCombos,
         tags: editingTags, 
-        notes: document.getElementById('accNotes').value 
+        notes: document.getElementById('accNotes').value,
+        backup_email: document.getElementById('accBackupEmail')?.value || ''
     };
-    console.log('保存数据:', JSON.stringify(data));  // 调试
     try {
         const res = await fetch(editingAccountId ? API + `/accounts/${editingAccountId}` : API + '/accounts', { method: editingAccountId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify(data) });
-        if (res.ok) { showToast(editingAccountId ? '已更新' : '已添加'); closeAccountModal(); await loadAccounts(); console.log('加载后accounts:', accounts); renderSidebar(); renderCards(); }
+        if (res.ok) { 
+            showToast(editingAccountId ? '已更新' : '已添加'); 
+            closeAccountModal(); 
+            await loadAccounts(); 
+            renderSidebar(); 
+            renderCards();
+        }
         else { const err = await res.json(); showToast(err.detail || '保存失败', true); }
     } catch(e) { console.error('保存错误:', e); showToast('网络错误', true); }
 }
@@ -3074,6 +3201,107 @@ function initQRDropZone() {
             showToast('请拖入图片文件', true);
         }
     });
+    
+    // 新增：支持 Ctrl+V 粘贴图片
+    document.addEventListener('paste', handleQRPaste);
+    
+    // 新增：右键菜单粘贴
+    zone.addEventListener('contextmenu', showQRContextMenu);
+}
+
+// 处理剪贴板粘贴（Ctrl+V）
+async function handleQRPaste(e) {
+    // 仅在2FA模态框打开时处理
+    const modal = document.getElementById('twoFAConfigModal');
+    if (!modal || !modal.classList.contains('show')) return;
+    
+    // 如果焦点在输入框，不拦截
+    const activeEl = document.activeElement;
+    if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) {
+        // 但如果是密钥输入框且粘贴的是图片，还是要处理
+        if (activeEl.id !== 'totp2FASecret') return;
+    }
+    
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    
+    for (const item of items) {
+        if (item.type.startsWith('image/')) {
+            e.preventDefault();
+            const file = item.getAsFile();
+            if (file) {
+                showToast('📷 正在识别粘贴的图片...');
+                scanQRFromFile(file);
+            }
+            return;
+        }
+    }
+}
+
+// 右键菜单
+function showQRContextMenu(e) {
+    e.preventDefault();
+    
+    // 移除已有菜单
+    document.querySelectorAll('.qr-context-menu').forEach(m => m.remove());
+    
+    const menu = document.createElement('div');
+    menu.className = 'qr-context-menu';
+    menu.innerHTML = `
+        <div class="qr-menu-item" onclick="pasteQRFromClipboard()">
+            <span>📋</span>
+            <span>粘贴图片</span>
+            <span class="shortcut">Ctrl+V</span>
+        </div>
+        <div class="qr-menu-item" onclick="document.getElementById('qrFileInput').click();closeQRContextMenu()">
+            <span>📁</span>
+            <span>选择文件</span>
+        </div>
+    `;
+    menu.style.cssText = `
+        position: fixed;
+        left: ${e.clientX}px;
+        top: ${e.clientY}px;
+        z-index: 100001;
+    `;
+    document.body.appendChild(menu);
+    
+    // 点击其他地方关闭
+    setTimeout(() => {
+        document.addEventListener('click', closeQRContextMenu, { once: true });
+    }, 0);
+}
+
+function closeQRContextMenu() {
+    document.querySelectorAll('.qr-context-menu').forEach(m => m.remove());
+}
+
+// 从剪贴板读取图片
+async function pasteQRFromClipboard() {
+    closeQRContextMenu();
+    
+    try {
+        // 使用 Clipboard API 读取
+        if (navigator.clipboard && navigator.clipboard.read) {
+            const items = await navigator.clipboard.read();
+            for (const item of items) {
+                for (const type of item.types) {
+                    if (type.startsWith('image/')) {
+                        const blob = await item.getType(type);
+                        showToast('📷 正在识别粘贴的图片...');
+                        scanQRFromFile(blob);
+                        return;
+                    }
+                }
+            }
+            showToast('剪贴板中没有图片', true);
+        } else {
+            showToast('请使用 Ctrl+V 粘贴，或拖拽图片', true);
+        }
+    } catch (err) {
+        console.error('读取剪贴板失败:', err);
+        showToast('无法访问剪贴板，请使用 Ctrl+V', true);
+    }
 }
 
 function handleQRUpload(event) {
@@ -3149,9 +3377,9 @@ function parseOtpAuthUri(uri) {
         
         // 提取周期
         const period = params.get('period');
-        if (period) console.log('周期:', period); // 后端会使用
-        
-        console.log('解析 otpauth URI:', { secret: secret ? '***' : null, issuer, type });
+        if (period) {
+            // 周期参数，后端会使用
+        }
     } catch (e) {
         console.error('解析 otpauth URI 失败:', e);
     }
@@ -3821,12 +4049,13 @@ function updateAutoBackupStatus(settings) {
     const interval = settings?.interval_hours || 0;
     const lastBackup = settings?.last_backup;
     
-    // 只要 interval > 0 就认为已启用（enabled 字段由后端根据 interval 自动设置）
     if (interval > 0) {
-        let statusText = `✅ 已启用：每 ${interval} 小时自动备份`;
+        let statusText = `✅ 定时备份已启用：每 ${interval} 小时`;
         if (lastBackup) {
             const lastTime = new Date(lastBackup);
-            statusText += ` (上次: ${lastTime.toLocaleString('zh-CN')})`;
+            statusText += `（上次: ${lastTime.toLocaleString('zh-CN').replace(/:\d{2}$/, '')}）`;
+        } else {
+            statusText += `，首次备份将在 ${interval} 小时后`;
         }
         status.textContent = statusText;
         status.classList.add('active');
@@ -3859,29 +4088,34 @@ async function loadKeyInfo() {
     }
 }
 
-
-// ==================== 版本检查 ====================
-
-async function checkVersionUpgrade() {
-    try {
-        const resp = await fetch(API + '/version', {
-            headers: { 'Authorization': 'Bearer ' + token }
-        });
-        if (resp.ok) {
-            const data = await resp.json();
-            if (data.server_version && data.server_version !== VERSION) {
-                showToast(`🔄 服务器版本 ${data.server_version}，前端版本 ${VERSION}，建议刷新页面`, true);
-            }
-        }
-    } catch (e) {
-        console.log('版本检查跳过:', e.message);
+// 保存推送设置
+function savePushSettings() {
+    pushSettings = {
+        notify: document.getElementById('pushNotify')?.checked ?? true,
+        toast: document.getElementById('pushToast')?.checked ?? true,
+        badge: document.getElementById('pushBadge')?.checked ?? true
+    };
+    localStorage.setItem('pushSettings', JSON.stringify(pushSettings));
+    
+    // 更新角标显示
+    if (pushSettings.badge) {
+        updateNotifyBadge();
+    } else {
+        // 隐藏角标
+        const badges = document.querySelectorAll('.notify-badge');
+        badges.forEach(b => b.style.display = 'none');
     }
+    
+    showToast('✅ 设置已保存');
 }
 
-// 在页面加载完成后检查版本升级
-if (token && user) {
-    setTimeout(checkVersionUpgrade, 2000);
+// 初始化推送设置UI
+function initPushSettingsUI() {
+    document.getElementById('pushNotify').checked = pushSettings.notify;
+    document.getElementById('pushToast').checked = pushSettings.toast;
+    document.getElementById('pushBadge').checked = pushSettings.badge;
 }
+
 
 // ==================== 键盘快捷键 ====================
 
@@ -4017,3 +4251,998 @@ document.addEventListener('click', (e) => {
         createRipple({ currentTarget: target, clientX: e.clientX, clientY: e.clientY });
     }
 });
+
+function updateCardBadges() {
+    // 移除所有现有徽章
+    document.querySelectorAll('.card-code-badge').forEach(b => b.remove());
+    
+    if (!pushSettings.badge) return;
+    
+    // 为有验证码的账号添加徽章
+    verificationCodes.forEach(code => {
+        if (code.is_expired) return;
+        
+        // 找到对应的账号卡片
+        const account = accounts.find(a => 
+            a.backup_email?.toLowerCase() === code.email?.toLowerCase() ||
+            a.email?.toLowerCase() === code.email?.toLowerCase()
+        );
+        
+        if (!account) return;
+        
+        const card = document.querySelector(`.account-card[data-id="${account.id}"]`);
+        if (!card || card.querySelector('.card-code-badge')) return;
+        
+        const remaining = code.expires_at ? Math.max(0, Math.floor((new Date(code.expires_at) - new Date()) / 1000)) : 300;
+        const timerClass = remaining < 60 ? 'danger' : remaining < 180 ? 'warning' : '';
+        const timerText = `${Math.floor(remaining / 60)}:${(remaining % 60).toString().padStart(2, '0')}`;
+        
+        const badgeHtml = `
+            <div class="card-code-badge" onclick="event.stopPropagation();copyCode('${escapeHtml(code.code)}')" title="点击复制验证码">
+                <span class="badge-icon">📬</span>
+                <span class="badge-code">${escapeHtml(code.code)}</span>
+                <span class="badge-timer ${timerClass}">${timerText}</span>
+                <button class="badge-copy">📋</button>
+            </div>
+        `;
+        
+        card.insertAdjacentHTML('afterbegin', badgeHtml);
+    });
+}
+
+async function copyCode(code) {
+    const success = await copyToClipboard(code);
+    if (success) {
+        showToast('✅ 验证码已复制');
+    }
+}
+
+function markAllCodesRead() {
+    verificationCodes.forEach(c => c.is_read = true);
+    renderCodesList();
+    updateNotifyBadge();
+    
+    // 同步到后端
+    apiRequest('/emails/codes/read-all', { method: 'POST' }).catch(() => {});
+}
+
+// === 验证码弹窗 Toast ===
+function showCodeToast(code) {
+    if (!pushSettings.toast) return;
+    
+    const toast = document.getElementById('codeToast');
+    document.getElementById('toastService').textContent = code.service || '验证码';
+    document.getElementById('toastAccount').textContent = `${code.account_name || ''} · ${code.email}`;
+    document.getElementById('toastCode').textContent = code.code;
+    
+    // 倒计时
+    updateToastTimer(code.expires_at);
+    
+    toast.classList.add('show');
+    
+    // 10秒后自动关闭
+    if (codeToastTimer) clearTimeout(codeToastTimer);
+    codeToastTimer = setTimeout(closeCodeToast, 10000);
+}
+
+function updateToastTimer(expiresAt) {
+    const timerEl = document.getElementById('toastTimer');
+    if (!expiresAt) {
+        timerEl.textContent = '5:00';
+        return;
+    }
+    
+    const update = () => {
+        const remaining = Math.max(0, Math.floor((new Date(expiresAt) - new Date()) / 1000));
+        timerEl.textContent = `${Math.floor(remaining / 60)}:${(remaining % 60).toString().padStart(2, '0')}`;
+        
+        if (remaining > 0 && document.getElementById('codeToast').classList.contains('show')) {
+            setTimeout(update, 1000);
+        }
+    };
+    update();
+}
+
+function closeCodeToast() {
+    document.getElementById('codeToast').classList.remove('show');
+    if (codeToastTimer) {
+        clearTimeout(codeToastTimer);
+        codeToastTimer = null;
+    }
+}
+
+async function copyToastCode() {
+    const code = document.getElementById('toastCode').textContent;
+    await copyCode(code);
+}
+
+// === 邮箱轮询（简单实现，后续可改为 WebSocket） ===
+function startEmailPolling() {
+    // 每 30 秒轮询一次
+    if (emailPollingInterval) clearInterval(emailPollingInterval);
+    
+    emailPollingInterval = setInterval(async () => {
+        if (authorizedEmails.length === 0) return;
+        
+        try {
+            const res = await apiRequest('/emails/check-new');
+            if (res.ok) {
+                const data = await res.json();
+                if (data.new_codes && data.new_codes.length > 0) {
+                    // 有新验证码
+                    data.new_codes.forEach(code => {
+                        verificationCodes.unshift(code);
+                        if (pushSettings.toast) showCodeToast(code);
+                    });
+                    
+                    // 保持最多 5 条
+                    verificationCodes = verificationCodes.slice(0, 5);
+                    
+                    renderCodesList();
+                    updateNotifyBadge();
+                    if (pushSettings.badge) updateCardBadges();
+                }
+            }
+        } catch (err) {
+            console.error('邮箱轮询失败:', err);
+        }
+    }, 30000);
+}
+
+function stopEmailPolling() {
+    if (emailPollingInterval) {
+        clearInterval(emailPollingInterval);
+        emailPollingInterval = null;
+    }
+}
+
+// 页面关闭时停止轮询
+window.addEventListener('beforeunload', () => {
+    stopEmailPolling();
+});
+
+function updateNotifyBadge() {
+    const unreadCount = verificationCodes.filter(c => !c.is_read).length;
+    const badge = document.getElementById('notifyBadge');
+    const mobileBadge = document.getElementById('mobileNotifyBadge');
+    
+    [badge, mobileBadge].forEach(b => {
+        if (b) {
+            if (unreadCount > 0) {
+                b.textContent = unreadCount > 9 ? '9+' : unreadCount;
+                b.style.display = 'flex';
+            } else {
+                b.style.display = 'none';
+            }
+        }
+    });
+}
+
+function updateCardBadges() {
+    // 为有验证码的卡片添加徽章
+    const activeEmails = new Map();
+    verificationCodes.forEach(code => {
+        if (!code.expires_at || new Date(code.expires_at) > new Date()) {
+            const email = code.email?.toLowerCase();
+            if (email && !activeEmails.has(email)) {
+                activeEmails.set(email, code);
+            }
+        }
+    });
+    
+    // 移除所有现有徽章
+    document.querySelectorAll('.card-code-badge').forEach(b => b.remove());
+    
+    // 为匹配的卡片添加徽章
+    accounts.forEach(acc => {
+        if (acc.backup_email) {
+            const code = activeEmails.get(acc.backup_email.toLowerCase());
+            if (code) {
+                const card = document.querySelector(`.account-card[data-id="${acc.id}"]`);
+                if (card) {
+                    const remaining = code.expires_at ? Math.max(0, Math.floor((new Date(code.expires_at) - new Date()) / 1000)) : 300;
+                    const timerClass = remaining < 60 ? 'danger' : remaining < 180 ? 'warning' : '';
+                    const timerText = `${Math.floor(remaining / 60)}:${(remaining % 60).toString().padStart(2, '0')}`;
+                    
+                    const badge = document.createElement('div');
+                    badge.className = 'card-code-badge';
+                    badge.innerHTML = `
+                        <span class="badge-icon">📬</span>
+                        <span class="badge-code">${escapeHtml(code.code)}</span>
+                        <span class="badge-timer ${timerClass}">${timerText}</span>
+                        <button class="badge-copy" onclick="event.stopPropagation();copyCode('${escapeHtml(code.code)}')">📋</button>
+                    `;
+                    badge.onclick = (e) => {
+                        if (!e.target.classList.contains('badge-copy')) {
+                            copyCode(code.code);
+                        }
+                    };
+                    card.appendChild(badge);
+                }
+            }
+        }
+    });
+}
+
+async function copyCode(code) {
+    const success = await copyToClipboard(code);
+    if (success) {
+        showToast('📋 验证码已复制');
+    }
+}
+
+function markAllCodesRead() {
+    verificationCodes.forEach(c => c.is_read = true);
+    renderCodesList();
+    updateNotifyBadge();
+    // 可选：同步到服务器
+    apiRequest('/emails/codes/read-all', { method: 'POST' }).catch(() => {});
+}
+
+// === 验证码弹窗 Toast ===
+function showCodeToast(code) {
+    if (!pushSettings.toast) return;
+    
+    const toast = document.getElementById('codeToast');
+    document.getElementById('toastService').textContent = code.service || '验证码';
+    document.getElementById('toastAccount').textContent = code.account_name || code.email;
+    document.getElementById('toastCode').textContent = code.code;
+    
+    toast.classList.add('show');
+    
+    // 开始倒计时
+    let remaining = code.expires_at ? Math.floor((new Date(code.expires_at) - new Date()) / 1000) : 300;
+    updateToastTimer(remaining);
+    
+    if (codeToastTimer) clearInterval(codeToastTimer);
+    codeToastTimer = setInterval(() => {
+        remaining--;
+        updateToastTimer(remaining);
+        if (remaining <= 0) {
+            clearInterval(codeToastTimer);
+            closeCodeToast();
+        }
+    }, 1000);
+    
+    // 10秒后自动关闭
+    setTimeout(() => {
+        closeCodeToast();
+    }, 10000);
+}
+
+function updateToastTimer(seconds) {
+    const timer = document.getElementById('toastTimer');
+    if (timer) {
+        timer.textContent = `${Math.floor(seconds / 60)}:${(seconds % 60).toString().padStart(2, '0')}`;
+    }
+}
+
+function closeCodeToast() {
+    const toast = document.getElementById('codeToast');
+    if (toast) toast.classList.remove('show');
+    if (codeToastTimer) {
+        clearInterval(codeToastTimer);
+        codeToastTimer = null;
+    }
+}
+
+function copyToastCode() {
+    const code = document.getElementById('toastCode').textContent;
+    copyCode(code);
+}
+
+// === 实时轮询（简化版，生产环境建议用 WebSocket） ===
+function startEmailPolling() {
+    if (emailPollingInterval) clearInterval(emailPollingInterval);
+    
+    // 每30秒检查一次新验证码
+    emailPollingInterval = setInterval(async () => {
+        if (authorizedEmails.length === 0) return;
+        
+        try {
+            const res = await apiRequest('/emails/check-new');
+            if (res.ok) {
+                const data = await res.json();
+                if (data.new_codes && data.new_codes.length > 0) {
+                    // 有新验证码
+                    data.new_codes.forEach(code => {
+                        verificationCodes.unshift(code);
+                        if (pushSettings.notify) {
+                            showToast(`📬 收到 ${code.service || '验证码'}: ${code.code}`);
+                        }
+                        if (pushSettings.toast) {
+                            showCodeToast(code);
+                        }
+                    });
+                    
+                    // 保留最近5条
+                    verificationCodes = verificationCodes.slice(0, 5);
+                    
+                    renderCodesList();
+                    updateNotifyBadge();
+                    if (pushSettings.badge) updateCardBadges();
+                }
+            }
+        } catch (err) {
+            console.error('轮询验证码失败:', err);
+        }
+    }, 30000);
+}
+
+function stopEmailPolling() {
+    if (emailPollingInterval) {
+        clearInterval(emailPollingInterval);
+        emailPollingInterval = null;
+    }
+}
+
+// === 更多菜单 (PC端和移动端) ===
+function toggleMoreMenu() {
+    const isMobile = window.innerWidth <= 768;
+    
+    if (isMobile) {
+        // 移动端：显示底部面板
+        const overlay = document.getElementById('mobileMenuOverlay');
+        const panel = document.getElementById('mobileMenuPanel');
+        overlay?.classList.toggle('show');
+        panel?.classList.toggle('show');
+    } else {
+        // PC端：显示下拉菜单
+        const menu = document.getElementById('moreMenu');
+        menu?.classList.toggle('show');
+    }
+}
+
+function closeMoreMenu() {
+    // 关闭PC端菜单
+    document.getElementById('moreMenu')?.classList.remove('show');
+    // 关闭移动端面板
+    document.getElementById('mobileMenuOverlay')?.classList.remove('show');
+    document.getElementById('mobileMenuPanel')?.classList.remove('show');
+}
+
+// === 移动端搜索框切换 ===
+function toggleMobileSearch() {
+    const searchBar = document.getElementById('mobileSearchBar');
+    const searchInput = document.getElementById('mobileSearchInput');
+    
+    if (searchBar) {
+        searchBar.classList.toggle('show');
+        if (searchBar.classList.contains('show')) {
+            searchInput?.focus();
+        } else {
+            // 关闭时清空搜索
+            if (searchInput) searchInput.value = '';
+            filterAccounts();
+        }
+    }
+}
+
+// === 通知面板切换 ===
+function toggleNotificationPanel(e) {
+    e?.stopPropagation();
+    const panel = document.getElementById('notificationPanel');
+    if (!panel) return;
+    
+    // 先关闭其他面板
+    document.getElementById('mobileMenuPanel')?.classList.remove('show');
+    document.getElementById('mobileMenuOverlay')?.classList.remove('show');
+    document.getElementById('mobileSearchBar')?.classList.remove('show');
+    document.getElementById('moreMenu')?.classList.remove('show');
+    
+    panel.classList.toggle('show');
+    
+    if (panel.classList.contains('show')) {
+        setTimeout(() => {
+            document.addEventListener('click', closeNotificationPanelOnClickOutside);
+        }, 10);
+    } else {
+        document.removeEventListener('click', closeNotificationPanelOnClickOutside);
+    }
+}
+
+// 手机端和PC端共用同一个函数
+function toggleMobileNotificationPanel(e) {
+    toggleNotificationPanel(e);
+}
+
+function closeNotificationPanelOnClickOutside(e) {
+    const panel = document.getElementById('notificationPanel');
+    const btn = document.getElementById('notifyBtn');
+    const mobileBtn = document.getElementById('mobileNotifyBtn');
+    
+    if (panel && !panel.contains(e.target) && !btn?.contains(e.target) && !mobileBtn?.contains(e.target)) {
+        panel.classList.remove('show');
+        document.removeEventListener('click', closeNotificationPanelOnClickOutside);
+    }
+}
+
+// === 邮箱授权管理模态框 ===
+function openEmailManager() {
+    const modal = document.getElementById('emailManagerModal');
+    if (modal) {
+        modal.classList.add('show');
+        renderAuthorizedEmails();
+        renderPendingEmails();
+    } else {
+        showToast('📬 邮箱授权功能即将上线', false);
+    }
+}
+
+function closeEmailManager() {
+    document.getElementById('emailManagerModal')?.classList.remove('show');
+}
+
+function openAddEmailModal() {
+    document.getElementById('addEmailModal')?.classList.add('show');
+    // 重置状态：收起所有面板，清空输入
+    document.querySelectorAll('.provider-item').forEach(item => {
+        item.classList.remove('expanded');
+    });
+    // 清空所有输入框
+    ['gmailClientId', 'gmailClientSecret', 'outlookClientId', 'outlookClientSecret',
+     'qqEmail', 'qqPassword', 'imapEmail', 'imapServer', 'imapPassword'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+    const imapPort = document.getElementById('imapPort');
+    if (imapPort) imapPort.value = '993';
+    
+    // 异步检查OAuth配置状态
+    checkAndUpdateOAuthStatus();
+}
+
+// 检查OAuth配置状态并更新UI
+async function checkAndUpdateOAuthStatus() {
+    for (const provider of ['gmail', 'outlook']) {
+        const configDiv = document.getElementById(`${provider}OauthConfig`);
+        if (!configDiv) continue;
+        
+        try {
+            const status = await checkOAuthConfig(provider);
+            if (status.configured) {
+                configDiv.innerHTML = `
+                    <div class="oauth-configured-hint">
+                        <span class="configured-icon">✅</span>
+                        <span>OAuth 凭证已配置</span>
+                        <button class="btn-reconfigure" onclick="showOAuthInputs('${provider}')">重新配置</button>
+                    </div>
+                `;
+            }
+        } catch (e) {}
+    }
+}
+
+// 显示OAuth输入框（重新配置时）
+function showOAuthInputs(provider) {
+    const configDiv = document.getElementById(`${provider}OauthConfig`);
+    if (!configDiv) return;
+    
+    const placeholderText = provider === 'gmail' 
+        ? '从 Google Cloud Console 获取' 
+        : '从 Azure Portal 获取';
+    
+    configDiv.innerHTML = `
+        <div class="form-group">
+            <label class="form-label">Client ID</label>
+            <input type="text" class="form-input" id="${provider}ClientId" placeholder="${placeholderText}">
+        </div>
+        <div class="form-group">
+            <label class="form-label">Client Secret</label>
+            <input type="password" class="form-input" id="${provider}ClientSecret" placeholder="${placeholderText}">
+        </div>
+        <div class="oauth-help-link">
+            <a href="${provider === 'gmail' ? 'https://console.cloud.google.com/apis/credentials' : 'https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade'}" target="_blank">📖 如何获取 ${provider === 'gmail' ? 'Gmail' : 'Outlook'} OAuth 凭证？</a>
+        </div>
+    `;
+}
+
+function closeAddEmailModal() {
+    document.getElementById('addEmailModal')?.classList.remove('show');
+}
+
+// 切换展开/收起provider面板
+function toggleProviderPanel(provider) {
+    const item = document.querySelector(`.provider-item[data-provider="${provider}"]`);
+    if (!item) return;
+    
+    const isCurrentlyExpanded = item.classList.contains('expanded');
+    
+    // 收起所有面板
+    document.querySelectorAll('.provider-item').forEach(i => {
+        i.classList.remove('expanded');
+    });
+    
+    // 如果当前不是展开状态，则展开
+    if (!isCurrentlyExpanded) {
+        item.classList.add('expanded');
+    }
+}
+
+// 填充IMAP预设配置
+function fillImapPreset(preset) {
+    const serverInput = document.getElementById('imapServer');
+    const portInput = document.getElementById('imapPort');
+    
+    const presets = {
+        '163': { server: 'imap.163.com', port: 993 },
+        '126': { server: 'imap.126.com', port: 993 },
+        'sina': { server: 'imap.sina.com', port: 993 }
+    };
+    
+    if (presets[preset] && serverInput && portInput) {
+        serverInput.value = presets[preset].server;
+        portInput.value = presets[preset].port;
+    }
+}
+
+// 开始指定provider的授权
+async function startProviderAuth(provider) {
+    const btn = document.querySelector(`.provider-item[data-provider="${provider}"] .btn-provider-auth`);
+    if (!btn) return;
+    
+    const originalText = btn.textContent;
+    
+    try {
+        btn.disabled = true;
+        btn.textContent = '⏳ 处理中...';
+        
+        if (provider === 'gmail' || provider === 'outlook') {
+            const clientId = document.getElementById(`${provider}ClientId`)?.value.trim();
+            const clientSecret = document.getElementById(`${provider}ClientSecret`)?.value.trim();
+            
+            if (clientId && clientSecret) {
+                const saveRes = await apiRequest('/emails/oauth/config', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        provider: provider,
+                        client_id: clientId,
+                        client_secret: clientSecret
+                    })
+                });
+                
+                if (!saveRes.ok) {
+                    const errData = await saveRes.json();
+                    showToast('❌ 保存凭证失败: ' + (errData.detail || '未知错误'), true);
+                    return;
+                }
+                showToast('✅ OAuth 凭证已保存');
+            }
+            
+            const res = await apiRequest('/emails/oauth/start', {
+                method: 'POST',
+                body: JSON.stringify({ provider: provider })
+            });
+            
+            if (res.ok) {
+                const data = await res.json();
+                if (data.auth_url) {
+                    window.open(data.auth_url, 'oauth', 'width=600,height=700');
+                    showToast('🔗 请在弹出窗口中完成授权');
+                    
+                    const checkAuth = setInterval(async () => {
+                        try {
+                            const statusRes = await apiRequest('/emails/oauth/status?state=' + data.state);
+                            if (statusRes.ok) {
+                                const statusData = await statusRes.json();
+                                if (statusData.status === 'success') {
+                                    clearInterval(checkAuth);
+                                    showToast('✅ 授权成功！');
+                                    closeAddEmailModal();
+                                    loadEmailData();
+                                    renderAuthorizedEmails();
+                                } else if (statusData.status === 'error') {
+                                    clearInterval(checkAuth);
+                                    showToast('❌ 授权失败: ' + (statusData.message || '未知错误'), true);
+                                }
+                            }
+                        } catch (e) {}
+                    }, 2000);
+                    
+                    setTimeout(() => clearInterval(checkAuth), 30000);
+                } else {
+                    showToast('❌ 无法获取授权链接', true);
+                }
+            } else {
+                const errData = await res.json();
+                showToast('❌ ' + (errData.detail || '授权启动失败'), true);
+            }
+        } else if (provider === 'qq') {
+            const email = document.getElementById('qqEmail')?.value.trim();
+            const password = document.getElementById('qqPassword')?.value;
+            
+            if (!email || !password) {
+                showToast('请填写邮箱和授权码', true);
+                return;
+            }
+            
+            const res = await apiRequest('/emails/imap/add', {
+                method: 'POST',
+                body: JSON.stringify({ provider: 'qq', email: email, password: password })
+            });
+            
+            if (res.ok) {
+                showToast('✅ QQ邮箱添加成功！');
+                closeAddEmailModal();
+                loadEmailData();
+                renderAuthorizedEmails();
+            } else {
+                const errData = await res.json();
+                showToast('❌ ' + (errData.detail || '连接失败'), true);
+            }
+        } else if (provider === 'imap') {
+            const email = document.getElementById('imapEmail')?.value.trim();
+            const server = document.getElementById('imapServer')?.value.trim();
+            const port = parseInt(document.getElementById('imapPort')?.value) || 993;
+            const password = document.getElementById('imapPassword')?.value;
+            
+            if (!email || !server || !password) {
+                showToast('请填写完整的IMAP配置', true);
+                return;
+            }
+            
+            const res = await apiRequest('/emails/imap/add', {
+                method: 'POST',
+                body: JSON.stringify({ provider: 'imap', email, server, port, password })
+            });
+            
+            if (res.ok) {
+                showToast('✅ 邮箱添加成功！');
+                closeAddEmailModal();
+                loadEmailData();
+                renderAuthorizedEmails();
+            } else {
+                const errData = await res.json();
+                showToast('❌ ' + (errData.detail || '连接失败'), true);
+            }
+        }
+    } catch (e) {
+        console.error('邮箱授权错误:', e);
+        showToast('❌ 网络错误', true);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = originalText;
+    }
+}
+
+// 兼容旧版selectProvider调用
+async function selectProvider(provider) {
+    toggleProviderPanel(provider);
+}
+
+// 检查OAuth是否已配置
+async function checkOAuthConfig(provider) {
+    try {
+        const res = await apiRequest(`/emails/oauth/config-status?provider=${provider}`);
+        if (res.ok) {
+            return await res.json();
+        }
+    } catch (e) {}
+    return { configured: false };
+}
+
+// 开始邮箱授权
+async function startEmailAuth() {
+    const btnStartAuth = document.getElementById('btnStartAuth');
+    const originalText = btnStartAuth.textContent;
+    
+    try {
+        btnStartAuth.disabled = true;
+        btnStartAuth.textContent = '⏳ 处理中...';
+        
+        if (selectedProvider === 'gmail' || selectedProvider === 'outlook') {
+            // 检查是否需要先保存OAuth配置
+            const clientId = document.getElementById('oauthClientId')?.value.trim();
+            const clientSecret = document.getElementById('oauthClientSecret')?.value.trim();
+            
+            // 如果填写了凭证，先保存
+            if (clientId && clientSecret) {
+                const saveRes = await apiRequest('/emails/oauth/config', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        provider: selectedProvider,
+                        client_id: clientId,
+                        client_secret: clientSecret
+                    })
+                });
+                
+                if (!saveRes.ok) {
+                    const errData = await saveRes.json();
+                    showToast('❌ 保存凭证失败: ' + (errData.detail || '未知错误'), true);
+                    return;
+                }
+                
+                showToast('✅ OAuth 凭证已保存');
+            }
+            
+            // OAuth 授权流程
+            const res = await apiRequest('/emails/oauth/start', {
+                method: 'POST',
+                body: JSON.stringify({ provider: selectedProvider })
+            });
+            
+            if (res.ok) {
+                const data = await res.json();
+                if (data.auth_url) {
+                    // 打开授权窗口
+                    const authWindow = window.open(data.auth_url, 'oauth', 'width=600,height=700');
+                    
+                    showToast('🔗 请在弹出窗口中完成授权');
+                    
+                    // 轮询检查授权结果
+                    const checkAuth = setInterval(async () => {
+                        try {
+                            const statusRes = await apiRequest('/emails/oauth/status?state=' + data.state);
+                            if (statusRes.ok) {
+                                const statusData = await statusRes.json();
+                                if (statusData.status === 'success') {
+                                    clearInterval(checkAuth);
+                                    showToast('✅ 授权成功！');
+                                    closeAddEmailModal();
+                                    loadEmailData();
+                                    renderAuthorizedEmails();
+                                } else if (statusData.status === 'error') {
+                                    clearInterval(checkAuth);
+                                    showToast('❌ 授权失败: ' + (statusData.message || '未知错误'), true);
+                                }
+                            }
+                        } catch (e) {
+                            // 静默重试
+                        }
+                    }, 2000);
+                    
+                    // 30秒后停止检查
+                    setTimeout(() => clearInterval(checkAuth), 30000);
+                } else {
+                    showToast('❌ 无法获取授权链接', true);
+                }
+            } else {
+                const errData = await res.json();
+                showToast('❌ ' + (errData.detail || '授权启动失败'), true);
+            }
+        } else {
+            // IMAP 验证流程
+            const email = document.getElementById('imapEmail').value.trim();
+            const password = document.getElementById('imapPassword').value;
+            
+            if (!email || !password) {
+                showToast('请填写邮箱和授权码', true);
+                return;
+            }
+            
+            const config = {
+                provider: selectedProvider,
+                email: email,
+                password: password
+            };
+            
+            if (selectedProvider === 'imap') {
+                config.server = document.getElementById('imapServer').value.trim();
+                config.port = parseInt(document.getElementById('imapPort').value) || 993;
+                
+                if (!config.server) {
+                    showToast('请填写 IMAP 服务器地址', true);
+                    return;
+                }
+            }
+            
+            const res = await apiRequest('/emails/imap/add', {
+                method: 'POST',
+                body: JSON.stringify(config)
+            });
+            
+            if (res.ok) {
+                showToast('✅ 邮箱添加成功！');
+                closeAddEmailModal();
+                loadEmailData();
+                renderAuthorizedEmails();
+            } else {
+                const errData = await res.json();
+                showToast('❌ ' + (errData.detail || '连接失败，请检查配置'), true);
+            }
+        }
+    } catch (e) {
+        console.error('邮箱授权错误:', e);
+        showToast('❌ 网络错误', true);
+    } finally {
+        btnStartAuth.disabled = false;
+        btnStartAuth.textContent = originalText;
+    }
+}
+
+// 从待授权列表授权邮箱
+function authorizeEmail(email) {
+    // 自动填充邮箱地址并打开授权模态框
+    openAddEmailModal();
+    
+    // 根据邮箱后缀自动展开对应面板
+    setTimeout(() => {
+        if (email.endsWith('@gmail.com')) {
+            toggleProviderPanel('gmail');
+        } else if (email.endsWith('@outlook.com') || email.endsWith('@hotmail.com') || email.endsWith('@live.com')) {
+            toggleProviderPanel('outlook');
+        } else if (email.endsWith('@qq.com')) {
+            toggleProviderPanel('qq');
+            const qqEmail = document.getElementById('qqEmail');
+            if (qqEmail) qqEmail.value = email;
+        } else {
+            toggleProviderPanel('imap');
+            const imapEmail = document.getElementById('imapEmail');
+            if (imapEmail) imapEmail.value = email;
+        }
+    }, 100);
+}
+
+function togglePushSettingsPopup(event) {
+    event?.stopPropagation();
+    const popup = document.getElementById('pushSettingsPopup');
+    if (popup) {
+        popup.classList.toggle('show');
+        
+        // 点击外部关闭
+        if (popup.classList.contains('show')) {
+            setTimeout(() => {
+                document.addEventListener('click', closePushSettingsOnClickOutside);
+            }, 0);
+        }
+    }
+}
+
+function closePushSettingsOnClickOutside(e) {
+    const popup = document.getElementById('pushSettingsPopup');
+    const btn = document.querySelector('.btn-push-settings');
+    if (popup && !popup.contains(e.target) && !btn?.contains(e.target)) {
+        popup.classList.remove('show');
+        document.removeEventListener('click', closePushSettingsOnClickOutside);
+    }
+}
+
+function renderAuthorizedEmails() {
+    const container = document.getElementById('authorizedEmailsList');
+    if (!container) return;
+    
+    if (authorizedEmails.length === 0) {
+        container.innerHTML = '<div class="emails-empty">暂无已授权邮箱</div>';
+        return;
+    }
+    
+    container.innerHTML = authorizedEmails.map(email => `
+        <div class="email-item">
+            <div class="email-item-icon ${email.provider || 'imap'}">📧</div>
+            <div class="email-item-info">
+                <div class="email-item-address">${escapeHtml(email.address)}</div>
+                <div class="email-item-status">
+                    <span class="dot ${email.status || 'active'}"></span>
+                    ${email.status === 'error' ? '连接失败' : '已连接'}
+                </div>
+            </div>
+            <div class="email-item-actions">
+                <button class="btn-email-action danger" onclick="removeEmail('${email.id}')">移除</button>
+            </div>
+        </div>
+    `).join('');
+}
+
+function renderPendingEmails() {
+    const container = document.getElementById('pendingEmailsList');
+    if (!container) return;
+    
+    if (pendingEmails.length === 0) {
+        container.innerHTML = '<div class="emails-empty">暂无待授权邮箱</div>';
+        return;
+    }
+    
+    container.innerHTML = pendingEmails.map(email => `
+        <div class="email-item">
+            <div class="email-item-icon">📨</div>
+            <div class="email-item-info">
+                <div class="email-item-address">${escapeHtml(email)}</div>
+                <div class="email-item-status">
+                    <span class="dot pending"></span>
+                    待授权
+                </div>
+            </div>
+            <div class="email-item-actions">
+                <button class="btn-email-auth" onclick="authorizeEmail('${escapeHtml(email)}')">授权</button>
+            </div>
+        </div>
+    `).join('');
+}
+
+// 点击外部关闭更多菜单
+document.addEventListener('click', (e) => {
+    const moreBtn = document.getElementById('moreBtn');
+    const moreMenu = document.getElementById('moreMenu');
+    if (moreMenu?.classList.contains('show') && 
+        !moreBtn?.contains(e.target) && 
+        !moreMenu?.contains(e.target)) {
+        closeMoreMenu();
+    }
+});
+
+// === 邮箱数据加载 ===
+async function loadEmailData() {
+    try {
+        const res = await apiRequest('/emails');
+        if (res.ok) {
+            const data = await res.json();
+            authorizedEmails = data.authorized || [];
+            pendingEmails = data.pending || [];
+            
+            // 更新邮箱计数提示
+            const countHint = document.getElementById('emailCountHint');
+            const mobileCountHint = document.getElementById('mobileEmailBadge');
+            
+            if (authorizedEmails.length > 0) {
+                if (countHint) countHint.textContent = `${authorizedEmails.length} 个`;
+                if (mobileCountHint) {
+                    mobileCountHint.textContent = authorizedEmails.length;
+                    mobileCountHint.style.display = 'inline-flex';
+                }
+            } else {
+                if (countHint) countHint.textContent = '未启用';
+                if (mobileCountHint) mobileCountHint.style.display = 'none';
+            }
+        }
+    } catch (err) {
+        console.log('邮箱数据加载失败（可能未启用此功能）:', err.message);
+        // 静默失败，功能未启用时不显示错误
+    }
+}
+
+async function loadVerificationCodes() {
+    try {
+        const res = await apiRequest('/emails/codes');
+        if (res.ok) {
+            const data = await res.json();
+            verificationCodes = data.codes || [];
+            renderCodesList();
+            updateNotifyBadge();
+            if (pushSettings.badge) updateCardBadges();
+        }
+    } catch (err) {
+        console.log('验证码加载失败（可能未启用此功能）:', err.message);
+        // 静默失败
+    }
+}
+
+function renderCodesList() {
+    const container = document.getElementById('codesPanelBody');
+    if (!container) return;
+    
+    if (verificationCodes.length === 0) {
+        container.innerHTML = '<div class="codes-empty">暂无验证码</div>';
+        return;
+    }
+    
+    const html = verificationCodes.map(code => {
+        const isExpired = code.expires_at && new Date(code.expires_at) < new Date();
+        const remaining = code.expires_at ? Math.max(0, Math.floor((new Date(code.expires_at) - new Date()) / 1000)) : 300;
+        const timerClass = remaining < 60 ? 'danger' : remaining < 180 ? 'warning' : '';
+        const timerText = `${Math.floor(remaining / 60)}:${(remaining % 60).toString().padStart(2, '0')}`;
+        
+        return `
+            <div class="code-item ${isExpired ? 'expired' : ''} ${code.is_read ? '' : 'unread'}" onclick="copyCode('${escapeHtml(code.code)}')">
+                <div class="code-item-header">
+                    <span class="code-service">${escapeHtml(code.service || '验证码')}</span>
+                    <span class="code-timer ${timerClass}">${isExpired ? '已过期' : timerText}</span>
+                </div>
+                <div class="code-value">${escapeHtml(code.code)}</div>
+                <div class="code-account">${escapeHtml(code.account_name || code.email || '')}</div>
+            </div>
+        `;
+    }).join('');
+    
+    container.innerHTML = html;
+}
+
+// === 初始化 ===
+// 在用户登录后调用
+function initEmailFeature() {
+    loadEmailData();
+    loadVerificationCodes();
+    startEmailPolling();
+}
+
+// 页面卸载时停止轮询
+window.addEventListener('beforeunload', stopEmailPolling);
