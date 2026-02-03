@@ -30,6 +30,7 @@ let emailPollingInterval = null; // 邮箱轮询定时器
 let isPageVisible = true;
 let pollingIntervalActive = 10000; // 活跃时10秒轮询
 let pollingIntervalInactive = 120000; // 非活跃时2分钟轮询
+let pollingStartTime = null; // 轮询启动时间，只检测此时间之后的邮件
 
 // ==================== 补丁：核心 API 请求函数 ====================
 async function apiRequest(endpoint, options = {}) {
@@ -2383,28 +2384,13 @@ async function doImport() {
 async function exportData() {
     // 询问是否包含邮箱配置
     const includeEmails = authorizedEmails.length > 0 ? confirm(
-        '📬 检测到已授权邮箱\n\n' +
-        '是否将邮箱配置一并导出？\n\n' +
-        '✅ 导出内容：\n' +
-        '• OAuth应用凭证（Client ID/Secret）\n' +
-        '• 待授权邮箱列表\n\n' +
-        '🔒 安全说明：\n' +
-        '• 不会导出邮箱访问令牌\n' +
-        '• 导入后需要重新授权每个邮箱\n' +
-        '• 即使文件泄露也无法直接访问邮箱\n\n' +
-        '点击「确定」导出配置，点击「取消」仅导出账号'
+        '检测到已授权邮箱，是否将邮箱配置一并导出？\n\n' +
+        '导出：OAuth凭证 + 待授权邮箱列表\n' +
+        '不导出邮箱访问令牌，导入后需重新授权'
     ) : false;
     
     // 安全提醒
-    let warningMsg = '⚠️ 安全提醒\n\n导出的 JSON 文件中账号密码是【明文】存储的！\n\n请注意：\n• 妥善保管导出文件，不要分享给他人\n• 使用后建议删除本地文件\n• 如需安全备份，请使用「数据备份」功能';
-    
-    if (includeEmails) {
-        warningMsg += '\n\n📬 邮箱配置说明：\n本次导出包含OAuth应用凭证，导入新环境后：\n• 会自动配置好OAuth凭证\n• 需要逐个重新授权邮箱\n• 点击授权按钮选择账号即可';
-    }
-    
-    warningMsg += '\n\n确定要导出吗？';
-    
-    if (!confirm(warningMsg)) {
+    if (!confirm('⚠️ 导出文件中账号密码为明文，请妥善保管。确定导出？')) {
         return;
     }
     
@@ -4607,7 +4593,10 @@ async function checkNewEmails() {
     if (authorizedEmails.length === 0) return;
     
     try {
-        const res = await apiRequest('/emails/refresh', { method: 'POST' });
+        const res = await apiRequest('/emails/refresh', { 
+            method: 'POST',
+            body: JSON.stringify({ since: pollingStartTime })
+        });
         if (res.ok) {
             const data = await res.json();
             if (data.new_codes && data.new_codes.length > 0) {
@@ -4625,7 +4614,7 @@ async function checkNewEmails() {
                         if (!exists) {
                             verificationCodes.unshift(code);
                             if (pushSettings.notify) {
-                                showToast(`📬 收到 ${code.service || '验证码'}: ${code.code}`);
+                                showToast(`📬 ${code.service || '验证码'}: ${code.code}`);
                             }
                             if (pushSettings.toast) {
                                 showCodeToast(code);
@@ -4643,7 +4632,7 @@ async function checkNewEmails() {
             }
         }
     } catch (err) {
-        console.error('轮询验证码失败:', err);
+        // 静默失败
     }
 }
 
@@ -4666,9 +4655,13 @@ function cleanExpiredCodes() {
 function startEmailPolling() {
     if (emailPollingInterval) clearInterval(emailPollingInterval);
     
+    // 记录轮询启动时间，只检测此时间之后的邮件
+    if (!pollingStartTime) {
+        pollingStartTime = Date.now();
+    }
+    
     // 根据页面可见性选择轮询间隔
     const interval = isPageVisible ? pollingIntervalActive : pollingIntervalInactive;
-    console.log(`邮件轮询启动，间隔: ${interval / 1000}秒`);
     
     // 立即执行一次
     if (isPageVisible) {

@@ -5803,10 +5803,8 @@ html:not([data-theme="light"]) .toast-code {
 .search-box-inline {
     display: none;
     position: relative;
-    flex: 0 0 auto;
-    width: 100px; /* 约8个字符宽度 */
-    min-width: 80px;
-    max-width: 120px;
+    width: 100px;
+    flex-shrink: 0;
 }
 
 .search-box-inline .search-icon {
@@ -5829,12 +5827,11 @@ html:not([data-theme="light"]) .toast-code {
     color: var(--text-primary);
     font-size: 0.8rem;
     outline: none;
-    transition: all 0.15s;
+    transition: border-color 0.15s;
 }
 
 .search-box-inline input:focus {
     border-color: var(--accent);
-    width: 140px; /* 聚焦时稍微展开 */
 }
 
 .search-box-inline input::placeholder {

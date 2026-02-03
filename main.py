@@ -2707,10 +2707,15 @@ def extract_verification_code(text: str) -> tuple:
     return None, None
 
 @app.post("/api/emails/refresh")
-def refresh_emails(user: dict = Depends(get_current_user)):
+def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
     """刷新邮箱，获取最新验证码"""
     user_id = user['id']
     new_codes = []
+    
+    # 获取客户端传来的启动时间戳（只检测此时间之后的邮件）
+    since_timestamp = None
+    if data and data.get('since'):
+        since_timestamp = data.get('since')
     
     with get_db() as conn:
         # 获取已授权的邮箱
@@ -2736,12 +2741,17 @@ def refresh_emails(user: dict = Depends(get_current_user)):
                 if not access_token:
                     continue
                 
-                # 获取最近的邮件（最近10封，5分钟内的）
                 import urllib.request
                 import urllib.error
                 
-                # 搜索最近5分钟内的邮件（扩大搜索范围，提高检测率）
-                query = "newer_than:5m"
+                # 使用时间戳查询（如果有），否则只查最近2分钟
+                if since_timestamp:
+                    # 转换为秒级时间戳
+                    since_sec = int(since_timestamp / 1000) if since_timestamp > 9999999999 else since_timestamp
+                    query = f"after:{since_sec}"
+                else:
+                    query = "newer_than:2m"
+                
                 list_url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages?q={urllib.parse.quote(query)}&maxResults=10"
                 
                 req = urllib.request.Request(list_url)
