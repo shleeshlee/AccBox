@@ -1839,6 +1839,7 @@ function renderTagsBox() {
     <form action="javascript:void(0)" onsubmit="handleTagSubmit(event)" style="display:contents">
         <input type="text" class="tag-input" id="accTagInput" 
                placeholder="回车添加" autocomplete="off" data-lpignore="true" data-form-type="other"
+               onkeydown="handleTagInput(event)"
                oninput="renderTagSuggestions(this.value)"
                onfocus="renderTagSuggestions(this.value)">
         <input type="submit" style="display:none"/> 
