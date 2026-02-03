@@ -2768,10 +2768,50 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                         messages_data = json.loads(resp.read().decode())
                 except urllib.error.HTTPError as e:
                     if e.code == 401:
-                        # Token 过期，需要刷新
-                        # TODO: 实现 token 刷新
+                        # Token 过期，尝试刷新
+                        refresh_token = creds.get('refresh_token')
+                        if refresh_token:
+                            try:
+                                client_id = os.environ.get('GOOGLE_CLIENT_ID')
+                                client_secret = os.environ.get('GOOGLE_CLIENT_SECRET')
+                                if client_id and client_secret:
+                                    refresh_data = urllib.parse.urlencode({
+                                        'client_id': client_id,
+                                        'client_secret': client_secret,
+                                        'refresh_token': refresh_token,
+                                        'grant_type': 'refresh_token'
+                                    }).encode()
+                                    refresh_req = urllib.request.Request(
+                                        'https://oauth2.googleapis.com/token',
+                                        data=refresh_data,
+                                        method='POST'
+                                    )
+                                    with urllib.request.urlopen(refresh_req, timeout=10) as refresh_resp:
+                                        new_tokens = json.loads(refresh_resp.read().decode())
+                                        new_access_token = new_tokens.get('access_token')
+                                        if new_access_token:
+                                            # 更新凭证
+                                            creds['access_token'] = new_access_token
+                                            encrypted_new_creds = encrypt_password(json.dumps(creds))
+                                            conn.execute(f"UPDATE user_{user_id}_emails SET credentials = ? WHERE id = ?", 
+                                                        (encrypted_new_creds, email_row['id']))
+                                            conn.commit()
+                                            access_token = new_access_token
+                                            # 重试请求
+                                            req = urllib.request.Request(list_url)
+                                            req.add_header('Authorization', f'Bearer {access_token}')
+                                            with urllib.request.urlopen(req, timeout=10) as resp:
+                                                messages_data = json.loads(resp.read().decode())
+                                        else:
+                                            continue
+                                else:
+                                    continue
+                            except Exception as refresh_err:
+                                continue
+                        else:
+                            continue
+                    else:
                         continue
-                    continue
                 
                 messages = messages_data.get('messages', [])
                 
