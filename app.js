@@ -2385,12 +2385,12 @@ async function exportData() {
     // 询问是否包含邮箱配置
     const includeEmails = authorizedEmails.length > 0 ? confirm(
         '检测到已授权邮箱，是否将邮箱配置一并导出？\n\n' +
-        '导出：OAuth凭证 + 待授权邮箱列表\n' +
-        '不导出邮箱访问令牌，导入后需重新授权'
+        '将导出 OAuth凭证 和 待授权邮箱列表\n' +
+        '不含访问令牌，导入后需重新授权各邮箱'
     ) : false;
     
     // 安全提醒
-    if (!confirm('⚠️ 导出文件中账号密码为明文，请妥善保管。确定导出？')) {
+    if (!confirm('⚠️ 安全提醒\n\n导出文件中密码为明文存储！\n请妥善保管，不要分享给他人。\n\n确定导出？')) {
         return;
     }
     
