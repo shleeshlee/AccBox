@@ -7,30 +7,55 @@
 
 set -e
 
-echo ""
-echo "╔════════════════════════════════════════╗"
-echo "║     AccBox 账号管家 - 安全更新         ║"
-echo "╚════════════════════════════════════════╝"
-echo ""
-
 # 颜色定义
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-# 忽略文件权限变化（防止 chmod 导致的冲突）
-git config core.fileMode false
+# 检测 docker compose 命令（新版Docker用 "docker compose"，旧版用 "docker-compose"）
+detect_compose_cmd() {
+    if docker compose version &> /dev/null 2>&1; then
+        echo "docker compose"
+    elif command -v docker-compose &> /dev/null 2>&1; then
+        echo "docker-compose"
+    else
+        echo ""
+    fi
+}
 
-# 检测 docker-compose 命令
-if command -v docker-compose &> /dev/null; then
-    COMPOSE_CMD="docker-compose"
-elif docker compose version &> /dev/null; then
-    COMPOSE_CMD="docker compose"
-else
-    echo -e "${RED}  ✗ 未检测到 Docker Compose${NC}"
-    exit 1
+# 如果是被自己调用的（第二阶段），直接执行重启
+if [ "$1" = "--restart-only" ]; then
+    echo ""
+    echo -e "${YELLOW}[4/4] 重启服务...${NC}"
+    
+    COMPOSE_CMD=$(detect_compose_cmd)
+    if [ -z "$COMPOSE_CMD" ]; then
+        echo -e "${RED}  ✗ 未检测到 Docker Compose${NC}"
+        exit 1
+    fi
+    
+    $COMPOSE_CMD down
+    $COMPOSE_CMD up -d --build
+    
+    echo ""
+    echo -e "${GREEN}╔════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║           更新完成！                   ║${NC}"
+    echo -e "${GREEN}╚════════════════════════════════════════╝${NC}"
+    echo ""
+    exit 0
 fi
+
+# ========== 第一阶段：备份和拉取 ==========
+
+echo ""
+echo "╔════════════════════════════════════════╗"
+echo "║     AccBox 账号管家 - 安全更新         ║"
+echo "╚════════════════════════════════════════╝"
+echo ""
+
+# 忽略文件权限变化
+git config core.fileMode false
 
 # 1. 获取当前时间戳
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
@@ -38,6 +63,7 @@ TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 # 2. 备份配置文件
 echo -e "${YELLOW}[1/4] 备份配置文件...${NC}"
 
+BACKUP_FILE=""
 if [ -f "docker-compose.yml" ]; then
     BACKUP_FILE="docker-compose.yml.bak.${TIMESTAMP}"
     cp docker-compose.yml "$BACKUP_FILE"
@@ -84,18 +110,5 @@ else
     echo -e "${GREEN}  ✓ .env 配置文件存在${NC}"
 fi
 
-# 5. 重启服务
-echo ""
-echo -e "${YELLOW}[4/4] 重启服务...${NC}"
-
-$COMPOSE_CMD down
-$COMPOSE_CMD up -d --build
-
-echo ""
-echo -e "${GREEN}╔════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║           更新完成！                   ║${NC}"
-echo -e "${GREEN}╚════════════════════════════════════════╝${NC}"
-echo ""
-echo "备份文件保存在当前目录，如需恢复可使用："
-echo "  cp ${BACKUP_FILE} docker-compose.yml"
-echo ""
+# 5. 用新版脚本执行重启（关键：git pull后脚本已更新，重新执行确保用新版）
+exec bash "./update.sh" --restart-only
