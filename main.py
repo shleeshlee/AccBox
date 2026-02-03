@@ -473,6 +473,15 @@ def init_user_tables(user_id: int):
             )
         """)
         
+        # 待授权邮箱表（从账号辅助邮箱收集）
+        conn.execute(f"""
+            CREATE TABLE IF NOT EXISTS user_{user_id}_pending_emails (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT NOT NULL UNIQUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
         # 验证码表
         conn.execute(f"""
             CREATE TABLE IF NOT EXISTS user_{user_id}_verification_codes (
@@ -1095,7 +1104,7 @@ def batch_delete_accounts(data: dict, user: dict = Depends(get_current_user)):
 # ==================== 导入导出 API ====================
 
 @app.get("/api/export")
-def export_data(user: dict = Depends(get_current_user)):
+def export_data(include_emails: bool = False, user: dict = Depends(get_current_user)):
     with get_db() as conn:
         types_cursor = conn.execute(f"SELECT * FROM user_{user['id']}_account_types ORDER BY sort_order")
         types = [dict(row) for row in types_cursor.fetchall()]
@@ -1121,6 +1130,7 @@ def export_data(user: dict = Depends(get_current_user)):
                 "combos": json.loads(row["combos"] if "combos" in row.keys() and row["combos"] else "[]"),
                 "tags": json.loads(row["tags"] or "[]"),
                 "notes": row["notes"] or "",
+                "backup_email": row["backup_email"] if "backup_email" in row.keys() else "",
                 "is_favorite": bool(row["is_favorite"]),
                 "created_at": row["created_at"]
             }
@@ -1135,15 +1145,59 @@ def export_data(user: dict = Depends(get_current_user)):
                     "backup_codes": json.loads(row["backup_codes"] or "[]"),
                 }
             accounts.append(account_data)
+        
+        # 导出邮箱相关配置（如果请求）
+        oauth_configs = []
+        pending_emails = []
+        email_addresses = []  # 已授权邮箱地址列表（用于在新环境提示需要重新授权）
+        
+        if include_emails:
+            # 导出 OAuth 应用凭证（Client ID/Secret），而非 access_token
+            # 这样更安全：即使文件泄露，攻击者也无法直接访问邮箱
+            try:
+                oauth_cursor = conn.execute("SELECT provider, client_id, client_secret FROM oauth_configs")
+                for row in oauth_cursor.fetchall():
+                    oauth_configs.append({
+                        "provider": row["provider"],
+                        "client_id": row["client_id"],
+                        "client_secret": decrypt_password(row["client_secret"])
+                    })
+            except:
+                pass
+            
+            # 获取已授权邮箱地址（仅地址，不含token，用于提示用户重新授权）
+            try:
+                emails_cursor = conn.execute(f"SELECT address, provider FROM user_{user['id']}_emails WHERE status = 'active'")
+                for row in emails_cursor.fetchall():
+                    email_addresses.append({
+                        "address": row["address"],
+                        "provider": row["provider"]
+                    })
+            except:
+                pass
+            
+            # 获取待授权邮箱
+            try:
+                pending_cursor = conn.execute(f"SELECT email FROM user_{user['id']}_pending_emails")
+                pending_emails = [row["email"] for row in pending_cursor.fetchall()]
+            except:
+                pass
     
-    return {
-        "version": "5.1",
+    result = {
+        "version": "5.1.4",
         "exported_at": datetime.now().isoformat(),
         "user": user["username"],
         "account_types": types,
         "property_groups": groups,
         "accounts": accounts
     }
+    
+    if include_emails:
+        result["oauth_configs"] = oauth_configs  # OAuth应用凭证
+        result["email_addresses"] = email_addresses  # 已授权邮箱地址（需重新授权）
+        result["pending_emails"] = pending_emails  # 待授权邮箱
+    
+    return result
 
 @app.post("/api/import")
 def import_data(data: dict, user: dict = Depends(get_current_user)):
@@ -1297,16 +1351,75 @@ def import_data(data: dict, user: dict = Depends(get_current_user)):
             
             imported_accounts += 1
         
+        # 导入 OAuth 应用凭证（Client ID/Secret）
+        imported_oauth = 0
+        if "oauth_configs" in data and data["oauth_configs"]:
+            for config in data["oauth_configs"]:
+                provider = config.get("provider")
+                client_id = config.get("client_id")
+                client_secret = config.get("client_secret")
+                
+                if not provider or not client_id or not client_secret:
+                    continue
+                
+                try:
+                    encrypted_secret = encrypt_password(client_secret)
+                    conn.execute("""
+                        INSERT OR REPLACE INTO oauth_configs (provider, client_id, client_secret)
+                        VALUES (?, ?, ?)
+                    """, (provider, client_id, encrypted_secret))
+                    imported_oauth += 1
+                except Exception as e:
+                    print(f"导入OAuth凭证 {provider} 失败: {e}")
+        
+        # 导入待授权邮箱（包括之前已授权但需要重新授权的）
+        imported_pending = 0
+        
+        # 从 email_addresses 添加到待授权（这些是之前授权过的，需要重新授权）
+        if "email_addresses" in data and data["email_addresses"]:
+            for email_info in data["email_addresses"]:
+                email = email_info.get("address") if isinstance(email_info, dict) else email_info
+                if email:
+                    try:
+                        conn.execute(f"""
+                            INSERT OR IGNORE INTO user_{user['id']}_pending_emails (email)
+                            VALUES (?)
+                        """, (email,))
+                        imported_pending += 1
+                    except:
+                        pass
+        
+        # 从 pending_emails 添加
+        if "pending_emails" in data and data["pending_emails"]:
+            for email in data["pending_emails"]:
+                if email:
+                    try:
+                        conn.execute(f"""
+                            INSERT OR IGNORE INTO user_{user['id']}_pending_emails (email)
+                            VALUES (?)
+                        """, (email,))
+                        imported_pending += 1
+                    except:
+                        pass
+        
         conn.commit()
     
+    result_msg = f"导入完成：{imported_accounts} 新增, {updated_accounts} 更新, {skipped_accounts} 跳过"
+    if imported_oauth > 0:
+        result_msg += f", {imported_oauth} 个OAuth配置"
+    if imported_pending > 0:
+        result_msg += f", {imported_pending} 个待授权邮箱"
+    
     return {
-        "message": f"导入完成：{imported_accounts} 新增, {updated_accounts} 更新, {skipped_accounts} 跳过",
+        "message": result_msg,
         "imported_types": imported_types,
         "imported_groups": imported_groups,
         "imported_values": imported_values,
         "imported": imported_accounts,
         "updated": updated_accounts,
-        "skipped": skipped_accounts
+        "skipped": skipped_accounts,
+        "imported_oauth": imported_oauth,
+        "imported_pending": imported_pending
     }
 
 @app.post("/api/import-csv")
@@ -1951,19 +2064,61 @@ def get_emails(user: dict = Depends(get_current_user)):
         except:
             authorized = []
         
-        # 获取待授权邮箱（从账号的辅助邮箱字段收集，排除已授权的）
-        pending = []
+        # 获取待授权邮箱（从pending_emails表 + 账号的辅助邮箱字段收集，排除已授权的）
+        pending_set = set()
+        authorized_addresses = {e["address"].lower() for e in authorized}
+        
+        # 从pending_emails表获取
+        try:
+            cursor = conn.execute(f"SELECT email FROM user_{user_id}_pending_emails")
+            for row in cursor.fetchall():
+                email = row["email"]
+                if email and email.lower() not in authorized_addresses:
+                    pending_set.add(email)
+        except:
+            pass
+        
+        # 从账号的辅助邮箱字段获取
         try:
             cursor = conn.execute(f"SELECT DISTINCT backup_email FROM user_{user_id}_accounts WHERE backup_email IS NOT NULL AND backup_email != ''")
-            authorized_addresses = {e["address"] for e in authorized}
             for row in cursor.fetchall():
                 email = row["backup_email"]
-                if email and email not in authorized_addresses:
-                    pending.append(email)
+                if email and email.lower() not in authorized_addresses:
+                    pending_set.add(email)
         except:
             pass  # backup_email字段可能不存在
+        
+        pending = list(pending_set)
     
     return {"authorized": authorized, "pending": pending}
+
+@app.post("/api/emails/pending")
+def sync_pending_emails(data: dict, user: dict = Depends(get_current_user)):
+    """同步待授权邮箱列表"""
+    user_id = user['id']
+    emails = data.get("emails", [])
+    
+    with get_db() as conn:
+        # 获取已授权邮箱地址
+        try:
+            cursor = conn.execute(f"SELECT address FROM user_{user_id}_emails")
+            authorized_addresses = {row["address"].lower() for row in cursor.fetchall()}
+        except:
+            authorized_addresses = set()
+        
+        # 添加未授权的邮箱到pending_emails表
+        added = 0
+        for email in emails:
+            if email and email.lower() not in authorized_addresses:
+                try:
+                    conn.execute(f"INSERT OR IGNORE INTO user_{user_id}_pending_emails (email) VALUES (?)", (email,))
+                    added += 1
+                except:
+                    pass
+        
+        conn.commit()
+    
+    return {"success": True, "added": added}
 
 @app.get("/api/emails/oauth/config-status")
 def get_oauth_config_status(provider: str, user: dict = Depends(get_current_user)):
@@ -2581,12 +2736,12 @@ def refresh_emails(user: dict = Depends(get_current_user)):
                 if not access_token:
                     continue
                 
-                # 获取最近的邮件（最近10封，1分钟内的）
+                # 获取最近的邮件（最近10封，5分钟内的）
                 import urllib.request
                 import urllib.error
                 
-                # 搜索最近1分钟内的邮件
-                query = "newer_than:1m"
+                # 搜索最近5分钟内的邮件（扩大搜索范围，提高检测率）
+                query = "newer_than:5m"
                 list_url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages?q={urllib.parse.quote(query)}&maxResults=10"
                 
                 req = urllib.request.Request(list_url)

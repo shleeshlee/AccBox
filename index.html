@@ -192,8 +192,11 @@
                 </div>
 
                 <!-- === 移动端工具栏 === -->
-                <!-- 搜索图标 -->
-                <button class="btn-tool-icon-sm mobile-only" id="mobileSearchBtn" onclick="toggleMobileSearch()" title="搜索">🔍</button>
+                <!-- 搜索框（内联） -->
+                <form class="search-box-inline mobile-only" role="search" action="javascript:void(0)" onsubmit="return false">
+                    <span class="search-icon">🔍</span>
+                    <input type="search" id="mobileSearchInput" placeholder="搜索..." oninput="filterAccounts()" autocomplete="off">
+                </form>
                 <!-- 视图切换（单按钮） -->
                 <button class="btn-tool-icon-sm mobile-only" id="mobileViewBtn" onclick="toggleViewMode()" title="切换视图">🃏</button>
                 <!-- 勾选 -->
@@ -205,14 +208,6 @@
                 </button>
                 <!-- ⋮ 更多菜单 -->
                 <button class="btn-tool-icon-sm mobile-only" id="mobileMoreBtn" onclick="toggleMoreMenu()" title="更多">⋮</button>
-            </div>
-            <!-- 移动端搜索框（展开时显示） -->
-            <div class="mobile-search-bar" id="mobileSearchBar">
-                <form class="search-box-mobile" role="search" action="javascript:void(0)" onsubmit="return false">
-                    <span class="search-icon">🔍</span>
-                    <input type="search" id="mobileSearchInput" placeholder="搜索账号..." oninput="filterAccounts()" autocomplete="off">
-                    <button type="button" class="btn-search-close" onclick="toggleMobileSearch()">✕</button>
-                </form>
             </div>
             <div class="content">
                 <div class="active-filters" id="activeFilters"></div>

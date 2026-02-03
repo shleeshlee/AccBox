@@ -1,5 +1,5 @@
 const API = '/api';
-const VERSION = 'v5.1.3'; // 折叠式邮箱授权 + 手机端工具栏优化
+const VERSION = 'v5.1.4'; // 辅助邮箱联想 + 智能轮询 + 导入导出邮箱凭证 + 移动端搜索栏优化
 let token = localStorage.getItem('token');
 let user = JSON.parse(localStorage.getItem('user') || 'null');
 let accounts = [], accountTypes = [], propertyGroups = [];
@@ -25,6 +25,11 @@ let selectedProvider = 'gmail'; // 当前选择的邮箱类型
 let pushSettings = JSON.parse(localStorage.getItem('pushSettings') || '{"notify":true,"toast":true,"badge":true}');
 let codeToastTimer = null; // 验证码弹窗定时器
 let emailPollingInterval = null; // 邮箱轮询定时器
+
+// v5.1.4 新增：智能轮询 - 页面可见性检测
+let isPageVisible = true;
+let pollingIntervalActive = 10000; // 活跃时10秒轮询
+let pollingIntervalInactive = 120000; // 非活跃时2分钟轮询
 
 // ==================== 补丁：核心 API 请求函数 ====================
 async function apiRequest(endpoint, options = {}) {
@@ -2376,8 +2381,30 @@ async function doImport() {
 }
 
 async function exportData() {
+    // 询问是否包含邮箱配置
+    const includeEmails = authorizedEmails.length > 0 ? confirm(
+        '📬 检测到已授权邮箱\n\n' +
+        '是否将邮箱配置一并导出？\n\n' +
+        '✅ 导出内容：\n' +
+        '• OAuth应用凭证（Client ID/Secret）\n' +
+        '• 待授权邮箱列表\n\n' +
+        '🔒 安全说明：\n' +
+        '• 不会导出邮箱访问令牌\n' +
+        '• 导入后需要重新授权每个邮箱\n' +
+        '• 即使文件泄露也无法直接访问邮箱\n\n' +
+        '点击「确定」导出配置，点击「取消」仅导出账号'
+    ) : false;
+    
     // 安全提醒
-    if (!confirm('⚠️ 安全提醒\n\n导出的 JSON 文件中密码是【明文】存储的！\n\n请注意：\n• 妥善保管导出文件，不要分享给他人\n• 使用后建议删除本地文件\n• 如需安全备份，请使用「数据备份」功能\n\n确定要导出吗？')) {
+    let warningMsg = '⚠️ 安全提醒\n\n导出的 JSON 文件中账号密码是【明文】存储的！\n\n请注意：\n• 妥善保管导出文件，不要分享给他人\n• 使用后建议删除本地文件\n• 如需安全备份，请使用「数据备份」功能';
+    
+    if (includeEmails) {
+        warningMsg += '\n\n📬 邮箱配置说明：\n本次导出包含OAuth应用凭证，导入新环境后：\n• 会自动配置好OAuth凭证\n• 需要逐个重新授权邮箱\n• 点击授权按钮选择账号即可';
+    }
+    
+    warningMsg += '\n\n确定要导出吗？';
+    
+    if (!confirm(warningMsg)) {
         return;
     }
     
@@ -2390,7 +2417,8 @@ async function exportData() {
     }
     
     try {
-        const res = await fetch(API + '/export', { headers: { 'Authorization': 'Bearer ' + token } });
+        const url = includeEmails ? API + '/export?include_emails=true' : API + '/export';
+        const res = await fetch(url, { headers: { 'Authorization': 'Bearer ' + token } });
         
         if (res.status === 401) {
             showToast('登录已过期，请重新登录', true);
@@ -2414,9 +2442,18 @@ async function exportData() {
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
         const a = document.createElement('a'); 
         a.href = URL.createObjectURL(blob); 
-        a.download = `accounts_backup_${new Date().toISOString().slice(0,10)}.json`; 
+        const suffix = includeEmails ? '_with_email_config' : '';
+        a.download = `accounts_backup${suffix}_${new Date().toISOString().slice(0,10)}.json`; 
         a.click();
-        showToast(`✅ 导出成功，共 ${data.accounts.length} 个账号（⚠️ 密码为明文，请妥善保管）`);
+        
+        let msg = `✅ 导出成功，共 ${data.accounts.length} 个账号`;
+        if (includeEmails && data.oauth_configs) {
+            msg += `，${data.oauth_configs.length} 个OAuth配置`;
+            if (data.email_addresses?.length > 0) {
+                msg += `（${data.email_addresses.length} 个邮箱待重新授权）`;
+            }
+        }
+        showToast(msg);
     } catch (e) { 
         console.error('导出错误:', e);
         showToast('导出失败', true); 
@@ -4534,42 +4571,114 @@ function copyToastCode() {
     copyCode(code);
 }
 
-// === 实时轮询（简化版，生产环境建议用 WebSocket） ===
-function startEmailPolling() {
-    if (emailPollingInterval) clearInterval(emailPollingInterval);
+// === 智能轮询（根据页面可见性调整频率） ===
+
+// 页面可见性检测
+function setupVisibilityDetection() {
+    // 页面可见性变化
+    document.addEventListener('visibilitychange', () => {
+        isPageVisible = !document.hidden;
+        console.log('页面可见性变化:', isPageVisible ? '活跃' : '后台');
+        restartEmailPolling();
+    });
     
-    // 每30秒检查一次新验证码
-    emailPollingInterval = setInterval(async () => {
-        if (authorizedEmails.length === 0) return;
-        
-        try {
-            const res = await apiRequest('/emails/refresh', { method: 'POST' });
-            if (res.ok) {
-                const data = await res.json();
-                if (data.new_codes && data.new_codes.length > 0) {
-                    // 有新验证码
-                    data.new_codes.forEach(code => {
-                        verificationCodes.unshift(code);
-                        if (pushSettings.notify) {
-                            showToast(`📬 收到 ${code.service || '验证码'}: ${code.code}`);
-                        }
-                        if (pushSettings.toast) {
-                            showCodeToast(code);
+    // 窗口焦点变化
+    window.addEventListener('focus', () => {
+        isPageVisible = true;
+        restartEmailPolling();
+    });
+    
+    window.addEventListener('blur', () => {
+        isPageVisible = false;
+        restartEmailPolling();
+    });
+}
+
+// 重启轮询（根据当前状态调整间隔）
+function restartEmailPolling() {
+    stopEmailPolling();
+    if (authorizedEmails.length > 0) {
+        startEmailPolling();
+    }
+}
+
+// 执行一次邮件检查
+async function checkNewEmails() {
+    if (authorizedEmails.length === 0) return;
+    
+    try {
+        const res = await apiRequest('/emails/refresh', { method: 'POST' });
+        if (res.ok) {
+            const data = await res.json();
+            if (data.new_codes && data.new_codes.length > 0) {
+                const now = new Date();
+                // 过滤掉已过期的验证码
+                const validCodes = data.new_codes.filter(code => {
+                    if (!code.expires_at) return true;
+                    return new Date(code.expires_at) > now;
+                });
+                
+                if (validCodes.length > 0) {
+                    validCodes.forEach(code => {
+                        // 检查是否已存在
+                        const exists = verificationCodes.some(c => c.code === code.code && c.email === code.email);
+                        if (!exists) {
+                            verificationCodes.unshift(code);
+                            if (pushSettings.notify) {
+                                showToast(`📬 收到 ${code.service || '验证码'}: ${code.code}`);
+                            }
+                            if (pushSettings.toast) {
+                                showCodeToast(code);
+                            }
                         }
                     });
                     
-                    // 保留最近5条
-                    verificationCodes = verificationCodes.slice(0, 5);
+                    // 保留最近10条
+                    verificationCodes = verificationCodes.slice(0, 10);
                     
                     renderCodesList();
                     updateNotifyBadge();
                     if (pushSettings.badge) updateCardBadges();
                 }
             }
-        } catch (err) {
-            console.error('轮询验证码失败:', err);
         }
-    }, 30000);
+    } catch (err) {
+        console.error('轮询验证码失败:', err);
+    }
+}
+
+// 清理过期验证码
+function cleanExpiredCodes() {
+    const now = new Date();
+    const beforeCount = verificationCodes.length;
+    verificationCodes = verificationCodes.filter(code => {
+        if (!code.expires_at) return true;
+        return new Date(code.expires_at) > now;
+    });
+    
+    if (verificationCodes.length !== beforeCount) {
+        renderCodesList();
+        updateNotifyBadge();
+        if (pushSettings.badge) updateCardBadges();
+    }
+}
+
+function startEmailPolling() {
+    if (emailPollingInterval) clearInterval(emailPollingInterval);
+    
+    // 根据页面可见性选择轮询间隔
+    const interval = isPageVisible ? pollingIntervalActive : pollingIntervalInactive;
+    console.log(`邮件轮询启动，间隔: ${interval / 1000}秒`);
+    
+    // 立即执行一次
+    if (isPageVisible) {
+        checkNewEmails();
+    }
+    
+    emailPollingInterval = setInterval(() => {
+        checkNewEmails();
+        cleanExpiredCodes(); // 每次轮询时清理过期验证码
+    }, interval);
 }
 
 function stopEmailPolling() {
@@ -5174,6 +5283,165 @@ document.addEventListener('click', (e) => {
     }
 });
 
+// === 辅助邮箱自动联想功能 ===
+
+// 获取所有可用的辅助邮箱建议（已授权 + 历史使用）
+function getBackupEmailSuggestions() {
+    const suggestions = [];
+    const seen = new Set();
+    
+    // 1. 已授权的邮箱（优先显示）
+    authorizedEmails.forEach(email => {
+        const addr = email.address?.toLowerCase();
+        if (addr && !seen.has(addr)) {
+            suggestions.push({ email: email.address, type: 'authorized', provider: email.provider });
+            seen.add(addr);
+        }
+    });
+    
+    // 2. 待授权的邮箱
+    pendingEmails.forEach(email => {
+        const addr = email?.toLowerCase();
+        if (addr && !seen.has(addr)) {
+            suggestions.push({ email: email, type: 'pending' });
+            seen.add(addr);
+        }
+    });
+    
+    // 3. 从现有账号中收集辅助邮箱
+    accounts.forEach(acc => {
+        if (acc.backup_email) {
+            const addr = acc.backup_email.toLowerCase();
+            if (!seen.has(addr)) {
+                suggestions.push({ email: acc.backup_email, type: 'history' });
+                seen.add(addr);
+            }
+        }
+    });
+    
+    return suggestions;
+}
+
+// 辅助邮箱输入事件处理
+function onBackupEmailInput(input) {
+    const value = input.value.trim().toLowerCase();
+    const suggestionsEl = document.getElementById('backupEmailSuggestions');
+    
+    if (!suggestionsEl) return;
+    
+    if (!value) {
+        suggestionsEl.classList.remove('show');
+        suggestionsEl.innerHTML = '';
+        return;
+    }
+    
+    const allSuggestions = getBackupEmailSuggestions();
+    
+    // 过滤匹配的建议
+    const filtered = allSuggestions.filter(s => 
+        s.email.toLowerCase().includes(value)
+    ).slice(0, 8); // 最多显示8条
+    
+    if (filtered.length === 0) {
+        suggestionsEl.classList.remove('show');
+        suggestionsEl.innerHTML = '';
+        return;
+    }
+    
+    // 渲染建议列表
+    suggestionsEl.innerHTML = filtered.map(s => {
+        let icon = '📧';
+        let hint = '';
+        let className = 'suggestion-email';
+        
+        if (s.type === 'authorized') {
+            icon = '✅';
+            hint = '已授权';
+            className += ' authorized';
+        } else if (s.type === 'pending') {
+            icon = '⏳';
+            hint = '待授权';
+            className += ' pending';
+        } else {
+            icon = '📝';
+            hint = '历史';
+            className += ' history';
+        }
+        
+        return `
+            <div class="${className}" onclick="selectBackupEmailSuggestion('${escapeHtml(s.email)}')">
+                <span class="suggestion-icon">${icon}</span>
+                <span class="suggestion-text">${escapeHtml(s.email)}</span>
+                <span class="suggestion-hint">${hint}</span>
+            </div>
+        `;
+    }).join('');
+    
+    suggestionsEl.classList.add('show');
+}
+
+// 选择辅助邮箱建议
+function selectBackupEmailSuggestion(email) {
+    const input = document.getElementById('accBackupEmail');
+    const suggestionsEl = document.getElementById('backupEmailSuggestions');
+    
+    if (input) {
+        input.value = email;
+        input.focus();
+    }
+    
+    if (suggestionsEl) {
+        suggestionsEl.classList.remove('show');
+        suggestionsEl.innerHTML = '';
+    }
+}
+
+// 点击外部关闭辅助邮箱建议
+document.addEventListener('click', (e) => {
+    const wrapper = e.target.closest('.backup-email-wrapper');
+    const suggestionsEl = document.getElementById('backupEmailSuggestions');
+    
+    if (!wrapper && suggestionsEl) {
+        suggestionsEl.classList.remove('show');
+    }
+});
+
+// 收集未授权的辅助邮箱到待授权列表
+function collectPendingEmails() {
+    const collectedEmails = new Set(pendingEmails.map(e => e.toLowerCase()));
+    const authorizedAddrs = new Set(authorizedEmails.map(e => e.address?.toLowerCase()));
+    
+    accounts.forEach(acc => {
+        if (acc.backup_email) {
+            const addr = acc.backup_email.toLowerCase();
+            // 如果既没有授权也没有在待授权列表中
+            if (!authorizedAddrs.has(addr) && !collectedEmails.has(addr)) {
+                collectedEmails.add(addr);
+            }
+        }
+    });
+    
+    // 更新待授权列表（转回数组）
+    const newPending = Array.from(collectedEmails);
+    if (newPending.length !== pendingEmails.length) {
+        pendingEmails = newPending;
+        // 可选：同步到后端
+        syncPendingEmails();
+    }
+}
+
+// 同步待授权邮箱到后端
+async function syncPendingEmails() {
+    try {
+        await apiRequest('/emails/pending', {
+            method: 'POST',
+            body: JSON.stringify({ emails: pendingEmails })
+        });
+    } catch (err) {
+        console.log('同步待授权邮箱失败:', err.message);
+    }
+}
+
 // === 邮箱数据加载 ===
 async function loadEmailData() {
     try {
@@ -5197,6 +5465,9 @@ async function loadEmailData() {
                 if (countHint) countHint.textContent = '未启用';
                 if (mobileCountHint) mobileCountHint.style.display = 'none';
             }
+            
+            // 收集未授权的辅助邮箱
+            collectPendingEmails();
         }
     } catch (err) {
         console.log('邮箱数据加载失败（可能未启用此功能）:', err.message);
@@ -5253,6 +5524,7 @@ function renderCodesList() {
 // === 初始化 ===
 // 在用户登录后调用
 function initEmailFeature() {
+    setupVisibilityDetection(); // 设置页面可见性检测
     loadEmailData();
     loadVerificationCodes();
     startEmailPolling();

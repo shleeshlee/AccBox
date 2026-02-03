@@ -5657,42 +5657,63 @@ html:not([data-theme="light"]) .toast-code {
     display: block;
 }
 
-.suggestion-item {
+/* 新样式：suggestion-email 作为完整的行项 */
+.suggestion-email {
     display: flex;
     align-items: center;
     gap: 10px;
     padding: 10px 14px;
     cursor: pointer;
     transition: background 0.1s;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8rem;
 }
 
-.suggestion-item:hover {
+.suggestion-email:hover {
     background: var(--bg-hover);
 }
 
+.suggestion-email.authorized {
+    border-left: 3px solid var(--green);
+}
+
+.suggestion-email.pending {
+    border-left: 3px solid var(--yellow);
+}
+
+.suggestion-email.history {
+    border-left: 3px solid var(--text-muted);
+}
+
 .suggestion-icon {
-    font-size: 1rem;
+    font-size: 0.9rem;
+    flex-shrink: 0;
 }
 
-.suggestion-email {
-    font-size: 0.85rem;
+.suggestion-text {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     color: var(--text-primary);
-    font-family: 'JetBrains Mono', monospace;
 }
 
-.suggestion-status {
+.suggestion-hint {
     font-size: 0.65rem;
     padding: 2px 6px;
     border-radius: 3px;
-    margin-left: auto;
+    flex-shrink: 0;
+    background: var(--bg-hover);
+    color: var(--text-muted);
 }
 
-.suggestion-status.authorized {
+.suggestion-email.authorized .suggestion-hint {
     background: rgba(34, 197, 94, 0.15);
     color: var(--green);
 }
 
-.suggestion-status.pending {
+.suggestion-email.pending .suggestion-hint {
     background: rgba(234, 179, 8, 0.15);
     color: var(--yellow);
 }
@@ -5776,6 +5797,56 @@ html:not([data-theme="light"]) .toast-code {
 
 .btn-search-close:hover {
     color: var(--text-primary);
+}
+
+/* === 移动端内联搜索框（与按钮同级） === */
+.search-box-inline {
+    display: none;
+    position: relative;
+    flex: 0 0 auto;
+    width: 100px; /* 约8个字符宽度 */
+    min-width: 80px;
+    max-width: 120px;
+}
+
+.search-box-inline .search-icon {
+    position: absolute;
+    left: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    pointer-events: none;
+}
+
+.search-box-inline input {
+    width: 100%;
+    height: 36px;
+    padding: 0 8px 0 26px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-size: 0.8rem;
+    outline: none;
+    transition: all 0.15s;
+}
+
+.search-box-inline input:focus {
+    border-color: var(--accent);
+    width: 140px; /* 聚焦时稍微展开 */
+}
+
+.search-box-inline input::placeholder {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+}
+
+/* 移动端显示 */
+@media (max-width: 768px) {
+    .search-box-inline {
+        display: block;
+    }
 }
 
 /* === 移动端更多菜单面板 === */
