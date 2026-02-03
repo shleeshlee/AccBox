@@ -2718,17 +2718,14 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
     user_id = user['id']
     new_codes = []
     
-    # 获取客户端传来的启动时间戳（只检测此时间之后的邮件）
-    since_timestamp = None
-    if data and data.get('since'):
-        since_timestamp = data.get('since')
-    
     with get_db() as conn:
         # 获取已授权的邮箱
         try:
             cursor = conn.execute(f"SELECT id, address, provider, credentials FROM user_{user_id}_emails WHERE status = 'active'")
             emails = cursor.fetchall()
-        except:
+            print(f"[DEBUG] 找到 {len(emails)} 个已授权邮箱")
+        except Exception as e:
+            print(f"[DEBUG] 获取邮箱列表失败: {e}")
             return {"success": False, "message": "无法获取邮箱列表", "codes": []}
         
         for email_row in emails:
@@ -2736,8 +2733,11 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
             provider = email_row["provider"]
             encrypted_creds = email_row["credentials"]
             
+            print(f"[DEBUG] 处理邮箱: {email_address}, provider: {provider}")
+            
             if provider != 'gmail':
-                continue  # 暂时只支持 Gmail
+                print(f"[DEBUG] 跳过非Gmail邮箱")
+                continue
             
             try:
                 # 解密凭证
@@ -2745,7 +2745,10 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                 access_token = creds.get('access_token')
                 
                 if not access_token:
+                    print(f"[DEBUG] 无access_token")
                     continue
+                
+                print(f"[DEBUG] access_token存在，长度: {len(access_token)}")
                 
                 import urllib.request
                 import urllib.error
@@ -2758,17 +2761,23 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                 req = urllib.request.Request(list_url)
                 req.add_header('Authorization', f'Bearer {access_token}')
                 
+                print(f"[DEBUG] 请求Gmail API: {list_url}")
+                
                 try:
                     with urllib.request.urlopen(req, timeout=10) as resp:
                         messages_data = json.loads(resp.read().decode())
+                        print(f"[DEBUG] Gmail API返回: {messages_data}")
                 except urllib.error.HTTPError as e:
+                    print(f"[DEBUG] Gmail API错误: {e.code} - {e.reason}")
                     if e.code == 401:
+                        print(f"[DEBUG] Token过期，尝试刷新")
                         # Token 过期，尝试刷新
                         refresh_token = creds.get('refresh_token')
                         if refresh_token:
                             try:
                                 client_id = os.environ.get('GOOGLE_CLIENT_ID')
                                 client_secret = os.environ.get('GOOGLE_CLIENT_SECRET')
+                                print(f"[DEBUG] client_id存在: {bool(client_id)}, client_secret存在: {bool(client_secret)}")
                                 if client_id and client_secret:
                                     refresh_data = urllib.parse.urlencode({
                                         'client_id': client_id,
@@ -2784,6 +2793,7 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                                     with urllib.request.urlopen(refresh_req, timeout=10) as refresh_resp:
                                         new_tokens = json.loads(refresh_resp.read().decode())
                                         new_access_token = new_tokens.get('access_token')
+                                        print(f"[DEBUG] 刷新成功，新token长度: {len(new_access_token) if new_access_token else 0}")
                                         if new_access_token:
                                             # 更新凭证
                                             creds['access_token'] = new_access_token
@@ -2797,18 +2807,25 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                                             req.add_header('Authorization', f'Bearer {access_token}')
                                             with urllib.request.urlopen(req, timeout=10) as resp:
                                                 messages_data = json.loads(resp.read().decode())
+                                                print(f"[DEBUG] 重试成功: {messages_data}")
                                         else:
                                             continue
                                 else:
                                     continue
                             except Exception as refresh_err:
+                                print(f"[DEBUG] 刷新失败: {refresh_err}")
                                 continue
                         else:
+                            print(f"[DEBUG] 无refresh_token")
                             continue
                     else:
                         continue
+                except Exception as e:
+                    print(f"[DEBUG] 请求异常: {e}")
+                    continue
                 
                 messages = messages_data.get('messages', [])
+                print(f"[DEBUG] 找到 {len(messages)} 封邮件")
                 
                 for msg in messages:
                     msg_id = msg['id']
