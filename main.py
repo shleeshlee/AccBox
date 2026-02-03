@@ -2827,12 +2827,13 @@ def refresh_outlook_token(refresh_token: str, email_id: int, user_id: int) -> st
         print(f"刷新 Outlook token 失败: {e}")
         return None
 
-def fetch_imap_emails(email_address: str, creds: dict, since_timestamp: int = None) -> list:
-    """通过 IMAP 获取邮件（带连接保护，避免频繁登录被封）"""
+def fetch_imap_emails(email_address: str, creds: dict) -> list:
+    """通过 IMAP 获取最近5分钟的邮件"""
     import imaplib
     import email
     from email.header import decode_header
     from email.utils import parsedate_to_datetime
+    from datetime import datetime, timedelta, timezone
     
     server = creds.get('server')
     port = creds.get('port', 993)
@@ -2843,29 +2844,20 @@ def fetch_imap_emails(email_address: str, creds: dict, since_timestamp: int = No
     
     emails_content = []
     
-    # 转换时间戳
-    since_datetime = None
-    if since_timestamp:
-        from datetime import datetime, timezone
-        since_sec = int(since_timestamp / 1000) if since_timestamp > 9999999999 else since_timestamp
-        since_datetime = datetime.fromtimestamp(since_sec, tz=timezone.utc)
+    # 固定查询5分钟前
+    since_datetime = datetime.now(timezone.utc) - timedelta(minutes=5)
     
     try:
         # 设置超时，避免卡死
         imaplib.IMAP4.timeout = 10
         imap = imaplib.IMAP4_SSL(server, port)
         imap.login(email_address, password)
-        imap.select('INBOX', readonly=True)  # 只读模式，更安全
+        imap.select('INBOX', readonly=True)
         
-        # 搜索邮件：IMAP只支持按日期搜索，精确过滤在后面做
-        if since_datetime:
-            # 手动构造英文日期格式: 04-Feb-2026
-            months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-            since_date = f"{since_datetime.day:02d}-{months[since_datetime.month-1]}-{since_datetime.year}"
-            status, messages = imap.search(None, f'SINCE {since_date}')
-        else:
-            # 只获取最近的邮件
-            status, messages = imap.search(None, 'ALL')
+        # IMAP只支持按日期搜索
+        months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+        since_date = f"{since_datetime.day:02d}-{months[since_datetime.month-1]}-{since_datetime.year}"
+        status, messages = imap.search(None, f'SINCE {since_date}')
         
         if status != 'OK':
             imap.logout()
@@ -2889,16 +2881,15 @@ def fetch_imap_emails(email_address: str, creds: dict, since_timestamp: int = No
                 raw_email = raw_header + b'\r\n' + raw_body
                 msg = email.message_from_bytes(raw_email)
                 
-                # 检查邮件时间，只要进入页面后的邮件
-                if since_datetime:
-                    date_str = msg.get('Date', '')
-                    if date_str:
-                        try:
-                            mail_datetime = parsedate_to_datetime(date_str)
-                            if mail_datetime < since_datetime:
-                                continue  # 跳过早于启动时间的邮件
-                        except:
-                            pass
+                # 检查邮件时间，只要最近5分钟的邮件
+                date_str = msg.get('Date', '')
+                if date_str:
+                    try:
+                        mail_datetime = parsedate_to_datetime(date_str)
+                        if mail_datetime < since_datetime:
+                            continue  # 跳过5分钟前的邮件
+                    except:
+                        pass
                 
                 # 获取发件人
                 from_header = msg.get('From', '')
@@ -2939,23 +2930,26 @@ def fetch_imap_emails(email_address: str, creds: dict, since_timestamp: int = No
     
     return emails_content
 
-def fetch_outlook_emails(access_token: str, since_timestamp: int = None) -> list:
-    """通过 Microsoft Graph API 获取 Outlook 邮件"""
+def fetch_outlook_emails(access_token: str) -> list:
+    """通过 Microsoft Graph API 获取最近5分钟的 Outlook 邮件"""
     import urllib.request
     import urllib.error
+    from datetime import datetime, timedelta, timezone
     
     emails_content = []
     
     try:
-        # 构建查询
-        base_url = "https://graph.microsoft.com/v1.0/me/messages"
-        params = ["$top=10", "$orderby=receivedDateTime desc", "$select=from,body,subject"]
+        # 固定查询最近5分钟
+        since_time = datetime.now(timezone.utc) - timedelta(minutes=5)
+        since_iso = since_time.strftime('%Y-%m-%dT%H:%M:%SZ')
         
-        if since_timestamp:
-            from datetime import datetime
-            since_sec = int(since_timestamp / 1000) if since_timestamp > 9999999999 else since_timestamp
-            since_iso = datetime.utcfromtimestamp(since_sec).isoformat() + "Z"
-            params.append(f"$filter=receivedDateTime ge {since_iso}")
+        base_url = "https://graph.microsoft.com/v1.0/me/messages"
+        params = [
+            "$top=10", 
+            "$orderby=receivedDateTime desc", 
+            "$select=from,body,subject",
+            f"$filter=receivedDateTime ge {since_iso}"
+        ]
         
         url = f"{base_url}?{'&'.join(params)}"
         
@@ -2988,10 +2982,6 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
     new_codes = []
     
     # 获取客户端传来的启动时间戳（只检测此时间之后的邮件）
-    since_timestamp = None
-    if data and data.get('since'):
-        since_timestamp = data.get('since')
-    
     with get_db() as conn:
         # 获取已授权的邮箱
         try:
@@ -3022,11 +3012,8 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                     import urllib.error
                     
                     # 使用时间戳查询
-                    if since_timestamp:
-                        since_sec = int(since_timestamp / 1000) if since_timestamp > 9999999999 else since_timestamp
-                        query = f"after:{since_sec}"
-                    else:
-                        query = "newer_than:2m"
+                    # 固定查询最近5分钟的邮件，不依赖前端时间戳
+                    query = "newer_than:5m"
                     
                     list_url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages?q={urllib.parse.quote(query)}&maxResults=10"
                     
@@ -3104,7 +3091,7 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                     # 尝试获取邮件，如果401则刷新token
                     for attempt in range(2):
                         try:
-                            emails_content = fetch_outlook_emails(access_token, since_timestamp)
+                            emails_content = fetch_outlook_emails(access_token)
                             break
                         except urllib.error.HTTPError as e:
                             if e.code == 401 and attempt == 0 and refresh_token:
@@ -3126,7 +3113,7 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                         # 距离上次请求不足60秒，跳过
                         continue
                     
-                    emails_content = fetch_imap_emails(email_address, creds, since_timestamp)
+                    emails_content = fetch_imap_emails(email_address, creds)
                     imap_last_fetch[email_address] = now  # 更新最后请求时间
                 
                 # ==================== 提取验证码 ====================
@@ -3143,10 +3130,10 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                         if service == 'unknown':
                             service = from_addr.split('<')[0].strip() or from_addr
                         
-                        # 检查是否已存在（同邮箱同验证码5分钟内不重复）
+                        # 检查是否已存在（同邮箱同验证码24小时内不重复）
                         cursor = conn.execute(f"""
                             SELECT id FROM user_{user_id}_verification_codes 
-                            WHERE email = ? AND code = ? AND created_at > datetime('now', '-5 minutes')
+                            WHERE email = ? AND code = ? AND created_at > datetime('now', '-24 hours')
                         """, (email_address, code))
                         
                         if not cursor.fetchone():

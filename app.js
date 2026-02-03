@@ -31,7 +31,6 @@ let isPageVisible = true;
 let pollingInterval = 30000; // 默认30秒轮询
 let pollingIntervalFast = 10000; // 高频模式10秒轮询
 let fastModeEndTime = 0; // 高频模式结束时间
-let pollingStartTime = null; // 轮询启动时间，只检测此时间之后的邮件
 
 // ==================== 补丁：核心 API 请求函数 ====================
 async function apiRequest(endpoint, options = {}) {
@@ -4580,7 +4579,7 @@ async function checkNewEmails() {
     try {
         const res = await apiRequest('/emails/refresh', { 
             method: 'POST',
-            body: JSON.stringify({ since: pollingStartTime })
+            body: JSON.stringify({})
         });
         if (res.ok) {
             const data = await res.json();
@@ -4639,11 +4638,6 @@ function cleanExpiredCodes() {
 
 function startEmailPolling() {
     if (emailPollingInterval) clearInterval(emailPollingInterval);
-    
-    // 记录轮询启动时间，只检测此时间之后的邮件
-    if (!pollingStartTime) {
-        pollingStartTime = Date.now();
-    }
     
     // 立即执行一次
     checkNewEmails();
