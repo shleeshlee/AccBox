@@ -6396,38 +6396,44 @@ html:not([data-theme="light"]) .toast-code {
     box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3);
 }
 
-/* 刷新按钮旋转动画 */
-.btn-refresh {
+/* 心形刷新按钮 */
+.btn-heart {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 28px;
-    height: 28px;
+    width: 32px;
+    height: 32px;
     border-radius: 50%;
-    background: var(--bg-hover);
+    background: transparent;
     border: none;
     cursor: pointer;
+    color: #a78bfa;
     transition: all 0.3s ease;
-    font-size: 14px;
     padding: 0;
 }
 
-.btn-refresh:hover {
-    background: var(--primary);
-    color: white;
+.btn-heart:hover {
+    color: #c4b5fd;
+    transform: scale(1.1);
 }
 
-.btn-refresh.spinning {
-    animation: spin 1s linear infinite;
-    background: var(--primary);
-    color: white;
+.btn-heart .heart-icon {
+    display: inline-block;
 }
 
-@keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
+.btn-heart.beating .heart-icon {
+    animation: heartbeat 1.5s infinite ease-in-out;
 }
 
+/* 心跳动画定义 */
+@keyframes heartbeat {
+    0% { transform: scale(1); }
+    15% { transform: scale(1.15); }
+    30% { transform: scale(1); }
+    45% { transform: scale(1.15); }
+    60% { transform: scale(1); }
+    100% { transform: scale(1); }
+}
 
 .panel-actions {
     display: flex;

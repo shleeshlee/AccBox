@@ -4341,7 +4341,7 @@ async function fetchEmailsNow() {
     const btn = document.getElementById('btnRefreshEmails');
     
     // 开始旋转动画
-    if (btn) btn.classList.add('spinning');
+    if (btn) btn.classList.add('beating');
     
     showToast('🔄 已开启1分钟高频模式');
     
@@ -4353,7 +4353,7 @@ async function fetchEmailsNow() {
     
     // 1分钟后停止动画
     fastModeTimer = setTimeout(() => {
-        if (btn) btn.classList.remove('spinning');
+        if (btn) btn.classList.remove('beating');
         showToast('⏱️ 高频模式已结束');
     }, 1 * 60 * 1000);
     
