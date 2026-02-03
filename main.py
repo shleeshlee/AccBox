@@ -3041,7 +3041,8 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                         print(f"[Gmail] {email_address}: messages_data 为空")
                         continue
                     
-                    print(f"[Gmail] {email_address}: 获取到 {len(messages_data.get('messages', []))} 封邮件")
+                    msg_count = len(messages_data.get('messages', []))
+                    print(f"[Gmail] {email_address}: 查询 after:{five_minutes_ago}, 获取到 {msg_count} 封邮件")
                     
                     for msg in messages_data.get('messages', []):
                         msg_id = msg['id']
@@ -3132,14 +3133,18 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                         if service == 'unknown':
                             service = from_addr.split('<')[0].strip() or from_addr
                         
-                        # 检查是否已存在（同邮箱同验证码24小时内不重复）
+                        # 检查是否已存在（同邮箱同验证码5分钟内不重复，与查询时间窗口一致）
                         cursor = conn.execute(f"""
                             SELECT id FROM user_{user_id}_verification_codes 
-                            WHERE email = ? AND code = ? AND created_at > datetime('now', '-24 hours')
+                            WHERE email = ? AND code = ? AND created_at > datetime('now', '-5 minutes')
                         """, (email_address, code))
                         
                         if not cursor.fetchone():
-                            # 验证码有效期3分钟（大多数验证码有效期在1-5分钟）
+                            # 计算过期时间（3分钟后）
+                            from datetime import datetime, timedelta
+                            expires_at = (datetime.utcnow() + timedelta(minutes=3)).strftime('%Y-%m-%dT%H:%M:%SZ')
+                            
+                            # 验证码有效期3分钟
                             conn.execute(f"""
                                 INSERT INTO user_{user_id}_verification_codes 
                                 (email, service, code, account_name, is_read, expires_at, created_at)
@@ -3147,10 +3152,13 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                             """, (email_address, service[:50], code, ''))
                             conn.commit()
                             
+                            print(f"[验证码] ✅ 新验证码已保存: {code} from {service}")
+                            
                             new_codes.append({
                                 "email": email_address,
                                 "service": service,
-                                "code": code
+                                "code": code,
+                                "expires_at": expires_at
                             })
             
             except Exception as e:
