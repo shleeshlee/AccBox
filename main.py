@@ -2750,13 +2750,8 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                 import urllib.request
                 import urllib.error
                 
-                # 使用时间戳查询（如果有），否则只查最近2分钟
-                if since_timestamp:
-                    # 转换为秒级时间戳
-                    since_sec = int(since_timestamp / 1000) if since_timestamp > 9999999999 else since_timestamp
-                    query = f"after:{since_sec}"
-                else:
-                    query = "newer_than:2m"
+                # 查询最近5分钟的邮件
+                query = "newer_than:5m"
                 
                 list_url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages?q={urllib.parse.quote(query)}&maxResults=10"
                 

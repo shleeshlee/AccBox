@@ -27,7 +27,6 @@ let codeToastTimer = null; // 验证码弹窗定时器
 let emailPollingInterval = null; // 邮箱轮询定时器
 
 // v5.1.3 邮箱轮询
-let pollingStartTime = null; // 轮询启动时间
 
 // ==================== 补丁：核心 API 请求函数 ====================
 async function apiRequest(endpoint, options = {}) {
@@ -4529,8 +4528,7 @@ async function checkNewEmails() {
     
     try {
         const res = await apiRequest('/emails/refresh', { 
-            method: 'POST',
-            body: JSON.stringify({ since: pollingStartTime })
+            method: 'POST'
         });
         if (res.ok) {
             const data = await res.json();
@@ -4589,11 +4587,6 @@ function cleanExpiredCodes() {
 
 function startEmailPolling() {
     if (emailPollingInterval) clearInterval(emailPollingInterval);
-    
-    // 记录轮询启动时间，只检测此时间之后的邮件
-    if (!pollingStartTime) {
-        pollingStartTime = Date.now();
-    }
     
     // 固定30秒轮询
     emailPollingInterval = setInterval(() => {
