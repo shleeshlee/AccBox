@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-通用账号管家 - 后端API v5.1.3
+通用账号管家 - 后端API v5.1.4
 =====================================
-更新内容:
+v5.1.4 更新:
+- 🕐 时区统一: 所有时间处理统一使用 UTC
+- 🔧 正则优化: 去除重复模式，优先识别服务来源
+- 🌍 跨时区支持: 确保不同时区用户正常使用
+
+历史更新:
 - 🔐 密码哈希: SHA256 → bcrypt (自动迁移旧密码)
 - 🎫 Token: 随机字符串 → JWT (7天过期，兼容旧Token)
 - 🌐 CORS: * → 白名单
@@ -61,7 +66,7 @@ import shutil
 import hmac
 import struct
 import urllib.parse
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from contextlib import contextmanager
 from pathlib import Path
 import threading
@@ -225,12 +230,12 @@ def get_jwt_secret():
 
 def create_access_token(user_id: int, username: str) -> str:
     """创建 JWT Token"""
-    expire = datetime.utcnow() + timedelta(hours=JWT_EXPIRE_HOURS)
+    expire = datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRE_HOURS)
     payload = {
         "sub": username,
         "id": user_id,
         "exp": expire,
-        "iat": datetime.utcnow()
+        "iat": datetime.now(timezone.utc)
     }
     return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
 
@@ -647,9 +652,12 @@ def login(data: UserLogin):
         
         # 检查锁定
         if user["locked_until"]:
-            locked_until = datetime.fromisoformat(user["locked_until"])
-            if datetime.now() < locked_until:
-                remaining = (locked_until - datetime.now()).seconds // 60 + 1
+            locked_until = datetime.fromisoformat(user["locked_until"].replace('Z', '+00:00'))
+            if locked_until.tzinfo is None:
+                locked_until = locked_until.replace(tzinfo=timezone.utc)
+            now_utc = datetime.now(timezone.utc)
+            if now_utc < locked_until:
+                remaining = int((locked_until - now_utc).total_seconds()) // 60 + 1
                 raise HTTPException(status_code=423, detail=f"账号已锁定，请 {remaining} 分钟后重试")
             else:
                 conn.execute("UPDATE users SET login_attempts = 0, locked_until = NULL WHERE username = ?", (data.username,))
@@ -663,7 +671,7 @@ def login(data: UserLogin):
             attempts = cursor2.fetchone()["login_attempts"]
             
             if attempts >= MAX_LOGIN_ATTEMPTS:
-                locked_until = (datetime.now() + timedelta(minutes=LOCKOUT_MINUTES)).isoformat()
+                locked_until = (datetime.now(timezone.utc) + timedelta(minutes=LOCKOUT_MINUTES)).strftime('%Y-%m-%dT%H:%M:%SZ')
                 conn.execute("UPDATE users SET locked_until = ? WHERE username = ?", (locked_until, data.username))
                 conn.commit()
                 raise HTTPException(status_code=423, detail=f"账号已锁定，请 {LOCKOUT_MINUTES} 分钟后重试")
@@ -993,7 +1001,7 @@ def get_accounts(user: dict = Depends(get_current_user)):
 
 @app.post("/api/accounts")
 def create_account(data: AccountCreate, user: dict = Depends(get_current_user)):
-    now = datetime.now().isoformat()
+    now = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
     encrypted_pwd = encrypt_password(data.password) if data.password else ""
     
     with get_db() as conn:
@@ -1011,7 +1019,7 @@ def create_account(data: AccountCreate, user: dict = Depends(get_current_user)):
 
 @app.put("/api/accounts/{account_id}")
 def update_account(account_id: int, data: AccountUpdate, user: dict = Depends(get_current_user)):
-    now = datetime.now().isoformat()
+    now = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
     updates, values = [], []
     
     if data.type_id is not None:
@@ -1061,7 +1069,7 @@ def update_account(account_id: int, data: AccountUpdate, user: dict = Depends(ge
 
 @app.post("/api/accounts/{account_id}/use")
 def record_account_use(account_id: int, user: dict = Depends(get_current_user)):
-    now = datetime.now().isoformat()
+    now = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
     with get_db() as conn:
         conn.execute(f"UPDATE user_{user['id']}_accounts SET last_used = ? WHERE id = ?", (now, account_id))
         conn.commit()
@@ -1185,7 +1193,7 @@ def export_data(include_emails: bool = False, user: dict = Depends(get_current_u
     
     result = {
         "version": "5.1.4",
-        "exported_at": datetime.now().isoformat(),
+        "exported_at": datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
         "user": user["username"],
         "account_types": types,
         "property_groups": groups,
@@ -1204,7 +1212,7 @@ def import_data(data: dict, user: dict = Depends(get_current_user)):
     if "accounts" not in data:
         raise HTTPException(status_code=400, detail="无效的导入数据")
     
-    now = datetime.now().isoformat()
+    now = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
     import_mode = data.get("import_mode", "all")
     
     imported_accounts = 0
@@ -1428,7 +1436,7 @@ def import_csv(data: dict, user: dict = Depends(get_current_user)):
     if not csv_text:
         raise HTTPException(status_code=400, detail="CSV内容为空")
     
-    now = datetime.now().isoformat()
+    now = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
     imported = 0
     errors = []
     
@@ -1515,7 +1523,7 @@ def set_account_totp(account_id: int, data: TOTPCreate, user: dict = Depends(get
             SET totp_secret=?, totp_issuer=?, totp_type=?, totp_algorithm=?, totp_digits=?, totp_period=?, backup_codes=?, updated_at=?
             WHERE id=?""",
             (encrypt_password(data.secret), data.issuer, data.totp_type, data.algorithm, data.digits, data.period,
-             json.dumps(data.backup_codes), datetime.now().isoformat(), account_id))
+             json.dumps(data.backup_codes), datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'), account_id))
         conn.commit()
     return {"message": "2FA 配置已保存"}
 
@@ -1570,7 +1578,7 @@ def delete_account_totp(account_id: int, user: dict = Depends(get_current_user))
     with get_db() as conn:
         conn.execute(f"""UPDATE user_{user['id']}_accounts 
             SET totp_secret='', totp_issuer='', totp_type='', backup_codes='[]', updated_at=?
-            WHERE id=?""", (datetime.now().isoformat(), account_id))
+            WHERE id=?""", (datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'), account_id))
         conn.commit()
     return {"message": "2FA 配置已删除"}
 
@@ -1584,7 +1592,7 @@ def parse_totp_uri(account_id: int, data: dict, user: dict = Depends(get_current
             SET totp_secret=?, totp_issuer=?, totp_type=?, totp_algorithm=?, totp_digits=?, totp_period=?, updated_at=?
             WHERE id=?""",
             (encrypt_password(parsed["secret"]), parsed["issuer"] or parsed["label"], parsed["type"],
-             parsed["algorithm"], parsed["digits"], parsed["period"], datetime.now().isoformat(), account_id))
+             parsed["algorithm"], parsed["digits"], parsed["period"], datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'), account_id))
         conn.commit()
     return {"message": "2FA 配置已从 URI 导入", "parsed": {k: v for k, v in parsed.items() if k != "secret"}}
 
@@ -1814,7 +1822,7 @@ def do_auto_backup():
             backup_conn.close()
         
         # 更新最后备份时间
-        auto_backup_settings["last_backup"] = datetime.now().isoformat()
+        auto_backup_settings["last_backup"] = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
         with open(BACKUP_SETTINGS_FILE, 'w') as f:
             json.dump(auto_backup_settings, f)
         
@@ -2020,13 +2028,13 @@ def health_check():
         "key_status": key_status,
         "jwt_configured": bool(jwt_key),
         "cors_origins": len(ALLOWED_ORIGINS),
-        "time": datetime.now().isoformat()
+        "time": datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
     }
 
 @app.get("/api/version")
 def get_version():
     """返回服务器版本"""
-    return {"server_version": "v5.1.3"}
+    return {"server_version": "v5.1.4"}
 
 # ==================== 静态文件 ====================
 
@@ -2679,24 +2687,16 @@ def extract_verification_code(text: str) -> tuple:
     """从文本中提取验证码，返回 (code, service)"""
     import re
     
-    # 常见验证码模式 - 按优先级排序
+    # 常见验证码模式 - 按优先级排序（先匹配带服务名的，再匹配通用格式）
     patterns = [
-        # 明确的验证码格式（最高优先级）
-        (r'(?:verification code|验证码)[：:\s]*(\d{4,6})', 'unknown'),
-        (r'(?:code|码)[：:\s]+(\d{4,6})\b', 'unknown'),
-        (r'(\d{4,6})\s*(?:是你的|为你的|is your)', 'unknown'),
-        # Email verification code: XXXXXX 格式（针对Google）
-        (r'Email verification code[：:\s]*(\d{4,6})', 'Google'),
-        (r'verification code[：:\s]*(\d{4,6})', 'unknown'),
-        # 4-6位数字验证码  
-        (r'(?:验证码|code|Code|CODE)[：:\s]*(\d{4,6})', 'unknown'),
-        # 带服务名的（需要更严格的模式，必须跟着 code 或验证码）
+        # 1. 带服务名的模式（优先识别来源）
         (r'(?:Google|谷歌).*?(?:code|验证码)[：:\s]*(\d{4,6})', 'Google'),
+        (r'Email verification code[：:\s]*(\d{4,6})', 'Google'),  # Google 专用格式
         (r'(?:Microsoft|微软).*?(?:code|验证码)[：:\s]*(\d{4,6})', 'Microsoft'),
         (r'(?:Apple|苹果).*?(?:code|验证码)[：:\s]*(\d{4,6})', 'Apple'),
         (r'(?:Amazon|亚马逊).*?(?:code|验证码)[：:\s]*(\d{4,6})', 'Amazon'),
-        (r'(?:Facebook|脸书).*?(?:code|验证码)[：:\s]*(\d{4,6})', 'Facebook'),
-        (r'(?:Twitter|推特).*?(?:code|验证码)[：:\s]*(\d{4,6})', 'Twitter'),
+        (r'(?:Facebook|脸书|Meta).*?(?:code|验证码)[：:\s]*(\d{4,6})', 'Facebook'),
+        (r'(?:Twitter|推特|X).*?(?:code|验证码)[：:\s]*(\d{4,6})', 'Twitter'),
         (r'(?:LinkedIn).*?(?:code|验证码)[：:\s]*(\d{4,6})', 'LinkedIn'),
         (r'(?:GitHub).*?(?:code|验证码)[：:\s]*(\d{4,6})', 'GitHub'),
         (r'(?:Discord).*?(?:code|验证码)[：:\s]*(\d{4,6})', 'Discord'),
@@ -2707,17 +2707,17 @@ def extract_verification_code(text: str) -> tuple:
         (r'(?:淘宝|Taobao).*?(?:code|验证码)[：:\s]*(\d{4,6})', '淘宝'),
         (r'(?:京东|JD).*?(?:code|验证码)[：:\s]*(\d{4,6})', '京东'),
         (r'(?:Steam).*?(?:code|验证码)[：:\s]*(\d{5})', 'Steam'),
+        
+        # 2. 通用验证码格式（无法识别来源时使用）
+        (r'(\d{4,6})\s*(?:是你的|为你的|is your)', 'unknown'),
+        (r'(?:verification code|验证码)[：:\s]*(\d{4,6})', 'unknown'),
+        (r'(?:code|码)[：:\s]+(\d{4,6})\b', 'unknown'),
     ]
     
     for pattern, service in patterns:
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
             return match.group(1), service
-    
-    # 通用：查找 "code: XXXXXX" 或 "code XXXXXX" 模式
-    match = re.search(r'\bcode[:\s]+(\d{4,6})\b', text, re.IGNORECASE)
-    if match:
-        return match.group(1), 'unknown'
     
     # 最后尝试：独立的6位数字（但不要匹配年份等）
     match = re.search(r'(?<![0-9])(\d{6})(?![0-9])', text)
@@ -3152,9 +3152,8 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                         """, (email_address, code))
                         
                         if not cursor.fetchone():
-                            # 计算过期时间（3分钟后）
-                            from datetime import datetime, timedelta
-                            expires_at = (datetime.utcnow() + timedelta(minutes=3)).strftime('%Y-%m-%dT%H:%M:%SZ')
+                            # 计算过期时间（3分钟后）- 使用 UTC
+                            expires_at = (datetime.now(timezone.utc) + timedelta(minutes=3)).strftime('%Y-%m-%dT%H:%M:%SZ')
                             
                             # 验证码有效期3分钟
                             conn.execute(f"""
