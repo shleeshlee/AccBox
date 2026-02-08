@@ -3021,6 +3021,23 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
     
     # 获取客户端传来的启动时间戳（只检测此时间之后的邮件）
     with get_db() as conn:
+        # 确保已处理邮件表存在（兼容旧版本升级）
+        conn.execute(f"""
+            CREATE TABLE IF NOT EXISTS user_{user_id}_processed_emails (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT NOT NULL,
+                message_id TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(email, message_id)
+            )
+        """)
+        # 确保验证码表有 message_id 列
+        try:
+            conn.execute(f"ALTER TABLE user_{user_id}_verification_codes ADD COLUMN message_id TEXT DEFAULT ''")
+        except:
+            pass
+        conn.commit()
+        
         # 清理1小时前的已处理邮件记录（防止表无限增长）
         try:
             conn.execute(f"DELETE FROM user_{user_id}_processed_emails WHERE created_at < datetime('now', '-1 hour')")
