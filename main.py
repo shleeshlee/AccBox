@@ -2992,6 +2992,7 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
     """刷新邮箱，获取最新验证码（支持 Gmail、Outlook、QQ、IMAP）"""
     user_id = user['id']
     new_codes = []
+    print(f"[DEBUG refresh] === 开始 user_id={user_id} ===")
     
     # 获取客户端传来的启动时间戳（只检测此时间之后的邮件）
     with get_db() as conn:
@@ -3007,6 +3008,7 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
             email_id = email_row["id"]
             provider = email_row["provider"]
             encrypted_creds = email_row["credentials"]
+            print(f"[DEBUG refresh] 处理邮箱: {email_address}, provider={provider}")
             
             try:
                 creds = json.loads(decrypt_password(encrypted_creds))
@@ -3018,7 +3020,6 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                     refresh_token = creds.get('refresh_token')
                     
                     if not access_token:
-                        print(f"[Gmail] {email_address}: ⚠️ 无 access_token，跳过")
                         continue
                     
                     import urllib.request
@@ -3043,18 +3044,11 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                                 messages_data = json.loads(resp.read().decode())
                             break
                         except urllib.error.HTTPError as e:
-                            print(f"[Gmail] {email_address}: ❌ HTTP {e.code} (attempt {attempt+1})")
                             if e.code == 401 and attempt == 0 and refresh_token:
                                 new_token = refresh_gmail_token(refresh_token, email_id, user_id)
                                 if new_token:
                                     access_token = new_token
-                                    print(f"[Gmail] {email_address}: ✅ token 已刷新")
                                     continue
-                                else:
-                                    print(f"[Gmail] {email_address}: ❌ token 刷新失败")
-                            break
-                        except Exception as e:
-                            print(f"[Gmail] {email_address}: ❌ 列表请求异常: {type(e).__name__}: {e}")
                             break
                     
                     if not messages_data:
@@ -3073,8 +3067,8 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                         try:
                             with urllib.request.urlopen(req, timeout=10) as resp:
                                 msg_data = json.loads(resp.read().decode())
-                        except Exception as e:
-                            print(f"[Gmail] ❌ 获取邮件详情 {msg_id} 失败: {type(e).__name__}: {e}")
+                        except Exception as _detail_err:
+                            print(f"[DEBUG Gmail] 获取邮件详情失败 msg_id={msg_id}: {type(_detail_err).__name__}: {_detail_err}")
                             continue
                         
                         snippet = msg_data.get('snippet', '')
@@ -3118,15 +3112,13 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                             emails_content = fetch_outlook_emails(access_token)
                             break
                         except urllib.error.HTTPError as e:
-                            print(f"[Outlook] {email_address}: ❌ HTTP {e.code} (attempt {attempt+1})")
                             if e.code == 401 and attempt == 0 and refresh_token:
                                 new_token = refresh_outlook_token(refresh_token, email_id, user_id)
                                 if new_token:
                                     access_token = new_token
                                     continue
                             break
-                        except Exception as e:
-                            print(f"[Outlook] {email_address}: ❌ 异常: {type(e).__name__}: {e}")
+                        except:
                             break
                 
                 # ==================== QQ / IMAP ====================
@@ -3149,7 +3141,7 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                     from_addr = email_data.get('from', '')
                     
                     code, service = extract_verification_code(full_text)
-                    print(f"[验证码] 提取结果: code={code}, service={service}")
+                    print(f"[验证码] 提取结果: code={code}, service={service}, body前300字={repr(full_text[:300])}")
                     
                     if code:
                         # 如果服务未识别，用发件人
@@ -3158,14 +3150,11 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                         
                         # 检查是否已存在（同邮箱同验证码5分钟内不重复，与查询时间窗口一致）
                         cursor = conn.execute(f"""
-                            SELECT id, created_at FROM user_{user_id}_verification_codes 
+                            SELECT id FROM user_{user_id}_verification_codes 
                             WHERE email = ? AND code = ? AND created_at > datetime('now', '-5 minutes')
                         """, (email_address, code))
                         
-                        existing = cursor.fetchone()
-                        if existing:
-                            print(f"[验证码] ⏭️ 已存在: code={code}, 已有记录id={existing[0]}, created_at={existing[1]}")
-                        else:
+                        if not cursor.fetchone():
                             # 计算过期时间（3分钟后）- 使用 UTC
                             expires_at = (datetime.now(timezone.utc) + timedelta(minutes=3)).strftime('%Y-%m-%dT%H:%M:%SZ')
                             
@@ -3177,7 +3166,7 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                             """, (email_address, service[:50], code, ''))
                             conn.commit()
                             
-                            print(f"[验证码] ✅ 新验证码已保存: {code} from {service}, expires_at={expires_at}")
+                            print(f"[验证码] ✅ 新验证码已保存: {code} from {service}")
                             
                             new_codes.append({
                                 "email": email_address,
@@ -3185,14 +3174,16 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                                 "code": code,
                                 "expires_at": expires_at
                             })
+                        else:
+                            print(f"[验证码] ⏭️ 去重命中: code={code}, email={email_address}")
             
             except Exception as e:
                 import traceback
-                print(f"处理邮箱 {email_address} 失败: {type(e).__name__}: {e}")
+                print(f"[DEBUG refresh] ❌ 处理邮箱 {email_address} 失败: {type(e).__name__}: {e}")
                 traceback.print_exc()
                 continue
     
-    print(f"[refresh_emails] 完成, new_codes 数量: {len(new_codes)}, codes: {[c['code'] for c in new_codes]}")
+    print(f"[DEBUG refresh] === 结束 new_codes={len(new_codes)} codes={[c['code'] for c in new_codes]} ===")
     return {"success": True, "new_codes": new_codes}
 
 @app.post("/api/emails/codes/{code_id}/read")
