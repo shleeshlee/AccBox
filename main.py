@@ -497,24 +497,7 @@ def init_user_tables(user_id: int):
                 account_name TEXT DEFAULT '',
                 is_read INTEGER DEFAULT 0,
                 expires_at TIMESTAMP,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                message_id TEXT DEFAULT ''
-            )
-        """)
-        # 迁移：如果旧表没有 message_id 列，添加
-        try:
-            conn.execute(f"ALTER TABLE user_{user_id}_verification_codes ADD COLUMN message_id TEXT DEFAULT ''")
-        except:
-            pass
-        
-        # 已处理邮件ID表（防止重复处理同一封邮件）
-        conn.execute(f"""
-            CREATE TABLE IF NOT EXISTS user_{user_id}_processed_emails (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                email TEXT NOT NULL,
-                message_id TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(email, message_id)
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
         
@@ -2894,7 +2877,7 @@ def fetch_imap_emails(email_address: str, creds: dict) -> list:
         
         msg_nums = messages[0].split()
         # 只取最近5封
-        msg_nums = msg_nums[-20:] if len(msg_nums) > 20 else msg_nums
+        msg_nums = msg_nums[-5:] if len(msg_nums) > 5 else msg_nums
         
         for num in reversed(msg_nums):  # 从新到旧
             try:
@@ -2903,20 +2886,12 @@ def fetch_imap_emails(email_address: str, creds: dict) -> list:
                 if status != 'OK':
                     continue
                 
-                # 用 IMAP 序号作为 message_id（同一次 IMAP 会话内唯一）
-                imap_msg_id = f"imap_{num.decode() if isinstance(num, bytes) else num}"
-                
                 # 解析邮件
                 raw_header = msg_data[0][1] if msg_data[0] else b''
                 raw_body = msg_data[1][1] if len(msg_data) > 1 and msg_data[1] else b''
                 
                 raw_email = raw_header + b'\r\n' + raw_body
                 msg = email.message_from_bytes(raw_email)
-                
-                # 尝试获取 Message-ID 头
-                real_msg_id = msg.get('Message-ID', '').strip()
-                if real_msg_id:
-                    imap_msg_id = real_msg_id
                 
                 # 检查邮件时间，只要最近5分钟的邮件
                 date_str = msg.get('Date', '')
@@ -2956,8 +2931,7 @@ def fetch_imap_emails(email_address: str, creds: dict) -> list:
                 if body:
                     emails_content.append({
                         'from': from_header,
-                        'body': body,
-                        'msg_id': imap_msg_id
+                        'body': body
                     })
             except Exception as e:
                 continue
@@ -3021,30 +2995,6 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
     
     # 获取客户端传来的启动时间戳（只检测此时间之后的邮件）
     with get_db() as conn:
-        # 确保已处理邮件表存在（兼容旧版本升级）
-        conn.execute(f"""
-            CREATE TABLE IF NOT EXISTS user_{user_id}_processed_emails (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                email TEXT NOT NULL,
-                message_id TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(email, message_id)
-            )
-        """)
-        # 确保验证码表有 message_id 列
-        try:
-            conn.execute(f"ALTER TABLE user_{user_id}_verification_codes ADD COLUMN message_id TEXT DEFAULT ''")
-        except:
-            pass
-        conn.commit()
-        
-        # 清理1小时前的已处理邮件记录（防止表无限增长）
-        try:
-            conn.execute(f"DELETE FROM user_{user_id}_processed_emails WHERE created_at < datetime('now', '-1 hour')")
-            conn.commit()
-        except:
-            pass
-        
         # 获取已授权的邮箱
         try:
             cursor = conn.execute(f"SELECT id, address, provider, credentials FROM user_{user_id}_emails WHERE status = 'active'")
@@ -3068,6 +3018,7 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                     refresh_token = creds.get('refresh_token')
                     
                     if not access_token:
+                        print(f"[Gmail] {email_address}: ⚠️ 无 access_token，跳过")
                         continue
                     
                     import urllib.request
@@ -3092,72 +3043,38 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                                 messages_data = json.loads(resp.read().decode())
                             break
                         except urllib.error.HTTPError as e:
+                            print(f"[Gmail] {email_address}: ❌ HTTP {e.code} (attempt {attempt+1})")
                             if e.code == 401 and attempt == 0 and refresh_token:
-                                print(f"[Gmail] {email_address}: 401 未授权，刷新 token")
                                 new_token = refresh_gmail_token(refresh_token, email_id, user_id)
                                 if new_token:
                                     access_token = new_token
+                                    print(f"[Gmail] {email_address}: ✅ token 已刷新")
                                     continue
-                            print(f"[Gmail] {email_address}: HTTP {e.code} 错误")
+                                else:
+                                    print(f"[Gmail] {email_address}: ❌ token 刷新失败")
                             break
                         except Exception as e:
-                            print(f"[Gmail] {email_address}: 请求异常: {e}")
+                            print(f"[Gmail] {email_address}: ❌ 列表请求异常: {type(e).__name__}: {e}")
                             break
                     
                     if not messages_data:
                         print(f"[Gmail] {email_address}: messages_data 为空")
                         continue
                     
-                    msg_list = messages_data.get('messages', [])
-                    print(f"[Gmail] {email_address}: 查询 after:{five_minutes_ago}, 获取到 {len(msg_list)} 封邮件")
+                    msg_count = len(messages_data.get('messages', []))
+                    print(f"[Gmail] {email_address}: 查询 after:{five_minutes_ago}, 获取到 {msg_count} 封邮件")
                     
-                    for msg in msg_list:
+                    for msg in messages_data.get('messages', []):
                         msg_id = msg['id']
-                        
-                        # 检查是否已处理过此邮件（基于 Gmail message ID）
-                        processed = conn.execute(f"""
-                            SELECT 1 FROM user_{user_id}_processed_emails 
-                            WHERE email = ? AND message_id = ?
-                        """, (email_address, msg_id)).fetchone()
-                        
-                        if processed:
-                            continue  # 已处理过，跳过
-                        
                         detail_url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{msg_id}?format=full"
+                        req = urllib.request.Request(detail_url)
+                        req.add_header('Authorization', f'Bearer {access_token}')
                         
-                        # 获取邮件详情，支持401重试
-                        msg_data = None
-                        for detail_attempt in range(2):
-                            req = urllib.request.Request(detail_url)
-                            req.add_header('Authorization', f'Bearer {access_token}')
-                            
-                            try:
-                                with urllib.request.urlopen(req, timeout=10) as resp:
-                                    msg_data = json.loads(resp.read().decode())
-                                break
-                            except urllib.error.HTTPError as e:
-                                if e.code == 401 and detail_attempt == 0 and refresh_token:
-                                    new_token = refresh_gmail_token(refresh_token, email_id, user_id)
-                                    if new_token:
-                                        access_token = new_token
-                                        continue
-                                print(f"[Gmail] 获取邮件 {msg_id} 失败: HTTP {e.code}")
-                                break
-                            except Exception as e:
-                                print(f"[Gmail] 获取邮件 {msg_id} 异常: {e}")
-                                break
-                        
-                        # 标记为已处理（不管有没有验证码，都标记，避免反复获取详情）
                         try:
-                            conn.execute(f"""
-                                INSERT OR IGNORE INTO user_{user_id}_processed_emails (email, message_id)
-                                VALUES (?, ?)
-                            """, (email_address, msg_id))
-                            conn.commit()
-                        except:
-                            pass
-                        
-                        if not msg_data:
+                            with urllib.request.urlopen(req, timeout=10) as resp:
+                                msg_data = json.loads(resp.read().decode())
+                        except Exception as e:
+                            print(f"[Gmail] ❌ 获取邮件详情 {msg_id} 失败: {type(e).__name__}: {e}")
                             continue
                         
                         snippet = msg_data.get('snippet', '')
@@ -3180,10 +3097,9 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                         
                         emails_content.append({
                             'from': from_addr,
-                            'body': snippet + ' ' + body_data,
-                            'msg_id': msg_id
+                            'body': snippet + ' ' + body_data
                         })
-                        print(f"[Gmail] 新邮件: from={from_addr[:30]}..., body长度={len(snippet + body_data)}")
+                        print(f"[Gmail] 添加邮件: from={from_addr[:30]}..., body长度={len(snippet + body_data)}")
                 
                 # ==================== Outlook ====================
                 elif provider == 'outlook':
@@ -3202,13 +3118,15 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                             emails_content = fetch_outlook_emails(access_token)
                             break
                         except urllib.error.HTTPError as e:
+                            print(f"[Outlook] {email_address}: ❌ HTTP {e.code} (attempt {attempt+1})")
                             if e.code == 401 and attempt == 0 and refresh_token:
                                 new_token = refresh_outlook_token(refresh_token, email_id, user_id)
                                 if new_token:
                                     access_token = new_token
                                     continue
                             break
-                        except:
+                        except Exception as e:
+                            print(f"[Outlook] {email_address}: ❌ 异常: {type(e).__name__}: {e}")
                             break
                 
                 # ==================== QQ / IMAP ====================
@@ -3229,45 +3147,37 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                 for email_data in emails_content:
                     full_text = email_data.get('body', '')
                     from_addr = email_data.get('from', '')
-                    msg_id = email_data.get('msg_id', '')
                     
                     code, service = extract_verification_code(full_text)
-                    print(f"[验证码] 提取结果: code={code}, service={service}, msg_id={msg_id[:20] if msg_id else 'none'}")
+                    print(f"[验证码] 提取结果: code={code}, service={service}")
                     
                     if code:
                         # 如果服务未识别，用发件人
                         if service == 'unknown':
                             service = from_addr.split('<')[0].strip() or from_addr
                         
-                        # 去重检查：基于 message_id（如果有）或退回到 code+时间窗口
-                        already_exists = False
-                        if msg_id:
-                            cursor = conn.execute(f"""
-                                SELECT id FROM user_{user_id}_verification_codes 
-                                WHERE email = ? AND message_id = ?
-                            """, (email_address, msg_id))
-                            already_exists = cursor.fetchone() is not None
-                        else:
-                            # IMAP/Outlook 可能没有 msg_id，退回到旧的去重方式
-                            cursor = conn.execute(f"""
-                                SELECT id FROM user_{user_id}_verification_codes 
-                                WHERE email = ? AND code = ? AND created_at > datetime('now', '-5 minutes')
-                            """, (email_address, code))
-                            already_exists = cursor.fetchone() is not None
+                        # 检查是否已存在（同邮箱同验证码5分钟内不重复，与查询时间窗口一致）
+                        cursor = conn.execute(f"""
+                            SELECT id, created_at FROM user_{user_id}_verification_codes 
+                            WHERE email = ? AND code = ? AND created_at > datetime('now', '-5 minutes')
+                        """, (email_address, code))
                         
-                        if not already_exists:
+                        existing = cursor.fetchone()
+                        if existing:
+                            print(f"[验证码] ⏭️ 已存在: code={code}, 已有记录id={existing[0]}, created_at={existing[1]}")
+                        else:
                             # 计算过期时间（3分钟后）- 使用 UTC
                             expires_at = (datetime.now(timezone.utc) + timedelta(minutes=3)).strftime('%Y-%m-%dT%H:%M:%SZ')
                             
                             # 验证码有效期3分钟
                             conn.execute(f"""
                                 INSERT INTO user_{user_id}_verification_codes 
-                                (email, service, code, account_name, is_read, expires_at, created_at, message_id)
-                                VALUES (?, ?, ?, ?, 0, datetime('now', '+3 minutes'), datetime('now'), ?)
-                            """, (email_address, service[:50], code, '', msg_id))
+                                (email, service, code, account_name, is_read, expires_at, created_at)
+                                VALUES (?, ?, ?, ?, 0, datetime('now', '+3 minutes'), datetime('now'))
+                            """, (email_address, service[:50], code, ''))
                             conn.commit()
                             
-                            print(f"[验证码] ✅ 新验证码已保存: {code} from {service}")
+                            print(f"[验证码] ✅ 新验证码已保存: {code} from {service}, expires_at={expires_at}")
                             
                             new_codes.append({
                                 "email": email_address,
@@ -3277,9 +3187,12 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                             })
             
             except Exception as e:
-                print(f"处理邮箱 {email_address} 失败: {e}")
+                import traceback
+                print(f"处理邮箱 {email_address} 失败: {type(e).__name__}: {e}")
+                traceback.print_exc()
                 continue
     
+    print(f"[refresh_emails] 完成, new_codes 数量: {len(new_codes)}, codes: {[c['code'] for c in new_codes]}")
     return {"success": True, "new_codes": new_codes}
 
 @app.post("/api/emails/codes/{code_id}/read")
