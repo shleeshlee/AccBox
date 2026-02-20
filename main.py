@@ -2058,7 +2058,7 @@ class EmailIMAPAdd(BaseModel):
 
 class EmailCloudflareAdd(BaseModel):
     worker_domain: str      # e.g. steep-night-1f5a.ddzhaogg001.workers.dev
-    email_domain: str       # e.g. wan.mba
+    email_domain: str       # e.g. example.com
     admin_password: str     # Worker 管理密码
     email_address: Optional[str] = None  # 可选，不填则自动创建
 
