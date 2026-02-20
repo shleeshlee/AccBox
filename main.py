@@ -2662,41 +2662,56 @@ def add_cloudflare_email(data: EmailCloudflareAdd, user: dict = Depends(get_curr
 
     try:
         email_address = data.email_address
+        cf_token = None
 
-        # 如果未指定邮箱地址，调用 Worker 创建新邮箱
+        # 如果未指定邮箱地址，调用 Worker 创建新邮箱（创建时直接返回 JWT）
         if not email_address:
+            import random, string
+            name_length = random.randint(10, 14)
+            name_chars = list(random.choices(string.ascii_lowercase, k=name_length))
+            for _ in range(random.choice([1, 2])):
+                pos = random.randint(2, len(name_chars) - 1)
+                name_chars.insert(pos, random.choice(string.digits))
+            random_name = ''.join(name_chars)
+
             create_url = f"{worker_base}/admin/new_address"
             create_body = json.dumps({
-                "domain": data.email_domain,
-                "password": data.admin_password
+                "enablePrefix": True,
+                "name": random_name,
+                "domain": data.email_domain
             }).encode()
             req = urllib.request.Request(create_url, data=create_body, method='POST')
             req.add_header('Content-Type', 'application/json')
+            req.add_header('x-admin-auth', data.admin_password)
             req.add_header('User-Agent', CF_UA)
 
             with urllib.request.urlopen(req, timeout=15) as resp:
                 result = json.loads(resp.read().decode())
 
-            email_address = result.get('address') or result.get('email')
+            email_address = result.get('address')
+            cf_token = result.get('jwt')
             if not email_address:
                 raise HTTPException(status_code=400, detail="Worker 未返回邮箱地址")
+            if not cf_token:
+                raise HTTPException(status_code=400, detail="Worker 未返回 JWT token")
 
-        # 获取 JWT token
-        login_url = f"{worker_base}/auth/login"
-        login_body = json.dumps({
-            "address": email_address,
-            "password": data.admin_password
-        }).encode()
-        req = urllib.request.Request(login_url, data=login_body, method='POST')
-        req.add_header('Content-Type', 'application/json')
-        req.add_header('User-Agent', CF_UA)
-
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            login_result = json.loads(resp.read().decode())
-
-        cf_token = login_result.get('token') or login_result.get('jwt')
+        # 如果用户指定了已有邮箱，需要单独获取 JWT
         if not cf_token:
-            raise HTTPException(status_code=400, detail="无法获取 Worker JWT token")
+            login_url = f"{worker_base}/auth/login"
+            login_body = json.dumps({
+                "address": email_address,
+                "password": data.admin_password
+            }).encode()
+            req = urllib.request.Request(login_url, data=login_body, method='POST')
+            req.add_header('Content-Type', 'application/json')
+            req.add_header('User-Agent', CF_UA)
+
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                login_result = json.loads(resp.read().decode())
+
+            cf_token = login_result.get('jwt') or login_result.get('token')
+            if not cf_token:
+                raise HTTPException(status_code=400, detail="无法获取 Worker JWT token")
 
         # 测试连接：调用 GET /api/mails 验证 token
         test_url = f"{worker_base}/api/mails?limit=1&offset=0"
