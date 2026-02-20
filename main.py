@@ -3116,8 +3116,8 @@ def fetch_cloudflare_emails(worker_domain: str, cf_token: str) -> list:
         mails = data if isinstance(data, list) else data.get('results', data.get('mails', []))
 
         for mail in mails:
-            from_addr = mail.get('from', mail.get('sender', ''))
-            body = mail.get('text', mail.get('body', mail.get('html', '')))
+            from_addr = mail.get('source', mail.get('from', mail.get('sender', '')))
+            body = mail.get('raw', mail.get('text', mail.get('body', mail.get('html', ''))))
             msg_id = mail.get('id', mail.get('messageId', ''))
 
             # 简单去除 HTML 标签
