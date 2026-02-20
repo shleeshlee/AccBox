@@ -3082,6 +3082,40 @@ def fetch_outlook_emails(access_token: str) -> list:
 
     return emails_content
 
+def _parse_mime_body(raw_email: str) -> str:
+    """从 MIME 原始邮件中提取纯文本正文"""
+    import email
+    import email.policy
+
+    try:
+        msg = email.message_from_string(raw_email, policy=email.policy.default)
+
+        # 优先取纯文本
+        body = msg.get_body(preferencelist=('plain',))
+        if body:
+            text = body.get_content()
+            if text:
+                return text
+
+        # 其次取 HTML 并去标签
+        body = msg.get_body(preferencelist=('html',))
+        if body:
+            html = body.get_content()
+            if html:
+                import re
+                return re.sub(r'<[^>]+>', '', html)
+
+        # 兜底：非 multipart 直接取 payload
+        if not msg.is_multipart():
+            payload = msg.get_payload(decode=True)
+            if payload:
+                charset = msg.get_content_charset() or 'utf-8'
+                return payload.decode(charset, errors='replace')
+    except Exception as e:
+        print(f"MIME 解析失败，使用原始内容: {e}")
+
+    return raw_email
+
 def fetch_cloudflare_emails(worker_domain: str, cf_token: str) -> list:
     """通过 CF Worker API 获取邮件"""
     import urllib.request
@@ -3098,18 +3132,15 @@ def fetch_cloudflare_emails(worker_domain: str, cf_token: str) -> list:
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode())
 
-        # Worker 返回的邮件列表可能在 data 本身（list）或 data['results']
         mails = data if isinstance(data, list) else data.get('results', data.get('mails', []))
 
         for mail in mails:
             from_addr = mail.get('source', mail.get('from', mail.get('sender', '')))
-            body = mail.get('raw', mail.get('text', mail.get('body', mail.get('html', ''))))
+            raw = mail.get('raw', mail.get('text', mail.get('body', mail.get('html', ''))))
             msg_id = mail.get('id', mail.get('messageId', ''))
 
-            # 简单去除 HTML 标签
-            if '<' in body:
-                import re
-                body = re.sub(r'<[^>]+>', '', body)
+            # 用 MIME 解析器提取正文（处理 base64/quoted-printable/multipart）
+            body = _parse_mime_body(raw)
 
             emails_content.append({
                 'from': from_addr,
