@@ -5687,6 +5687,176 @@ const helpContents = {
         `
     },
     
+    cloudflare: {
+        title: 'Cloudflare Worker 邮箱配置教程',
+        content: `
+            <div class="help-section">
+                <div class="help-step">
+                    <div class="help-step-num">1</div>
+                    <div class="help-step-content">
+                        <div class="help-step-title">前提条件</div>
+                        <div class="help-step-desc">
+                            一个域名，NS 已指向 Cloudflare（域名状态显示「活动」）
+                        </div>
+                    </div>
+                </div>
+
+                <div class="help-step">
+                    <div class="help-step-num">2</div>
+                    <div class="help-step-content">
+                        <div class="help-step-title">开启 Email Routing</div>
+                        <div class="help-step-desc">
+                            Cloudflare Dashboard → 你的域名 → 左侧 <strong>Email → Email Routing</strong> → 点击 Get started 启用。CF 会自动添加 MX 和 SPF 记录。
+                        </div>
+                    </div>
+                </div>
+
+                <div class="help-step">
+                    <div class="help-step-num">3</div>
+                    <div class="help-step-content">
+                        <div class="help-step-title">创建 KV 命名空间</div>
+                        <div class="help-step-desc">
+                            左侧菜单 → <strong>Workers & Pages → KV</strong> → Create a namespace → 名称填 <code>KV</code>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="help-step">
+                    <div class="help-step-num">4</div>
+                    <div class="help-step-content">
+                        <div class="help-step-title">创建 Worker 并部署代码</div>
+                        <div class="help-step-desc">
+                            Workers & Pages → Create → Create Worker → 部署后点击「编辑代码」→ 全选删除 → 粘贴以下代码：
+                            <div class="help-copy-box" style="margin-top:8px">
+                                <pre id="cfWorkerCode" style="white-space:pre-wrap;font-size:12px;max-height:300px;overflow-y:auto;margin:0">export default {
+  async fetch(request, env) {
+    const url = new URL(request.url);
+    const PASS = env.ADMIN_PASSWORD || "";
+
+    if (request.method === "OPTIONS") {
+      return new Response(null, {
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type, Authorization, x-admin-auth",
+        },
+      });
+    }
+
+    const cors = { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" };
+
+    if (url.pathname === "/" || url.pathname === "/health") {
+      return new Response(JSON.stringify({ status: "ok", message: "Email Worker is running" }), { headers: cors });
+    }
+
+    if (url.pathname === "/admin/new_address" && request.method === "POST") {
+      if ((request.headers.get("x-admin-auth") || "") !== PASS) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: cors });
+      }
+      const body = await request.json();
+      if (!body.name || !body.domain) {
+        return new Response(JSON.stringify({ error: "Missing name or domain" }), { status: 400, headers: cors });
+      }
+      const address = body.name + "@" + body.domain;
+      const token = btoa(JSON.stringify({ address, created: Date.now(), secret: PASS }));
+      await env.KV.put("addr:" + address, JSON.stringify({ address, created: Date.now(), mails: [] }), { expirationTtl: 3600 });
+      return new Response(JSON.stringify({ address, jwt: token }), { headers: cors });
+    }
+
+    if (url.pathname === "/api/mails" && request.method === "GET") {
+      let address = "";
+      try {
+        const token = (request.headers.get("Authorization") || "").replace("Bearer ", "");
+        const decoded = JSON.parse(atob(token));
+        if (decoded.secret !== PASS) throw new Error();
+        address = decoded.address;
+      } catch { return new Response(JSON.stringify({ error: "Invalid token" }), { status: 401, headers: cors }); }
+      const data = await env.KV.get("addr:" + address, "json");
+      return new Response(JSON.stringify({ results: data ? data.mails || [] : [] }), { headers: cors });
+    }
+
+    return new Response(JSON.stringify({ error: "Not found" }), { status: 404, headers: cors });
+  },
+
+  async email(message, env) {
+    const to = message.to;
+    let rawBody = "";
+    try {
+      const reader = message.raw.getReader();
+      const decoder = new TextDecoder();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        rawBody += decoder.decode(value, { stream: true });
+      }
+    } catch (e) { rawBody = "Error: " + e.message; }
+
+    const key = "addr:" + to;
+    let data = await env.KV.get(key, "json");
+    if (!data) data = { address: to, created: Date.now(), mails: [] };
+    data.mails.push({
+      id: "mail_" + Date.now(),
+      source: message.from,
+      subject: message.headers.get("subject") || "",
+      raw: rawBody,
+      received_at: new Date().toISOString(),
+    });
+    await env.KV.put(key, JSON.stringify(data), { expirationTtl: 3600 });
+  },
+};</pre>
+                                <button class="btn btn-copy" onclick="copyHelpText('cfWorkerCode')">复制代码</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="help-step">
+                    <div class="help-step-num">5</div>
+                    <div class="help-step-content">
+                        <div class="help-step-title">Worker 设置</div>
+                        <div class="help-step-desc">
+                            <strong>绑定 KV：</strong>Worker 设置 → 绑定 → 添加 → KV Namespace → Variable name 填 <code>KV</code>（全大写）<br><br>
+                            <strong>设置密码：</strong>Worker 设置 → 变量和机密 → 添加 → 名称 <code>ADMIN_PASSWORD</code> → 值填你的管理密码<br><br>
+                            <strong>邮件触发：</strong>Worker 设置 → 触发事件 → 添加 → 类型选「电子邮件」→ 区域选你的域名
+                        </div>
+                    </div>
+                </div>
+
+                <div class="help-step">
+                    <div class="help-step-num">6</div>
+                    <div class="help-step-content">
+                        <div class="help-step-title">配置 Catch-All</div>
+                        <div class="help-step-desc">
+                            Cloudflare Dashboard → 你的域名 → <strong>Email → Email Routing → Routing rules</strong> → 底部 Catch-all address → Edit → Action 选 <strong>Send to a Worker</strong> → 选你的 Worker → Save
+                        </div>
+                    </div>
+                </div>
+
+                <div class="help-step">
+                    <div class="help-step-num">7</div>
+                    <div class="help-step-content">
+                        <div class="help-step-title">回到 AccBox 填写配置</div>
+                        <div class="help-step-desc">
+                            <ul style="margin:4px 0 0 20px;color:var(--text-secondary)">
+                                <li><strong>Worker 域名：</strong>你的 Worker 地址，如 <code>my-worker.username.workers.dev</code>（不带 https://）</li>
+                                <li><strong>邮箱域名：</strong>你的裸域名，如 <code>example.com</code></li>
+                                <li><strong>管理密码：</strong>上一步设置的 ADMIN_PASSWORD</li>
+                                <li><strong>邮箱地址：</strong>留空则自动创建随机邮箱</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="help-tip">
+                    <div class="help-tip-title">💡 提示</div>
+                    <div class="help-tip-content">
+                        Worker 是通用的，一个 Worker 可以服务多个域名。换域名时只需在 Cloudflare 配置新域名的 Email Routing 和 Catch-All，Worker 代码不用改。
+                    </div>
+                </div>
+            </div>
+        `
+    },
+
     imap: {
         title: '通用 IMAP 配置说明',
         content: `
