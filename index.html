@@ -858,8 +858,51 @@
                             <button class="btn-provider-auth" onclick="startProviderAuth('imap')">🔗 验证连接</button>
                         </div>
                     </div>
+
+                    <!-- Cloudflare Email -->
+                    <div class="provider-item" data-provider="cloudflare">
+                        <div class="provider-header" onclick="toggleProviderPanel('cloudflare')">
+                            <div class="provider-header-left">
+                                <div class="provider-icon cloudflare">☁️</div>
+                                <div class="provider-info">
+                                    <div class="provider-name">Cloudflare 邮箱</div>
+                                    <div class="provider-desc">Worker 转发收件</div>
+                                </div>
+                            </div>
+                            <div class="provider-toggle">▼</div>
+                        </div>
+                        <div class="provider-panel" id="cloudflarePanel">
+                            <div class="imap-config-inner">
+                                <div class="form-group">
+                                    <label class="form-label">Worker 域名</label>
+                                    <input type="text" class="form-input" id="cfWorkerDomain"
+                                           placeholder="xxx.workers.dev">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">邮箱域名</label>
+                                    <input type="text" class="form-input" id="cfEmailDomain"
+                                           placeholder="example.com">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">管理密码</label>
+                                    <input type="password" class="form-input" id="cfAdminPassword"
+                                           placeholder="Worker 管理密码">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">邮箱地址 <span style="color:#999;font-size:12px">（留空自动创建）</span></label>
+                                    <input type="text" class="form-input" id="cfEmailAddress"
+                                           placeholder="user@example.com（可选）">
+                                </div>
+                            </div>
+                            <div class="provider-auth-info">
+                                <span class="auth-badge imap">API</span>
+                                <span class="auth-hint">通过 Worker API 收取邮件</span>
+                            </div>
+                            <button class="btn-provider-auth" onclick="startProviderAuth('cloudflare')">☁️ 添加邮箱</button>
+                        </div>
+                    </div>
                 </div>
-                
+
                 <!-- 安全说明（底部固定） -->
                 <div class="auth-info-footer">
                     <div class="auth-info-icon">🔒</div>

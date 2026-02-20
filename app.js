@@ -4672,7 +4672,8 @@ function openAddEmailModal() {
     });
     // 清空所有输入框
     ['gmailClientId', 'gmailClientSecret', 'outlookClientId', 'outlookClientSecret',
-     'qqEmail', 'qqPassword', 'imapEmail', 'imapServer', 'imapPassword'].forEach(id => {
+     'qqEmail', 'qqPassword', 'imapEmail', 'imapServer', 'imapPassword',
+     'cfWorkerDomain', 'cfEmailDomain', 'cfAdminPassword', 'cfEmailAddress'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.value = '';
     });
@@ -4898,6 +4899,37 @@ async function startProviderAuth(provider) {
             } else {
                 const errData = await res.json();
                 showToast('❌ ' + (errData.detail || '连接失败'), true);
+            }
+        } else if (provider === 'cloudflare') {
+            const workerDomain = document.getElementById('cfWorkerDomain')?.value.trim();
+            const emailDomain = document.getElementById('cfEmailDomain')?.value.trim();
+            const adminPassword = document.getElementById('cfAdminPassword')?.value;
+            const emailAddress = document.getElementById('cfEmailAddress')?.value.trim();
+
+            if (!workerDomain || !emailDomain || !adminPassword) {
+                showToast('请填写 Worker 域名、邮箱域名和管理密码', true);
+                return;
+            }
+
+            const res = await apiRequest('/emails/cloudflare/add', {
+                method: 'POST',
+                body: JSON.stringify({
+                    worker_domain: workerDomain,
+                    email_domain: emailDomain,
+                    admin_password: adminPassword,
+                    email_address: emailAddress || null
+                })
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                showToast('✅ ' + (data.message || 'Cloudflare 邮箱添加成功'));
+                closeAddEmailModal();
+                loadEmailData();
+                renderAuthorizedEmails();
+            } else {
+                const errData = await res.json();
+                showToast('❌ ' + (errData.detail || '添加失败'), true);
             }
         }
     } catch (e) {

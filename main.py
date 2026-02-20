@@ -2056,6 +2056,12 @@ class EmailIMAPAdd(BaseModel):
     server: Optional[str] = None
     port: Optional[int] = 993
 
+class EmailCloudflareAdd(BaseModel):
+    worker_domain: str      # e.g. steep-night-1f5a.ddzhaogg001.workers.dev
+    email_domain: str       # e.g. example.com
+    admin_password: str     # Worker 管理密码
+    email_address: Optional[str] = None  # 可选，不填则自动创建
+
 class OAuthConfigSave(BaseModel):
     provider: str
     client_id: str
@@ -2644,6 +2650,85 @@ def add_imap_email(data: EmailIMAPAdd, user: dict = Depends(get_current_user)):
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"添加失败: {str(e)}")
 
+@app.post("/api/emails/cloudflare/add")
+def add_cloudflare_email(data: EmailCloudflareAdd, user: dict = Depends(get_current_user)):
+    """添加 Cloudflare Worker 邮箱"""
+    import urllib.request
+    import urllib.error
+
+    user_id = user['id']
+    worker_base = f"https://{data.worker_domain}"
+
+    try:
+        email_address = data.email_address
+
+        # 如果未指定邮箱地址，调用 Worker 创建新邮箱
+        if not email_address:
+            create_url = f"{worker_base}/admin/new_address"
+            create_body = json.dumps({
+                "domain": data.email_domain,
+                "password": data.admin_password
+            }).encode()
+            req = urllib.request.Request(create_url, data=create_body, method='POST')
+            req.add_header('Content-Type', 'application/json')
+
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                result = json.loads(resp.read().decode())
+
+            email_address = result.get('address') or result.get('email')
+            if not email_address:
+                raise HTTPException(status_code=400, detail="Worker 未返回邮箱地址")
+
+        # 获取 JWT token
+        login_url = f"{worker_base}/auth/login"
+        login_body = json.dumps({
+            "address": email_address,
+            "password": data.admin_password
+        }).encode()
+        req = urllib.request.Request(login_url, data=login_body, method='POST')
+        req.add_header('Content-Type', 'application/json')
+
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            login_result = json.loads(resp.read().decode())
+
+        cf_token = login_result.get('token') or login_result.get('jwt')
+        if not cf_token:
+            raise HTTPException(status_code=400, detail="无法获取 Worker JWT token")
+
+        # 测试连接：调用 GET /api/mails 验证 token
+        test_url = f"{worker_base}/api/mails?limit=1&offset=0"
+        req = urllib.request.Request(test_url)
+        req.add_header('Authorization', f'Bearer {cf_token}')
+
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            resp.read()  # 只要不报错就说明 token 有效
+
+        # 存储到数据库
+        with get_db() as conn:
+            credentials = json.dumps({
+                "worker_domain": data.worker_domain,
+                "cf_token": cf_token,
+                "admin_password": data.admin_password,
+                "email_domain": data.email_domain
+            })
+            encrypted_creds = encrypt_password(credentials)
+
+            conn.execute(f"""
+                INSERT OR REPLACE INTO user_{user_id}_emails (address, provider, status, credentials)
+                VALUES (?, 'cloudflare', 'active', ?)
+            """, (email_address, encrypted_creds))
+            conn.commit()
+
+        return {"success": True, "message": f"成功添加 {email_address}", "email": email_address}
+
+    except urllib.error.HTTPError as e:
+        body = e.read().decode() if e.fp else ''
+        raise HTTPException(status_code=400, detail=f"Worker 请求失败 ({e.code}): {body}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"添加失败: {str(e)}")
+
 @app.delete("/api/emails/{email_id}")
 def remove_email(email_id: int, user: dict = Depends(get_current_user)):
     """移除授权邮箱"""
@@ -2989,7 +3074,45 @@ def fetch_outlook_emails(access_token: str) -> list:
             })
     except Exception as e:
         print(f"Outlook 获取邮件失败: {e}")
-    
+
+    return emails_content
+
+def fetch_cloudflare_emails(worker_domain: str, cf_token: str) -> list:
+    """通过 CF Worker API 获取邮件"""
+    import urllib.request
+    import urllib.error
+
+    emails_content = []
+
+    try:
+        url = f"https://{worker_domain}/api/mails?limit=10&offset=0"
+        req = urllib.request.Request(url)
+        req.add_header('Authorization', f'Bearer {cf_token}')
+
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode())
+
+        # Worker 返回的邮件列表可能在 data 本身（list）或 data['results']
+        mails = data if isinstance(data, list) else data.get('results', data.get('mails', []))
+
+        for mail in mails:
+            from_addr = mail.get('from', mail.get('sender', ''))
+            body = mail.get('text', mail.get('body', mail.get('html', '')))
+            msg_id = mail.get('id', mail.get('messageId', ''))
+
+            # 简单去除 HTML 标签
+            if '<' in body:
+                import re
+                body = re.sub(r'<[^>]+>', '', body)
+
+            emails_content.append({
+                'from': from_addr,
+                'body': body,
+                'msg_id': str(msg_id)
+            })
+    except Exception as e:
+        print(f"Cloudflare 获取邮件失败 ({worker_domain}): {e}")
+
     return emails_content
 
 @app.post("/api/emails/refresh")
@@ -3143,7 +3266,14 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                     
                     emails_content = fetch_imap_emails(email_address, creds)
                     imap_last_fetch[email_address] = now  # 更新最后请求时间
-                
+
+                # ==================== Cloudflare ====================
+                elif provider == 'cloudflare':
+                    cf_token = creds.get('cf_token')
+                    worker_domain = creds.get('worker_domain')
+                    if cf_token and worker_domain:
+                        emails_content = fetch_cloudflare_emails(worker_domain, cf_token)
+
                 # ==================== 提取验证码 ====================
                 print(f"[验证码] emails_content 数量: {len(emails_content)}")
                 for email_data in emails_content:
