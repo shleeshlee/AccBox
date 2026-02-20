@@ -2658,6 +2658,7 @@ def add_cloudflare_email(data: EmailCloudflareAdd, user: dict = Depends(get_curr
 
     user_id = user['id']
     worker_base = f"https://{data.worker_domain}"
+    CF_UA = 'AccBox/1.0'
 
     try:
         email_address = data.email_address
@@ -2671,6 +2672,7 @@ def add_cloudflare_email(data: EmailCloudflareAdd, user: dict = Depends(get_curr
             }).encode()
             req = urllib.request.Request(create_url, data=create_body, method='POST')
             req.add_header('Content-Type', 'application/json')
+            req.add_header('User-Agent', CF_UA)
 
             with urllib.request.urlopen(req, timeout=15) as resp:
                 result = json.loads(resp.read().decode())
@@ -2687,6 +2689,7 @@ def add_cloudflare_email(data: EmailCloudflareAdd, user: dict = Depends(get_curr
         }).encode()
         req = urllib.request.Request(login_url, data=login_body, method='POST')
         req.add_header('Content-Type', 'application/json')
+        req.add_header('User-Agent', CF_UA)
 
         with urllib.request.urlopen(req, timeout=15) as resp:
             login_result = json.loads(resp.read().decode())
@@ -2699,6 +2702,7 @@ def add_cloudflare_email(data: EmailCloudflareAdd, user: dict = Depends(get_curr
         test_url = f"{worker_base}/api/mails?limit=1&offset=0"
         req = urllib.request.Request(test_url)
         req.add_header('Authorization', f'Bearer {cf_token}')
+        req.add_header('User-Agent', CF_UA)
 
         with urllib.request.urlopen(req, timeout=10) as resp:
             resp.read()  # 只要不报错就说明 token 有效
@@ -3088,6 +3092,7 @@ def fetch_cloudflare_emails(worker_domain: str, cf_token: str) -> list:
         url = f"https://{worker_domain}/api/mails?limit=10&offset=0"
         req = urllib.request.Request(url)
         req.add_header('Authorization', f'Bearer {cf_token}')
+        req.add_header('User-Agent', 'AccBox/1.0')
 
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode())
