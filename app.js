@@ -5816,6 +5816,7 @@ const helpContents = {
                         <div class="help-step-title">Worker 设置</div>
                         <div class="help-step-desc">
                             <strong>绑定 KV：</strong>Workers 和 Pages → 点击你的woker 绑定 → KV命名空间 → 添加绑定 → 变量名称 填 <code>KV</code>（全大写）KV命名空间选你创建好的KV<br><br>
+                            <strong>启用域：</strong>Workers 和 Pages → 点击你的woker → 设置 → 域和路由 → workers.dev 点选...启用<br><br>
                             <strong>设置密码：</strong>Workers 和 Pages → 点击你的woker 设置 → 变量和机密 → 添加 → 类型 文本 变量名称 <code>ADMIN_PASSWORD</code> → 值填你的管理密码
                             
                         </div>
