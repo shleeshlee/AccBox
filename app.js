@@ -5827,7 +5827,7 @@ const helpContents = {
                     <div class="help-step-content">
                         <div class="help-step-title">配置 Catch-All</div>
                         <div class="help-step-desc">
-                            电子邮件路由 → 你的域名 → <strong>Routing rules</strong> →  ...编辑 → Action 选 <strong>Send to a Worker</strong> → 选你的 Worker → Save
+                            电子邮件路由 → 你的域名 → <strong>Routing rules</strong> →  ...编辑 → Action 选 <strong>Send to a Worker</strong> → 选你的 Worker → Save → Status 打开变Active
                         </div>
                     </div>
                 </div>
