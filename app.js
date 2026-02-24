@@ -5716,7 +5716,7 @@ const helpContents = {
                     <div class="help-step-content">
                         <div class="help-step-title">创建 KV 命名空间</div>
                         <div class="help-step-desc">
-                            左侧菜单 → <strong>Workers & Pages → KV</strong> → Create a namespace → 名称填 <code>KV</code>
+                            左侧菜单 构建 → 存储和数据库 <strong>Workers KV</strong> → Create Instance → 名称填 <code>KV</code>
                         </div>
                     </div>
                 </div>
@@ -5724,9 +5724,9 @@ const helpContents = {
                 <div class="help-step">
                     <div class="help-step-num">4</div>
                     <div class="help-step-content">
-                        <div class="help-step-title">创建 Worker 并部署代码</div>
+                        <div class="help-step-title">创建Email Worker 并部署代码</div>
                         <div class="help-step-desc">
-                            Workers & Pages → Create → Create Worker → 部署后点击「编辑代码」→ 全选删除 → 粘贴以下代码：
+                            Email Routing → 你的域名 → Destination Workers → Create Worker → Create my own → 部署后点击...选择「编辑代码」→ 全选删除 → 粘贴以下代码并点击 部署 ：
                             <div class="help-copy-box" style="margin-top:8px">
                                 <pre id="cfWorkerCode" style="white-space:pre-wrap;font-size:12px;max-height:300px;overflow-y:auto;margin:0">export default {
   async fetch(request, env) {
@@ -5815,9 +5815,9 @@ const helpContents = {
                     <div class="help-step-content">
                         <div class="help-step-title">Worker 设置</div>
                         <div class="help-step-desc">
-                            <strong>绑定 KV：</strong>Worker 设置 → 绑定 → 添加 → KV Namespace → Variable name 填 <code>KV</code>（全大写）<br><br>
-                            <strong>设置密码：</strong>Worker 设置 → 变量和机密 → 添加 → 名称 <code>ADMIN_PASSWORD</code> → 值填你的管理密码<br><br>
-                            <strong>邮件触发：</strong>Worker 设置 → 触发事件 → 添加 → 类型选「电子邮件」→ 区域选你的域名
+                            <strong>绑定 KV：</strong>Workers 和 Pages → 点击你的woker 绑定 → KV命名空间 → 添加绑定 → 变量名称 填 <code>KV</code>（全大写）KV命名空间选你创建好的KV<br><br>
+                            <strong>设置密码：</strong>Workers 和 Pages → 点击你的woker 设置 → 变量和机密 → 添加 → 类型 文本 变量名称 <code>ADMIN_PASSWORD</code> → 值填你的管理密码
+                            
                         </div>
                     </div>
                 </div>
@@ -5827,7 +5827,7 @@ const helpContents = {
                     <div class="help-step-content">
                         <div class="help-step-title">配置 Catch-All</div>
                         <div class="help-step-desc">
-                            Cloudflare Dashboard → 你的域名 → <strong>Email → Email Routing → Routing rules</strong> → 底部 Catch-all address → Edit → Action 选 <strong>Send to a Worker</strong> → 选你的 Worker → Save
+                            电子邮件路由 → 你的域名 → <strong>Routing rules</strong> →  ...编辑 → Action 选 <strong>Send to a Worker</strong> → 选你的 Worker → Save
                         </div>
                     </div>
                 </div>
