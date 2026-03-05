@@ -957,16 +957,17 @@ function renderCards() {
             const values = firstGroup.values || [];
             const firstValueId = values[0]?.id;
             const lastValueId = values[values.length - 1]?.id;
-            let allFirst = true, allLast = true;
+            let allFirst = true, allLast = true, hasStatus = false;
             for (const combo of combos) {
                 const statusValue = values.find(v => combo.includes(v.id));
                 if (statusValue) {
+                    hasStatus = true;
                     if (statusValue.id !== firstValueId) allFirst = false;
                     if (statusValue.id !== lastValueId) allLast = false;
                 }
             }
-            if (allLast) cardClass += ' frozen';
-            else if (!allFirst) cardClass += ' mixed';
+            if (hasStatus && allLast) cardClass += ' frozen';
+            else if (hasStatus && !allFirst) cardClass += ' mixed';
         }
 
         // 渲染组合标签
@@ -1202,8 +1203,10 @@ function sortAccounts(list) {
         const lastVId = fgValues[fgValues.length - 1]?.id;
         if (lastVId) {
             sorted.sort((a, b) => {
-                const aFrozen = (a.combos || []).length > 0 && (a.combos || []).every(c => (fgValues.find(v => c.includes(v.id)))?.id === lastVId);
-                const bFrozen = (b.combos || []).length > 0 && (b.combos || []).every(c => (fgValues.find(v => c.includes(v.id)))?.id === lastVId);
+                const aHasStatus = (a.combos || []).some(c => fgValues.some(v => c.includes(v.id)));
+                const aFrozen = aHasStatus && (a.combos || []).every(c => { const sv = fgValues.find(v => c.includes(v.id)); return !sv || sv.id === lastVId; });
+                const bHasStatus = (b.combos || []).some(c => fgValues.some(v => c.includes(v.id)));
+                const bFrozen = bHasStatus && (b.combos || []).every(c => { const sv = fgValues.find(v => c.includes(v.id)); return !sv || sv.id === lastVId; });
                 if (aFrozen === bFrozen) return 0;
                 return aFrozen ? 1 : -1;
             });
@@ -6041,7 +6044,7 @@ function openSingleTimerDialog(accountId) {
     document.getElementById('timerModalTitle').textContent = '添加定时';
     document.getElementById('timerLabel').value = '';
     document.getElementById('timerDuration').value = '';
-    document.getElementById('timerModal').style.display = 'flex';
+    document.getElementById('timerModal').classList.add('show');
 }
 
 function openBatchTimerDialog() {
@@ -6050,11 +6053,11 @@ function openBatchTimerDialog() {
     document.getElementById('timerModalTitle').textContent = '批量定时 (' + selectedAccounts.size + '个)';
     document.getElementById('timerLabel').value = '';
     document.getElementById('timerDuration').value = '';
-    document.getElementById('timerModal').style.display = 'flex';
+    document.getElementById('timerModal').classList.add('show');
 }
 
 function closeTimerModal() {
-    document.getElementById('timerModal').style.display = 'none';
+    document.getElementById('timerModal').classList.remove('show');
 }
 
 async function submitTimer() {
