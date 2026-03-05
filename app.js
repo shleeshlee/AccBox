@@ -6012,9 +6012,9 @@ function renderTimers(acc) {
     const parts = timers.map(t => {
         const remaining = t.expires_at - now;
         if (remaining <= 0) {
-            return `<span class="meta-timer done"><span class="t-label">${t.label || ''}</span> <span class="t-icon">⏰</span> 0m</span>`;
+            return `<span class="meta-timer done"><span class="t-label">${t.label || ''}</span> <span class="t-icon">⏱️</span> 0m</span>`;
         }
-        return `<span class="meta-timer">${t.label ? `<span class="t-label">${t.label}</span> ` : ''}<span class="t-icon">⏰</span> ${formatDuration(remaining)}</span>`;
+        return `<span class="meta-timer">${t.label ? `<span class="t-label">${t.label}</span> ` : ''}<span class="t-icon">⏱️</span> ${formatDuration(remaining)}</span>`;
     });
     return `<div class="meta-timers">${parts.join('')}</div>`;
 }
