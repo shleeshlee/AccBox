@@ -1,258 +1,67 @@
-# 🍯 AccBox (通用账号管家) v5.1.3
+# AccBox
 
-一个简洁的多用户账号管理系统，支持自定义分类、属性标签、2FA、邮箱验证码等功能。
+自部署的账号管理工具。Docker 一键部署，多用户隔离，数据加密存储。
 
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-5.1.3-green.svg)]()
+## 功能
 
-> **👤 作者:** Author  
-> **📦 开源协议:** MIT (免费使用，保留署名)  
-> **⚠️ 声明:** 本项目完全免费开源，如果你是付费获取的，你被骗了！
+- **账号管理** — 自定义分类、属性标签、组合筛选、排除筛选、收藏、批量操作
+- **2FA/TOTP** — 支持标准 TOTP 和 Steam Guard，含备份码
+- **邮箱验证码** — OAuth 授权 Gmail/Outlook，支持 QQ/IMAP/Cloudflare Worker，自动提取验证码并推送
+- **卡片状态** — 三级状态（正常/混合/冰冻），冰冻账号自动沉底
+- **定时器** — 单个或批量添加倒计时，到期后点击消除
+- **视图** — 卡片/列表切换，日间/夜间/四季主题
+- **数据** — JSON/CSV 导入导出，定时备份，迁移备份（含密钥）
+- **移动端** — 响应式适配
 
-## ✨ v5.1.3 更新内容
+## 部署
 
-### 📬 邮箱验证码
-- **辅助邮箱关联**: 账号可绑定辅助邮箱，自动接收验证码
-- **OAuth 授权**: 支持 Gmail、Outlook 官方 OAuth 授权
-- **IMAP 支持**: 支持 QQ邮箱、163、126 等 IMAP 邮箱
-- **验证码通知**: 实时推送验证码到通知面板
-
-### 🎨 界面优化
-- **折叠式邮箱配置**: 点击展开，清爽简洁
-- **手机端工具栏**: 统一按钮样式，更易点击
-
----
-
-<details>
-<summary>📦 v5.1 更新内容 (安全修复版)</summary>
-
-### 🔐 安全增强
-- **密码哈希升级**: SHA256 → bcrypt (自动迁移旧密码)
-- **Token 过期**: 随机字符串 → JWT (7天过期)
-- **CORS 收紧**: `*` → 白名单模式
-- **密码强度**: 4字符 → 8字符+字母+数字
-- **URL 验证**: 防止 `javascript:` XSS 攻击
-- **配置分离**: 密钥存储在 `.env` 文件，避免 git 冲突
-
-### 📦 新功能
-- **数据备份**: 一键备份/恢复数据库，支持定时自动备份
-- **迁移备份**: 包含密钥文件，方便服务器迁移
-- **一键更新**: 使用 `update.sh` 安全更新，自动备份配置
-</details>
-
-## ✨ 功能特性
-
-- 🌙 日间/夜间主题 + 四季主题切换
-- 📁 自定义账号类型（Google、Microsoft、Discord等）
-- 🏷️ 自定义属性组和标签
-- ⭐ 收藏功能
-- 🔍 搜索和多条件筛选
-- 📥 JSON/CSV 导入导出
-- ✅ 批量选择和删除
-- 🃏 卡片/列表两种视图
-- 🔐 多用户数据隔离
-- 📱 响应式移动端适配
-- 🛡️ 2FA/TOTP 支持 (含 Steam Guard)
-- 📬 邮箱验证码自动接收
-- 📦 数据备份与恢复
-
-## 🚀 快速部署
-
-### 方式一：一键安装（推荐）
-
-**前提：已安装 Docker 和 Docker Compose**
+需要 Docker 和 Docker Compose。
 
 ```bash
-# 1. 克隆项目
 git clone https://github.com/shleeshlee/AccBox.git
 cd AccBox
-
-# 2. 一键安装（自动生成密钥、创建配置、启动服务）
 chmod +x install.sh && ./install.sh
-
-# 3. 完成！
-# 安装结束后会显示访问地址和自动生成的密钥
-# 密钥已自动保存到 .env 文件，请妥善备份
 ```
 
-### 方式二：手动部署
+安装脚本会自动生成加密密钥并保存到 `.env`。部署完成后按提示访问。
 
-#### 1. 安装依赖
-
-```bash
-# Python 3.8+
-pip install fastapi uvicorn cryptography pydantic passlib[bcrypt] python-jose[cryptography]
-```
-
-#### 2. 启动后端
+## 更新
 
 ```bash
-python main.py
-# 后端运行在 http://localhost:9111
-```
-
-## 🔄 更新版本
-
-使用一键更新脚本（推荐）：
-
-cd /你的项目路径 && ./update.sh
-
-```bash
-# 首次使用需要授权
-chmod +x update.sh
-```
-```bash
-# 以后每次更新
 ./update.sh
 ```
 
-脚本会自动：
-1. 📦 备份 `docker-compose.yml` 和 `.env`
-2. ⬇️ 拉取最新代码
-3. 🚀 重启服务
+自动备份配置、拉取代码、重启服务。
 
-## ⚙️ 配置说明
+## 配置
 
-### 密钥生成工具
-
-如果需要单独生成密钥（不运行完整安装）：
+密钥和端口在 `.env` 文件中：
 
 ```bash
-chmod +x keygen.sh && ./keygen.sh
-```
-
-### 配置文件 (.env)
-
-密钥和端口配置存储在 `.env` 文件中（不会被 git 覆盖）：
-
-```bash
-# 端口设置
 PORT=9111
-
-# 主密钥（用于加密数据）
-# 不设置则自动生成并保存在 data/.encryption_key
-APP_MASTER_KEY=
-
-# JWT 密钥（用于登录令牌）
-# 不设置则自动从 APP_MASTER_KEY 派生
-JWT_SECRET_KEY=
+APP_MASTER_KEY=    # 数据加密密钥，不设置则自动生成
+JWT_SECRET_KEY=    # 登录令牌密钥，不设置则从主密钥派生
 ```
 
-### 密钥说明
+迁移服务器时必须保留密钥，否则已有数据无法解密。
 
-| 情况 | 说明 |
-|------|------|
-| `.env` 中设置了密钥 | ✅ 推荐，安全且方便迁移 |
-| 未设置密钥 | ⚠️ 使用默认公开密钥，**不安全**，系统会显示警告 |
-
-**重要**: 迁移服务器时必须保留您的密钥，否则数据无法解密。
-
-## 📦 数据备份
-
-### 使用界面备份
-1. 点击工具 → 📦 数据备份
-2. 点击「备份数据库」或「迁移备份」
-3. 备份文件保存在 `data/backups/` 目录
-
-### 备份类型
-
-| 类型 | 说明 | 用途 |
-|------|------|------|
-| 📦 备份数据库 | 只备份数据库文件 | 日常备份 |
-| 🔐 迁移备份 | 数据库 + 密钥文件 | 服务器迁移 |
-| ⏰ 定时备份 | 自动执行（服务器端） | 无需保持浏览器打开 |
-
-### 使用 API 备份
-```bash
-curl -X POST http://localhost:9111/api/backup \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"include_key": false}'
-```
-
-## 📁 项目结构
+## 项目结构
 
 ```
 AccBox/
-├── index.html          # 前端页面
-├── style.css           # 样式文件
-├── app.js              # 前端逻辑
-├── flags.js            # 国家旗帜
-├── main.py             # 后端 API (FastAPI)
-├── Dockerfile          # Docker 镜像构建
-├── docker-compose.yml  # Docker Compose 配置
-├── .env.example        # 配置文件模板
-├── .gitignore          # Git 忽略规则
-├── install.sh          # 一键安装脚本
-├── keygen.sh           # 密钥生成工具
-├── update.sh           # 一键更新脚本
-├── docker/
-│   ├── nginx.conf      # Nginx 配置
-│   └── supervisord.conf
-└── data/               # 数据目录（自动创建）
-    ├── accounts.db     # SQLite 数据库
-    ├── .encryption_key # 加密密钥（自动生成时）
-    └── backups/        # 备份目录
+├── index.html / style.css / app.js   # 前端
+├── main.py                            # 后端 (FastAPI + SQLite)
+├── docker-compose.yml / Dockerfile    # 容器配置
+├── install.sh / update.sh / keygen.sh # 运维脚本
+└── data/                              # 数据目录（自动创建）
+    ├── accounts.db
+    └── backups/
 ```
 
-## 🔒 安全说明
+## API
 
-### 已修复的安全问题 (v5.1)
-- ✅ 密码使用 bcrypt 加盐哈希
-- ✅ Token 使用 JWT 并设置过期时间
-- ✅ CORS 使用白名单而非 `*`
-- ✅ 密码强度要求增强
-- ✅ URL 协议验证防止 XSS
+启动后访问 `/docs` 查看 Swagger 文档。
 
-### 旧密码自动升级
-v5.1 兼容旧版本的 SHA256 密码：
-- 旧用户可以正常登录
-- 登录成功后自动升级为 bcrypt
-- 无需手动操作
+## License
 
-## 🔄 从 v5.0 升级
-
-⚠️ **重要**: v5.1 改变了配置方式，请仔细阅读！
-
-### 升级步骤
-
-1. **备份当前密钥**
-   
-   打开您的 `docker-compose.yml`，复制 `APP_MASTER_KEY` 的值。
-
-2. **创建 .env 文件**
-   ```bash
-   cp .env.example .env
-   ```
-
-3. **填入密钥**
-   
-   编辑 `.env`，将复制的密钥粘贴进去：
-   ```bash
-   APP_MASTER_KEY=您之前的密钥
-   ```
-
-4. **更新代码**
-   ```bash
-   ./update.sh
-   # 或手动：git pull && docker-compose up -d --build
-   ```
-
-### 如果您之前没有设置密钥
-
-说明您一直使用的是默认公开密钥，数据处于不安全状态。建议：
-1. 导出数据（JSON 格式）
-2. 创建 `.env` 文件并设置新密钥
-3. 重新导入数据
-
-## 📝 API 文档
-
-启动后访问 `http://localhost:9111/docs` 查看 Swagger API 文档。
-
-## 📄 License
-
-MIT License
-
-## 🙏 致谢
-
-感谢 Anthropic Claude 和 Google Gemini 进行安全审计。
+MIT
