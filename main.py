@@ -3262,7 +3262,7 @@ def fetch_cloudflare_emails(worker_domain: str, cf_token: str) -> list:
         url = f"https://{worker_domain}/api/mails?limit=10&offset=0"
         req = urllib.request.Request(url)
         req.add_header('Authorization', f'Bearer {cf_token}')
-        req.add_header('User-Agent', 'AccBox/1.0')
+        req.add_header('User-Agent', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36')
 
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode())
