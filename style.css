@@ -947,7 +947,18 @@ html:not([data-theme="light"]) .btn-avatar:hover::before {
     transition: all 0.2s;
 }
 .btn-batch-props:hover { background: var(--accent); color: white; }
-.btn-batch-cancel { 
+.btn-batch-timer {
+    padding: 6px 12px;
+    background: var(--accent-dim);
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    color: var(--accent);
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.btn-batch-timer:hover { background: var(--accent); color: white; }
+.btn-batch-cancel {
     padding: 6px 12px;
     background: var(--bg-card); 
     border: 1px solid var(--border); 
@@ -2345,6 +2356,7 @@ html:not([data-theme="light"]) .btn-avatar:hover::before {
     .batch-count { font-size: 0.75rem; }
     .btn-batch-select { font-size: 0.75rem; padding: 5px 8px; }
     .btn-batch-props { font-size: 0.9rem; padding: 5px 8px; min-width: auto; }
+    .btn-batch-timer { font-size: 0.9rem; padding: 5px 8px; min-width: auto; }
     .btn-batch-delete { font-size: 0.9rem; padding: 5px 8px; min-width: auto; }
     
     /* 移动端勾选框适配 - 更大触控区域 */
@@ -2450,6 +2462,8 @@ html:not([data-theme="light"]) .btn-avatar:hover::before {
 .batch-count { font-size: 0.85rem; font-weight: 500; color: var(--accent); }
 .btn-batch-select { padding: 6px 12px; background: var(--bg-hover); border: 1px solid var(--border); border-radius: 6px; color: var(--text-secondary); font-size: 0.8rem; cursor: pointer; }
 .btn-batch-select:hover { border-color: var(--accent); color: var(--accent); }
+.btn-batch-timer { padding: 6px 12px; background: var(--accent-dim); border: 1px solid var(--accent); border-radius: 6px; color: var(--accent); font-size: 0.8rem; cursor: pointer; transition: all 0.2s; }
+.btn-batch-timer:hover { background: var(--accent); color: white; }
 .btn-batch-delete { padding: 6px 12px; background: var(--red); border: none; border-radius: 6px; color: white; font-size: 0.8rem; cursor: pointer; }
 .btn-batch-delete:hover { filter: brightness(1.1); }
 .btn-batch-cancel { padding: 6px 12px; background: var(--bg-hover); border: 1px solid var(--border); border-radius: 6px; color: var(--text-secondary); font-size: 0.8rem; cursor: pointer; }
