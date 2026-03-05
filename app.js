@@ -954,11 +954,19 @@ function renderCards() {
         // 查找第一个属性组（账号状态）的值来决定卡片样式
         if (combos.length > 0 && propertyGroups.length > 0) {
             const firstGroup = propertyGroups[0];
+            const values = firstGroup.values || [];
+            const firstValueId = values[0]?.id;
+            const lastValueId = values[values.length - 1]?.id;
+            let allFirst = true, allLast = true;
             for (const combo of combos) {
-                const statusValue = (firstGroup.values || []).find(v => combo.includes(v.id));
-                if (statusValue?.name === '受限') { cardClass += ' warning'; break; }
-                else if (statusValue?.name === '不可用') { cardClass += ' error'; break; }
+                const statusValue = values.find(v => combo.includes(v.id));
+                if (statusValue) {
+                    if (statusValue.id !== firstValueId) allFirst = false;
+                    if (statusValue.id !== lastValueId) allLast = false;
+                }
             }
+            if (allLast) cardClass += ' frozen';
+            else if (!allFirst) cardClass += ' mixed';
         }
 
         // 渲染组合标签
@@ -1003,7 +1011,7 @@ function renderCards() {
         const favoriteClass = acc.is_favorite ? 'favorite' : '';
         
         // 勾选模式下点击卡片即可勾选
-        const cardClickHandler = batchMode ? `onclick="toggleAccountSelection(${acc.id}, event)"` : '';
+        const cardClickHandler = batchMode ? `onclick="toggleAccountSelection(${acc.id}, event)"` : `onclick="dismissDoneTimers(this)"`;
         
         // 最近使用时间徽章（根据开关状态显示）
         let timeBadgeHtml = '';
@@ -1028,15 +1036,19 @@ function renderCards() {
                     <div class="card-info" ${!batchMode ? `onclick="copyEmail('${escapeHtml(acc.email)}')" title="点击复制邮箱"` : ''}><div class="card-name">${escapeHtml(acc.customName || acc.email)}</div><div class="card-email">${escapeHtml(acc.email)}</div></div>
                     <div class="card-combos">${combosHtml}</div>
                     <div class="card-meta">
-                        <span class="card-country">${getCountryDisplay(acc.country)}</span>
-                        ${!batchMode ? `<div class="card-menu" onclick="event.stopPropagation()">
-                            <button class="btn-menu-dots" onclick="toggleCardMenu(${acc.id})">⋮</button>
-                            <div class="card-menu-dropdown">
-                                <div class="menu-item" onclick="toggleFavorite(${acc.id});closeAllMenus()">${acc.is_favorite ? '💔 取消收藏' : '💌 收藏'}</div>
-                                <div class="menu-item" onclick="openEditModal(${acc.id});closeAllMenus()">✏️ 编辑</div>
-                                <div class="menu-item danger" onclick="deleteAccount(${acc.id});closeAllMenus()">🗑️ 删除</div>
-                            </div>
-                        </div>` : ''}
+                        <div class="meta-top">
+                            <span class="card-country">${getCountryDisplay(acc.country)}</span>
+                            ${!batchMode ? `<div class="card-menu" onclick="event.stopPropagation()">
+                                <button class="btn-menu-dots" onclick="toggleCardMenu(${acc.id})">⋮</button>
+                                <div class="card-menu-dropdown">
+                                    <div class="menu-item" onclick="toggleFavorite(${acc.id});closeAllMenus()">${acc.is_favorite ? '💔 取消收藏' : '💌 收藏'}</div>
+                                    <div class="menu-item" onclick="openEditModal(${acc.id});closeAllMenus()">✏️ 编辑</div>
+                                    <div class="menu-item" onclick="openSingleTimerDialog(${acc.id});closeAllMenus()">⏰ 定时</div>
+                                    <div class="menu-item danger" onclick="deleteAccount(${acc.id});closeAllMenus()">🗑️ 删除</div>
+                                </div>
+                            </div>` : ''}
+                        </div>
+                        ${renderTimers(acc)}
                     </div>
                 </div>
                 ${(acc.tags||[]).length ? `<div class="card-tags">${acc.tags.map(t => `<span class="free-tag">${t}</span>`).join('')}</div>` : ''}
@@ -1182,6 +1194,20 @@ function sortAccounts(list) {
         sorted.sort((a, b) => dir * (a.customName || a.email).localeCompare(b.customName || b.email));
     } else if (currentSort === 'created') {
         sorted.sort((a, b) => dir * (new Date(b.created_at) - new Date(a.created_at)));
+    }
+    // Frozen cards sink to bottom
+    if (propertyGroups.length > 0) {
+        const fg = propertyGroups[0];
+        const fgValues = fg.values || [];
+        const lastVId = fgValues[fgValues.length - 1]?.id;
+        if (lastVId) {
+            sorted.sort((a, b) => {
+                const aFrozen = (a.combos || []).length > 0 && (a.combos || []).every(c => (fgValues.find(v => c.includes(v.id)))?.id === lastVId);
+                const bFrozen = (b.combos || []).length > 0 && (b.combos || []).every(c => (fgValues.find(v => c.includes(v.id)))?.id === lastVId);
+                if (aFrozen === bFrozen) return 0;
+                return aFrozen ? 1 : -1;
+            });
+        }
     }
     return sorted;
 }
@@ -5973,3 +5999,121 @@ document.addEventListener('click', function(e) {
         closeHelpModal();
     }
 });
+
+// ==================== Timer Functions ====================
+
+function renderTimers(acc) {
+    const timers = acc.timers ? (typeof acc.timers === 'string' ? JSON.parse(acc.timers) : acc.timers) : [];
+    if (!timers.length) return '';
+    const now = Math.floor(Date.now() / 1000);
+    const parts = timers.map(t => {
+        const remaining = t.expires_at - now;
+        if (remaining <= 0) {
+            return `<span class="meta-timer done"><span class="t-label">${t.label || ''}</span> <span class="t-icon">⏰</span> 0m</span>`;
+        }
+        return `<span class="meta-timer">${t.label ? `<span class="t-label">${t.label}</span> ` : ''}<span class="t-icon">⏰</span> ${formatDuration(remaining)}</span>`;
+    });
+    return `<div class="meta-timers">${parts.join('')}</div>`;
+}
+
+function formatDuration(seconds) {
+    const d = Math.floor(seconds / 86400);
+    const h = Math.floor((seconds % 86400) / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    if (d > 0) return h > 0 ? d + 'd' + h + 'h' : d + 'd';
+    if (h > 0) return m > 0 ? h + 'h' + m + 'm' : h + 'h';
+    return m + 'm';
+}
+
+function parseDuration(str) {
+    const match = str.match(/(?:(\d+)d)?(?:(\d+)h)?(?:(\d+)m)?/);
+    if (!match || (!match[1] && !match[2] && !match[3])) return null;
+    return (parseInt(match[1] || 0) * 86400) + (parseInt(match[2] || 0) * 3600) + (parseInt(match[3] || 0) * 60);
+}
+
+// Timer modal state
+let timerTargetAccountId = null;
+let timerBatchMode = false;
+
+function openSingleTimerDialog(accountId) {
+    timerTargetAccountId = accountId;
+    timerBatchMode = false;
+    document.getElementById('timerModalTitle').textContent = '添加定时';
+    document.getElementById('timerLabel').value = '';
+    document.getElementById('timerDuration').value = '';
+    document.getElementById('timerModal').style.display = 'flex';
+}
+
+function openBatchTimerDialog() {
+    if (selectedAccounts.size === 0) { showToast('请先选择账号'); return; }
+    timerBatchMode = true;
+    document.getElementById('timerModalTitle').textContent = '批量定时 (' + selectedAccounts.size + '个)';
+    document.getElementById('timerLabel').value = '';
+    document.getElementById('timerDuration').value = '';
+    document.getElementById('timerModal').style.display = 'flex';
+}
+
+function closeTimerModal() {
+    document.getElementById('timerModal').style.display = 'none';
+}
+
+async function submitTimer() {
+    const label = document.getElementById('timerLabel').value.trim();
+    const durationStr = document.getElementById('timerDuration').value.trim();
+    if (!durationStr) { showToast('请输入时长'); return; }
+    const duration = parseDuration(durationStr);
+    if (!duration) { showToast('时长格式错误'); return; }
+
+    if (timerBatchMode) {
+        await apiRequest('/batch-timers', {
+            method: 'POST',
+            body: JSON.stringify({ account_ids: [...selectedAccounts], label, duration: durationStr })
+        });
+    } else {
+        const acc = accounts.find(a => a.id === timerTargetAccountId);
+        if (!acc) return;
+        const timers = acc.timers ? (typeof acc.timers === 'string' ? JSON.parse(acc.timers) : acc.timers) : [];
+        timers.push({ label, expires_at: Math.floor(Date.now() / 1000) + duration });
+        await apiRequest('/accounts/' + timerTargetAccountId, {
+            method: 'PUT',
+            body: JSON.stringify({ ...acc, timers: JSON.stringify(timers), last_used: new Date().toISOString() })
+        });
+    }
+    closeTimerModal();
+    await loadAccounts();
+    renderCards();
+    showToast('定时已添加');
+}
+
+// Dismiss done timers on card click
+function dismissDoneTimers(card) {
+    const doneTimers = card.querySelectorAll('.meta-timer.done');
+    if (!doneTimers.length) return;
+    doneTimers.forEach(t => {
+        t.classList.add('flash-out');
+        t.addEventListener('animationend', () => t.remove());
+    });
+    // Also remove from backend
+    const accId = parseInt(card.dataset.id);
+    const acc = accounts.find(a => a.id === accId);
+    if (acc) {
+        const timers = acc.timers ? (typeof acc.timers === 'string' ? JSON.parse(acc.timers) : acc.timers) : [];
+        const now = Math.floor(Date.now() / 1000);
+        const active = timers.filter(t => t.expires_at > now);
+        if (active.length !== timers.length) {
+            apiRequest('/accounts/' + accId, {
+                method: 'PUT',
+                body: JSON.stringify({ ...acc, timers: JSON.stringify(active) })
+            });
+            acc.timers = active;
+        }
+    }
+}
+
+// Timer countdown refresh
+setInterval(() => {
+    const timerEls = document.querySelectorAll('.meta-timer:not(.done)');
+    if (!timerEls.length) return;
+    // Just re-render cards to update timer display
+    renderCards();
+}, 60000);

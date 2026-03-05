@@ -307,6 +307,7 @@ class AccountUpdate(BaseModel):
     tags: Optional[List[str]] = None
     notes: Optional[str] = None
     is_favorite: Optional[bool] = None
+    timers: Optional[List[Dict[str, Any]]] = None
 
 class AccountTypeCreate(BaseModel):
     name: str
@@ -462,10 +463,11 @@ def init_user_tables(user_id: int):
                 totp_digits INTEGER DEFAULT 6,
                 totp_period INTEGER DEFAULT 30,
                 backup_codes TEXT DEFAULT '[]',
-                time_offset INTEGER DEFAULT 0
+                time_offset INTEGER DEFAULT 0,
+                timers TEXT
             )
         """)
-        
+
         # 邮箱授权表
         conn.execute(f"""
             CREATE TABLE IF NOT EXISTS user_{user_id}_emails (
@@ -588,6 +590,21 @@ def migrate_add_hidden_column():
             except sqlite3.OperationalError:
                 try:
                     conn.execute(f"ALTER TABLE user_{user_id}_property_values ADD COLUMN hidden INTEGER DEFAULT 0")
+                    conn.commit()
+                except:
+                    pass
+
+def migrate_add_timers_column():
+    """迁移：为账号表添加 timers 列"""
+    with get_db() as conn:
+        cursor = conn.execute("SELECT id FROM users")
+        for user in cursor.fetchall():
+            user_id = user["id"]
+            try:
+                conn.execute(f"SELECT timers FROM user_{user_id}_accounts LIMIT 1")
+            except sqlite3.OperationalError:
+                try:
+                    conn.execute(f"ALTER TABLE user_{user_id}_accounts ADD COLUMN timers TEXT")
                     conn.commit()
                 except:
                     pass
@@ -1000,7 +1017,8 @@ def get_accounts(user: dict = Depends(get_current_user)):
             "has_backup_codes": has_backup_codes,
             "last_used": row["last_used"],
             "created_at": row["created_at"],
-            "updated_at": row["updated_at"]
+            "updated_at": row["updated_at"],
+            "timers": json.loads(row["timers"]) if "timers" in row.keys() and row["timers"] else None
         })
     return {"accounts": accounts}
 
@@ -1057,7 +1075,10 @@ def update_account(account_id: int, data: AccountUpdate, user: dict = Depends(ge
     if data.is_favorite is not None:
         updates.append("is_favorite = ?")
         values.append(1 if data.is_favorite else 0)
-    
+    if data.timers is not None:
+        updates.append("timers = ?")
+        values.append(json.dumps(data.timers))
+
     if not updates:
         raise HTTPException(status_code=400, detail="没有要更新的字段")
     
@@ -1113,6 +1134,120 @@ def batch_delete_accounts(data: dict, user: dict = Depends(get_current_user)):
         conn.commit()
     
     return {"message": f"成功删除 {cursor.rowcount} 个账号", "deleted": cursor.rowcount}
+
+# ==================== 计时器 API ====================
+
+def _parse_duration(duration_str: str) -> int:
+    """Parse duration string like '5h', '7d', '2h30m', '90m' into seconds."""
+    pattern = r'(?:(\d+)d)?(?:(\d+)h)?(?:(\d+)m)?'
+    match = re.fullmatch(pattern, duration_str.strip())
+    if not match or not any(match.groups()):
+        raise HTTPException(status_code=400, detail=f"无效的时间格式: {duration_str}")
+    days = int(match.group(1) or 0)
+    hours = int(match.group(2) or 0)
+    minutes = int(match.group(3) or 0)
+    total = days * 86400 + hours * 3600 + minutes * 60
+    if total <= 0:
+        raise HTTPException(status_code=400, detail="时间必须大于0")
+    return total
+
+def _get_account_dict(conn, user_id: int, account_id: int) -> dict:
+    """Fetch a single account and return formatted dict."""
+    row = conn.execute(
+        f"SELECT * FROM user_{user_id}_accounts WHERE id = ?", (account_id,)
+    ).fetchone()
+    if not row:
+        return None
+    has_2fa = False
+    has_backup_codes = False
+    try:
+        has_2fa = bool(row["totp_secret"]) if "totp_secret" in row.keys() else False
+        if has_2fa and "backup_codes" in row.keys():
+            codes = json.loads(row["backup_codes"] or "[]")
+            has_backup_codes = len(codes) > 0
+    except:
+        pass
+    return {
+        "id": row["id"],
+        "type_id": row["type_id"],
+        "email": row["email"],
+        "password": decrypt_password(row["password"]),
+        "country": row["country"],
+        "customName": row["custom_name"] or "",
+        "properties": json.loads(row["properties"] or "{}"),
+        "combos": json.loads(row["combos"] if "combos" in row.keys() and row["combos"] else "[]"),
+        "tags": json.loads(row["tags"] or "[]"),
+        "notes": row["notes"] or "",
+        "is_favorite": bool(row["is_favorite"]),
+        "has_2fa": has_2fa,
+        "has_backup_codes": has_backup_codes,
+        "last_used": row["last_used"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+        "timers": json.loads(row["timers"]) if "timers" in row.keys() and row["timers"] else None
+    }
+
+@app.post("/api/batch-timers")
+def batch_add_timers(data: dict, user: dict = Depends(get_current_user)):
+    account_ids = data.get("account_ids", [])
+    label = data.get("label", "")
+    duration = data.get("duration", "")
+
+    if not account_ids:
+        raise HTTPException(status_code=400, detail="没有选择账号")
+    if not label:
+        raise HTTPException(status_code=400, detail="缺少 label")
+    if not duration:
+        raise HTTPException(status_code=400, detail="缺少 duration")
+
+    duration_seconds = _parse_duration(duration)
+    now_ts = int(time.time())
+    expires_at = now_ts + duration_seconds
+    now_str = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+    updated_accounts = []
+    with get_db() as conn:
+        for aid in account_ids:
+            row = conn.execute(
+                f"SELECT timers FROM user_{user['id']}_accounts WHERE id = ?", (aid,)
+            ).fetchone()
+            if not row:
+                continue
+            existing = json.loads(row["timers"] or "[]") if row["timers"] else []
+            existing.append({"label": label, "expires_at": expires_at})
+            conn.execute(
+                f"UPDATE user_{user['id']}_accounts SET timers = ?, last_used = ?, updated_at = ? WHERE id = ?",
+                (json.dumps(existing), now_str, now_str, aid)
+            )
+        conn.commit()
+        for aid in account_ids:
+            acct = _get_account_dict(conn, user['id'], aid)
+            if acct:
+                updated_accounts.append(acct)
+
+    return {"accounts": updated_accounts}
+
+@app.delete("/api/accounts/{account_id}/timer/{timer_index}")
+def delete_timer(account_id: int, timer_index: int, user: dict = Depends(get_current_user)):
+    now_str = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+    with get_db() as conn:
+        row = conn.execute(
+            f"SELECT timers FROM user_{user['id']}_accounts WHERE id = ?", (account_id,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="账号不存在")
+        timers = json.loads(row["timers"] or "[]") if row["timers"] else []
+        if timer_index < 0 or timer_index >= len(timers):
+            raise HTTPException(status_code=400, detail="无效的计时器索引")
+        timers.pop(timer_index)
+        conn.execute(
+            f"UPDATE user_{user['id']}_accounts SET timers = ?, updated_at = ? WHERE id = ?",
+            (json.dumps(timers), now_str, account_id)
+        )
+        conn.commit()
+        account = _get_account_dict(conn, user['id'], account_id)
+
+    return {"account": account}
 
 # ==================== 导入导出 API ====================
 
@@ -3450,4 +3585,5 @@ if __name__ == "__main__":
     migrate_add_combos_column()
     migrate_add_2fa_columns()
     migrate_add_hidden_column()
+    migrate_add_timers_column()
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
