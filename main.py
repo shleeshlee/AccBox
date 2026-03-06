@@ -2307,6 +2307,7 @@ def get_emails(user: dict = Depends(get_current_user)):
         except:
             pass
         
+        # 不再自动从账号 backup_email 收集，改由前端手动触发拉取
         pending = list(pending_set)
     
     return {"authorized": authorized, "pending": pending}
@@ -2338,6 +2339,46 @@ def sync_pending_emails(data: dict, user: dict = Depends(get_current_user)):
         conn.commit()
     
     return {"success": True, "added": added}
+
+@app.post("/api/emails/pending/pull")
+def pull_pending_emails(user: dict = Depends(get_current_user)):
+    """一键从账号辅助邮箱拉取到待授权列表，已授权的自动忽略"""
+    user_id = user['id']
+    added = 0
+    with get_db() as conn:
+        # 获取已授权邮箱
+        try:
+            cursor = conn.execute(f"SELECT address FROM user_{user_id}_emails")
+            authorized_addresses = {row["address"].lower() for row in cursor.fetchall()}
+        except:
+            authorized_addresses = set()
+
+        # 从账号的 backup_email 收集
+        try:
+            cursor = conn.execute(f"SELECT DISTINCT backup_email FROM user_{user_id}_accounts WHERE backup_email IS NOT NULL AND backup_email != ''")
+            for row in cursor.fetchall():
+                email = row["backup_email"]
+                if email and email.lower() not in authorized_addresses:
+                    try:
+                        conn.execute(f"INSERT OR IGNORE INTO user_{user_id}_pending_emails (email) VALUES (?)", (email,))
+                        added += 1
+                    except:
+                        pass
+        except:
+            pass
+
+        conn.commit()
+
+    return {"success": True, "added": added}
+
+@app.delete("/api/emails/pending")
+def clear_pending_emails(user: dict = Depends(get_current_user)):
+    """一键清空待授权邮箱列表"""
+    user_id = user['id']
+    with get_db() as conn:
+        conn.execute(f"DELETE FROM user_{user_id}_pending_emails")
+        conn.commit()
+    return {"success": True}
 
 @app.get("/api/emails/oauth/config-status")
 def get_oauth_config_status(provider: str, user: dict = Depends(get_current_user)):

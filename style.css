@@ -5077,6 +5077,34 @@ html:not([data-theme="light"]) .toast-code {
     gap: 8px;
 }
 
+.pending-email-actions {
+    margin-left: auto;
+    display: flex;
+    gap: 6px;
+}
+
+.btn-pending-action {
+    font-size: 0.7rem;
+    padding: 2px 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-hover);
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.btn-pending-action:hover {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+}
+
+.btn-pending-action.danger:hover {
+    background: #ef4444;
+    border-color: #ef4444;
+}
+
 .section-hint {
     font-size: 0.7rem;
     font-weight: 400;
