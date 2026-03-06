@@ -2500,6 +2500,26 @@ html:not([data-theme="light"]) .btn-avatar:hover::before {
 
 /* 导入模态框新样式 */
 .import-section { margin-bottom: 0; }
+.import-paste-group { position: relative; }
+.btn-paste-import {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: var(--bg-hover);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 0.78rem;
+    cursor: pointer;
+    color: var(--text-primary);
+    transition: background 0.15s, border-color 0.15s;
+    z-index: 1;
+}
+.btn-paste-import:hover {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+}
 .import-section-title { font-size: 0.9rem; font-weight: 600; color: var(--text-primary); margin-bottom: 12px; display: flex; align-items: center; gap: 6px; }
 .import-divider { display: flex; align-items: center; justify-content: center; margin: 20px 0; position: relative; }
 .import-divider span { padding: 0 16px; background: var(--bg-card); color: var(--text-muted); font-size: 0.8rem; position: relative; z-index: 1; }
