@@ -263,7 +263,14 @@
                 </div>
                 <div class="form-row">
                     <div class="form-group"><label class="form-label">邮箱/账号</label><input type="text" class="form-input" id="accEmail" autocomplete="off" autocorrect="off" autocapitalize="off" data-lpignore="true" data-1p-ignore="true" data-protonpass-ignore="true" data-form-type="other" name="accbox_email_nofill_xyz" readonly onfocus="this.removeAttribute('readonly')"></div>
-                    <div class="form-group"><label class="form-label">自定义名称</label><input type="text" class="form-input" id="accName" placeholder="如：API主力号"></div>
+                    <div class="form-group form-group-icon"><label class="form-label">&nbsp;</label><button type="button" class="btn-field-toggle" id="btnToggleName" onclick="toggleFieldExpand('name')" title="自定义名称">✏️</button></div>
+                    <div class="form-group form-group-icon"><label class="form-label">&nbsp;</label><button type="button" class="btn-field-toggle" id="btnToggleNotes" onclick="toggleFieldExpand('notes')" title="备注">📝</button></div>
+                </div>
+                <div class="field-expand" id="fieldExpandName" style="display:none">
+                    <input type="text" class="form-input" id="accName" placeholder="自定义名称，如：API主力号">
+                </div>
+                <div class="field-expand" id="fieldExpandNotes" style="display:none">
+                    <textarea class="form-textarea notepad" id="accNotes" placeholder="备注信息"></textarea>
                 </div>
                 <div class="form-row">
                     <div class="form-group"><label class="form-label">密码</label>
@@ -296,9 +303,10 @@
                     </div>
                 </div>
                 <div class="form-group"><label class="form-label">标签</label><div class="tags-input-box" id="accTagsBox"><input type="text" class="tag-input" id="accTagInput" placeholder="回车添加" onkeydown="handleTagInput(event)"></div></div>
-                <div class="form-group"><label class="form-label">备注</label><textarea class="form-textarea" id="accNotes"></textarea></div>
             </form>
             <div class="modal-footer">
+                <button class="btn-backup-codes-open" id="btnBackupCodes" onclick="openBackupCodesPopup()" style="display:none">📋 备份码</button>
+                <div style="flex:1"></div>
                 <button class="btn-cancel" onclick="closeAccountModal()">取消</button>
                 <button class="btn-save" onclick="saveAccount()">保存</button>
             </div>
@@ -488,20 +496,9 @@
                             <option value="8">8 位</option>
                         </select>
                     </div>
-                </div>
-                <div class="form-group">
-                    <label class="form-label">⏱️ 时间偏移 (秒)</label>
-                    <input type="number" class="form-input" id="totp2FATimeOffset" value="0" placeholder="服务器时间差，通常为 0">
-                </div>
-                <div class="form-group">
-                    <label class="form-label">🔑 备份码 (可选)</label>
-                    <div class="backup-codes-zone" id="backupCodesZone">
-                        <textarea class="form-textarea" id="totp2FABackupCodes" rows="4" placeholder="每行一个备份码，支持拖拽 .txt 文件导入&#10;例如：A1B2-C3D4"></textarea>
-                        <div class="backup-codes-hint">📄 可拖拽 .txt 文件到此处</div>
-                    </div>
-                    <div class="backup-codes-preview" id="backupCodesPreview" style="display:none">
-                        <div class="backup-codes-grid" id="backupCodesGrid"></div>
-                        <button type="button" class="backup-codes-edit-btn" onclick="editBackupCodes()">✏️ 编辑</button>
+                    <div class="form-group">
+                        <label class="form-label">⏱️ 偏移(秒)</label>
+                        <input type="number" class="form-input" id="totp2FATimeOffset" value="0" placeholder="0">
                     </div>
                 </div>
             </div>
@@ -510,6 +507,43 @@
                 <div style="flex:1"></div>
                 <button class="btn-secondary" onclick="close2FAConfigModal()">取消</button>
                 <button class="btn-primary" onclick="save2FAConfig()">💾 保存配置</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 备份码独立弹窗 -->
+    <div class="modal-overlay" id="backupCodesModal">
+        <div class="modal compact">
+            <div class="modal-header">
+                <h2 class="modal-title"><span class="modal-title-icon">📋</span>备份码</h2>
+                <div class="modal-header-actions">
+                    <button class="btn-tool-icon" id="btnBackupEdit" onclick="toggleBackupEditMode()" title="编辑">✏️</button>
+                    <button class="btn-close" onclick="closeBackupCodesPopup()">✕</button>
+                </div>
+            </div>
+            <div class="modal-body" id="backupCodesModalBody">
+                <!-- 查看模式：码网格 -->
+                <div id="backupCodesViewMode">
+                    <div class="backup-codes-empty">暂无备份码</div>
+                </div>
+                <!-- 编辑模式 -->
+                <div id="backupCodesEditMode" style="display:none">
+                    <div class="backup-codes-zone" id="backupCodesZone2">
+                        <textarea class="form-textarea" id="backupCodesTextarea" rows="6" placeholder="每行一个备份码&#10;例如：A1B2-C3D4&#10;&#10;支持拖拽 .txt 文件导入"></textarea>
+                        <div class="backup-codes-hint">📄 可拖拽 .txt 文件到此处</div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer backup-codes-footer">
+                <!-- 查看模式 footer -->
+                <div id="backupViewFooter">
+                    <span class="backup-codes-count" id="backupCodesUsedCount"></span>
+                </div>
+                <div style="flex:1"></div>
+                <button class="btn-secondary btn-sm" id="btnBackupReset" onclick="resetAllBackupCodes()">↩️ 重置</button>
+                <!-- 编辑模式 footer -->
+                <button class="btn-secondary btn-sm" id="btnBackupCancel" onclick="cancelBackupEdit()" style="display:none">取消</button>
+                <button class="btn-primary btn-sm" id="btnBackupSave" onclick="saveBackupCodes()" style="display:none">💾 保存</button>
             </div>
         </div>
     </div>
