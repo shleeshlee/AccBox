@@ -1027,6 +1027,7 @@ def get_accounts(user: dict = Depends(get_current_user)):
             "combos": json.loads(row["combos"] if "combos" in row.keys() and row["combos"] else "[]"),
             "tags": json.loads(row["tags"] or "[]"),
             "notes": row["notes"] or "",
+            "backup_email": row["backup_email"] if "backup_email" in row.keys() else "",
             "is_favorite": bool(row["is_favorite"]),
             "has_2fa": has_2fa,
             "has_backup_codes": has_backup_codes,
