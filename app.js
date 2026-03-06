@@ -6217,11 +6217,12 @@ async function submitTimer() {
         timers.push({ label, expires_at: Math.floor(Date.now() / 1000) + duration });
         await apiRequest('/accounts/' + timerTargetAccountId, {
             method: 'PUT',
-            body: JSON.stringify({ ...acc, timers: JSON.stringify(timers) })
+            body: JSON.stringify({ timers: timers })
         });
+        // 就地更新内存数据，不重载
+        acc.timers = timers;
     }
     closeTimerModal();
-    await loadAccounts();
     renderCards();
     showToast('定时已添加');
 }
@@ -6244,7 +6245,7 @@ function dismissDoneTimers(card) {
         if (active.length !== timers.length) {
             apiRequest('/accounts/' + accId, {
                 method: 'PUT',
-                body: JSON.stringify({ ...acc, timers: JSON.stringify(active) })
+                body: JSON.stringify({ timers: active })
             });
             acc.timers = active;
         }
