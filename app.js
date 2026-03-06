@@ -2413,10 +2413,10 @@ async function doImportJson(data, option) {
 }
 
 function initImportPaste() {
-    const textarea = document.getElementById('importCsv');
-    if (!textarea || textarea.dataset.pasteInit) return;
-    textarea.dataset.pasteInit = 'true';
-    textarea.addEventListener('contextmenu', showImportContextMenu);
+    const modal = document.getElementById('importModal');
+    if (!modal || modal.dataset.pasteInit) return;
+    modal.dataset.pasteInit = 'true';
+    modal.addEventListener('contextmenu', showImportContextMenu);
 }
 
 function showImportContextMenu(e) {
