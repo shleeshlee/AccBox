@@ -1057,7 +1057,6 @@ function renderCards() {
             <div class="card-footer">
                 <button class="btn-action" onclick="event.stopPropagation();copyPassword(${acc.id})" title="复制密码">🔑 密码</button>
                 ${acc.has_2fa ? `<button class="btn-action btn-2fa${acc.has_backup_codes ? ' has-backup' : ''}" onclick="event.stopPropagation();show2FAPopup(${acc.id})" title="${acc.has_backup_codes ? '有备份码' : '无备份码'}">🛡️ 2FA</button>` : ''}
-                <button class="btn-action" onclick="event.stopPropagation();copyEmail('${escapeHtml(acc.email)}')" title="复制邮箱">📋 复制</button>
                 <button class="btn-action" onclick="event.stopPropagation();loginTest(${acc.id})" title="登录测试">🔗 登录</button>
             </div>
         </div>`;
@@ -1720,9 +1719,13 @@ function openAddModal() {
     const pwdField = document.getElementById('accPassword');
     if (pwdField) { pwdField.classList.add('pwd-hidden'); }
     updateTogglePwdBtn(false);
-    // 隐藏 2FA 按钮（添加时不显示）
+    // 添加模式：2FA 按钮可见但提示需先保存
     const btn2FA = document.getElementById('btn2FAConfig');
-    if (btn2FA) btn2FA.style.display = 'none';
+    if (btn2FA) {
+        btn2FA.textContent = '🛡️ 设置 2FA';
+        btn2FA.classList.remove('has-2fa');
+        btn2FA.onclick = function() { showToast('请先保存账号，再设置 2FA', 'info'); };
+    }
     renderCombosBox(); renderTagsBox();
     document.getElementById('accountModal').classList.add('show');
 }
@@ -1751,11 +1754,12 @@ function openEditModal(id) {
     const pwdField = document.getElementById('accPassword');
     if (pwdField) { pwdField.classList.add('pwd-hidden'); }
     updateTogglePwdBtn(false);
-    // 显示 2FA 按钮（编辑时显示）
+    // 编辑模式：2FA 按钮显示状态
     const btn2FA = document.getElementById('btn2FAConfig');
     if (btn2FA) {
-        btn2FA.style.display = 'inline-flex';
-        btn2FA.textContent = acc.has_2fa ? '🛡️ 2FA ✓' : '🛡️ 2FA';
+        btn2FA.textContent = acc.has_2fa ? '🛡️ 2FA ✓' : '🛡️ 设置 2FA';
+        btn2FA.classList.toggle('has-2fa', !!acc.has_2fa);
+        btn2FA.onclick = function() { open2FAConfig(editingAccountId); };
     }
     renderCombosBox(); renderTagsBox();
     document.getElementById('accountModal').classList.add('show');
