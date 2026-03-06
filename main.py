@@ -3012,8 +3012,8 @@ def get_verification_codes(user: dict = Depends(get_current_user)):
                     "code": row["code"],
                     "account_name": row["account_name"],
                     "is_read": bool(row["is_read"]),
-                    "expires_at": row["expires_at"],
-                    "created_at": row["created_at"]
+                    "expires_at": row["expires_at"] + "Z" if row["expires_at"] and not row["expires_at"].endswith("Z") else row["expires_at"],
+                    "created_at": row["created_at"] + "Z" if row["created_at"] and not row["created_at"].endswith("Z") else row["created_at"]
                 })
         except:
             codes = []
@@ -3394,10 +3394,12 @@ def fetch_cloudflare_emails(worker_domain: str, cf_token: str) -> list:
 
             # 用 MIME 解析器提取正文（处理 base64/quoted-printable/multipart）
             body = _parse_mime_body(raw)
+            # 拼接 parsed body + raw，防止 MIME 解析丢失验证码（注册机教训）
+            full_body = body + '\n' + raw if raw != body else body
 
             emails_content.append({
                 'from': from_addr,
-                'body': body,
+                'body': full_body,
                 'msg_id': str(msg_id)
             })
     except Exception as e:
@@ -3570,59 +3572,55 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                     full_text = email_data.get('body', '')
                     from_addr = email_data.get('from', '')
                     source_msg_id = email_data.get('msg_id', '')
-                    
+
                     code, service = extract_verification_code(full_text)
-                    print(f"[验证码] 提取结果: code={code}, service={service}")
-                    
+
                     if code:
                         # 如果服务未识别，用发件人
                         if service == 'unknown':
                             service = from_addr.split('<')[0].strip() or from_addr
-                        
-                        # 去重检查
-                        already_exists = False
-                        if source_msg_id:
-                            # Gmail/Outlook: 按邮件ID去重，永不重复处理同一封邮件
-                            cursor = conn.execute(f"""
-                                SELECT id FROM user_{user_id}_verification_codes 
-                                WHERE email = ? AND source_msg_id = ?
-                            """, (email_address, source_msg_id))
-                            already_exists = cursor.fetchone() is not None
-                        else:
-                            # IMAP等: 保持原有的5分钟窗口去重
-                            cursor = conn.execute(f"""
-                                SELECT id FROM user_{user_id}_verification_codes 
-                                WHERE email = ? AND code = ? AND created_at > datetime('now', '-5 minutes')
-                            """, (email_address, code))
-                            already_exists = cursor.fetchone() is not None
-                        
-                        if not already_exists:
-                            # 计算过期时间（3分钟后）- 使用 UTC
-                            expires_at = (datetime.now(timezone.utc) + timedelta(minutes=3)).strftime('%Y-%m-%dT%H:%M:%SZ')
-                            
-                            # 验证码有效期3分钟
-                            conn.execute(f"""
-                                INSERT INTO user_{user_id}_verification_codes 
-                                (email, service, code, account_name, is_read, expires_at, created_at, source_msg_id)
-                                VALUES (?, ?, ?, ?, 0, datetime('now', '+3 minutes'), datetime('now'), ?)
-                            """, (email_address, service[:50], code, '', source_msg_id))
-                            conn.commit()
-                            
-                            print(f"[验证码] ✅ 新验证码已保存: {code} from {service}")
-                            
-                            new_codes.append({
-                                "email": email_address,
-                                "service": service,
-                                "code": code,
-                                "expires_at": expires_at
-                            })
-                        else:
-                            print(f"[验证码] ⏭️ 去重命中: code={code}")
-            
+
+                        expires_at = (datetime.now(timezone.utc) + timedelta(minutes=3)).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+                        # 所有解析到的码都返回给前端（前端自行判断新旧）
+                        new_codes.append({
+                            "email": email_address,
+                            "service": service,
+                            "code": code,
+                            "expires_at": expires_at,
+                            "source_msg_id": source_msg_id
+                        })
+
+                        # DB 仅做持久化（去重写入，不影响返回）
+                        try:
+                            already_exists = False
+                            if source_msg_id:
+                                cursor = conn.execute(f"""
+                                    SELECT id FROM user_{user_id}_verification_codes
+                                    WHERE email = ? AND source_msg_id = ?
+                                """, (email_address, source_msg_id))
+                                already_exists = cursor.fetchone() is not None
+                            else:
+                                cursor = conn.execute(f"""
+                                    SELECT id FROM user_{user_id}_verification_codes
+                                    WHERE email = ? AND code = ? AND created_at > datetime('now', '-5 minutes')
+                                """, (email_address, code))
+                                already_exists = cursor.fetchone() is not None
+
+                            if not already_exists:
+                                conn.execute(f"""
+                                    INSERT INTO user_{user_id}_verification_codes
+                                    (email, service, code, account_name, is_read, expires_at, created_at, source_msg_id)
+                                    VALUES (?, ?, ?, ?, 0, datetime('now', '+3 minutes'), datetime('now'), ?)
+                                """, (email_address, service[:50], code, '', source_msg_id))
+                                conn.commit()
+                        except Exception:
+                            pass
+
             except Exception as e:
                 print(f"处理邮箱 {email_address} 失败: {e}")
                 continue
-    
+
     return {"success": True, "new_codes": new_codes}
 
 @app.post("/api/emails/codes/{code_id}/read")

@@ -28,8 +28,8 @@ let emailPollingInterval = null; // 邮箱轮询定时器
 
 // v5.1.4 新增：智能轮询 - 页面可见性检测
 let isPageVisible = true;
-let pollingInterval = 30000; // 默认30秒轮询
-let pollingIntervalFast = 10000; // 高频模式10秒轮询
+let pollingInterval = 5000; // 默认5秒轮询（学注册机：高频短间隔）
+let pollingIntervalFast = 3000; // 高频模式3秒轮询
 let fastModeEndTime = 0; // 高频模式结束时间
 
 // ==================== 补丁：核心 API 请求函数 ====================
@@ -1715,6 +1715,9 @@ function openAddModal() {
     document.getElementById('accType').innerHTML = accountTypes.map(t => `<option value="${t.id}">${escapeHtml(t.icon)} ${escapeHtml(t.name)}</option>`).join('');
     ['accName', 'accEmail', 'accPassword', 'accNotes'].forEach(id => document.getElementById(id).value = '');
     document.getElementById('accCountry').value = '🌍';
+    // 收起展开面板
+    ['fieldExpandName', 'fieldExpandNotes'].forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
+    ['btnToggleName', 'btnToggleNotes'].forEach(id => { const el = document.getElementById(id); if (el) { el.classList.remove('active', 'has-content'); } });
     // 辅助邮箱清空，显示输入框模式
     const backupEmail = document.getElementById('accBackupEmail');
     if (backupEmail) backupEmail.value = '';
@@ -1730,8 +1733,12 @@ function openAddModal() {
         btn2FA.classList.remove('has-2fa');
         btn2FA.onclick = function() { showToast('请先保存账号，再设置 2FA', 'info'); };
     }
+    // 添加模式：隐藏备份码按钮
+    const btnBackup = document.getElementById('btnBackupCodes');
+    if (btnBackup) btnBackup.style.display = 'none';
     renderCombosBox(); renderTagsBox();
     document.getElementById('accountModal').classList.add('show');
+    requestAnimationFrame(syncFieldToggleHeight);
 }
 
 function openEditModal(id) {
@@ -1745,6 +1752,10 @@ function openEditModal(id) {
     document.getElementById('accPassword').value = acc.password || '';
     document.getElementById('accCountry').value = acc.country || '🌍';
     document.getElementById('accNotes').value = acc.notes || '';
+    // 展开面板：默认收起，有内容时按钮标绿
+    ['fieldExpandName', 'fieldExpandNotes'].forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
+    ['btnToggleName', 'btnToggleNotes'].forEach(id => { const el = document.getElementById(id); if (el) el.classList.remove('active'); });
+    updateFieldToggleStates();
     // 辅助邮箱：已绑定时展示文本，未绑定时显示输入框
     const backupEmailVal = acc.backup_email || '';
     const backupInput = document.getElementById('accBackupEmail');
@@ -1765,8 +1776,15 @@ function openEditModal(id) {
         btn2FA.classList.toggle('has-2fa', !!acc.has_2fa);
         btn2FA.onclick = function() { open2FAConfig(editingAccountId); };
     }
+    // 编辑模式：备份码按钮（有 2FA 时始终显示）
+    const btnBackup = document.getElementById('btnBackupCodes');
+    if (btnBackup) {
+        btnBackup.style.display = acc.has_2fa ? 'inline-flex' : 'none';
+        btnBackup.classList.toggle('has-codes', !!acc.has_backup_codes);
+    }
     renderCombosBox(); renderTagsBox();
     document.getElementById('accountModal').classList.add('show');
+    requestAnimationFrame(syncFieldToggleHeight);
 }
 
 // 组合标签渲染
@@ -2032,6 +2050,40 @@ function renderTagsBox() {
         }, 0);
     }
 }
+
+// 邮箱行 emoji 按钮 — 高度同步 input
+function syncFieldToggleHeight() {
+    const emailInput = document.getElementById('accEmail');
+    if (!emailInput) return;
+    const h = emailInput.offsetHeight;
+    document.querySelectorAll('.btn-field-toggle').forEach(btn => {
+        btn.style.height = h + 'px';
+    });
+}
+
+// 邮箱行 emoji 按钮展开/收起
+function toggleFieldExpand(field) {
+    const panel = document.getElementById(field === 'name' ? 'fieldExpandName' : 'fieldExpandNotes');
+    const btn = document.getElementById(field === 'name' ? 'btnToggleName' : 'btnToggleNotes');
+    if (!panel || !btn) return;
+    const visible = panel.style.display !== 'none';
+    panel.style.display = visible ? 'none' : 'block';
+    btn.classList.toggle('active', !visible);
+    if (!visible) {
+        const input = panel.querySelector('input, textarea');
+        if (input) setTimeout(() => input.focus(), 50);
+    }
+    updateFieldToggleStates();
+}
+function updateFieldToggleStates() {
+    const notesVal = document.getElementById('accNotes')?.value?.trim();
+    const btnNotes = document.getElementById('btnToggleNotes');
+    if (btnNotes) btnNotes.classList.toggle('has-content', !!notesVal);
+}
+// 输入时实时更新按钮状态
+document.addEventListener('input', function(e) {
+    if (e.target.id === 'accName' || e.target.id === 'accNotes') updateFieldToggleStates();
+});
 
 function handleTagInput(e) { if (e.key === 'Enter') { e.preventDefault(); const val = e.target.value.trim(); if (val && !editingTags.includes(val)) { editingTags.push(val); addToTagHistory(val); window._tagJustEdited = true; renderTagsBox(); } e.target.value = ''; } }
 function removeTag(tag) { editingTags = editingTags.filter(t => t !== tag); window._tagJustEdited = true; renderTagsBox(); }
@@ -3175,10 +3227,9 @@ function open2FAConfig(accountId) {
     document.getElementById('totp2FAAlgorithm').value = 'SHA1';
     document.getElementById('totp2FADigits').value = '6';
     document.getElementById('totp2FATimeOffset').value = '0';
-    document.getElementById('totp2FABackupCodes').value = '';
     document.getElementById('qrScanResult').style.display = 'none';
     document.getElementById('qrScanResult').innerHTML = '';
-    
+
     // 如果已有2FA配置，加载现有配置
     if (acc.has_2fa) {
         document.getElementById('btn2FADelete').style.display = 'block';
@@ -3186,15 +3237,10 @@ function open2FAConfig(accountId) {
     } else {
         document.getElementById('btn2FADelete').style.display = 'none';
     }
-    
+
     // 初始化拖拽上传
     initQRDropZone();
-    initBackupCodesZone();
-    
-    // 重置备份码预览状态
-    document.getElementById('backupCodesPreview').style.display = 'none';
-    document.getElementById('backupCodesZone').style.display = 'block';
-    
+
     modal.classList.add('show');
 }
 
@@ -3215,12 +3261,6 @@ async function loadExisting2FAConfig(accountId) {
                 document.getElementById('totp2FAAlgorithm').value = data.algorithm || 'SHA1';
                 document.getElementById('totp2FADigits').value = data.digits || 6;
                 document.getElementById('totp2FATimeOffset').value = data.time_offset || 0;
-                // 加载备份码并显示预览
-                const backupCodes = data.backup_codes || [];
-                document.getElementById('totp2FABackupCodes').value = backupCodes.join('\n');
-                if (backupCodes.length > 0) {
-                    updateBackupCodesPreview(true);
-                }
             }
         }
     } catch (e) {
@@ -3229,98 +3269,229 @@ async function loadExisting2FAConfig(accountId) {
 }
 
 // ==================== 备份码功能 ====================
-function initBackupCodesZone() {
-    const zone = document.getElementById('backupCodesZone');
+// ==================== 备份码独立弹窗 ====================
+let backupCodesPopupAccountId = null;
+let backupCodesCache = []; // 当前加载的备份码
+
+function getUsedBackupCodes(accountId) {
+    try { return JSON.parse(localStorage.getItem(`backup_used_${accountId}`) || '[]'); } catch { return []; }
+}
+function setUsedBackupCodes(accountId, usedList) {
+    localStorage.setItem(`backup_used_${accountId}`, JSON.stringify(usedList));
+}
+
+async function openBackupCodesPopup() {
+    const accountId = editingAccountId;
+    if (!accountId) return;
+
+    backupCodesPopupAccountId = accountId;
+    backupCodesCache = [];
+
+    // 显示弹窗，切换到查看模式
+    showBackupViewMode();
+    document.getElementById('backupCodesViewMode').innerHTML = '<div class="backup-codes-empty">加载中...</div>';
+    document.getElementById('backupCodesModal').classList.add('show');
+
+    try {
+        const res = await apiRequest(`/accounts/${accountId}/totp`);
+        if (res.ok) {
+            const data = await res.json();
+            backupCodesCache = data.backup_codes || [];
+        }
+    } catch {}
+
+    if (backupCodesCache.length === 0) {
+        document.getElementById('backupCodesViewMode').innerHTML = '<div class="backup-codes-empty">暂无备份码，点击 ✏️ 添加</div>';
+        document.getElementById('backupCodesUsedCount').textContent = '';
+        return;
+    }
+    renderBackupCodesGrid();
+    initBackupDropZone();
+}
+
+function renderBackupCodesGrid() {
+    const view = document.getElementById('backupCodesViewMode');
+    const usedSet = new Set(getUsedBackupCodes(backupCodesPopupAccountId));
+
+    view.innerHTML = '<div class="backup-codes-grid">' + backupCodesCache.map((code, i) => {
+        const isUsed = usedSet.has(code);
+        return `<div class="backup-code-item${isUsed ? ' used' : ''}" data-code="${escapeHtml(code)}" onclick="toggleBackupCode(this)">
+            <span class="code-num">${i + 1}.</span>
+            <span class="code-text">${escapeHtml(code)}</span>
+            <span class="code-status">${isUsed ? '✓' : ''}</span>
+        </div>`;
+    }).join('') + '</div>';
+
+    updateBackupCodesCount(backupCodesCache.length, usedSet.size);
+}
+
+function toggleBackupCode(el) {
+    const code = el.dataset.code;
+    const accountId = backupCodesPopupAccountId;
+    const usedList = getUsedBackupCodes(accountId);
+    const idx = usedList.indexOf(code);
+
+    if (el.classList.contains('used')) {
+        el.classList.remove('used');
+        el.querySelector('.code-status').textContent = '';
+        if (idx !== -1) usedList.splice(idx, 1);
+    } else {
+        copyToClipboard(code);
+        showToast('📋 已复制: ' + code);
+        el.classList.add('used');
+        el.querySelector('.code-status').textContent = '✓';
+        if (idx === -1) usedList.push(code);
+    }
+
+    setUsedBackupCodes(accountId, usedList);
+    const total = document.querySelectorAll('#backupCodesViewMode .backup-code-item').length;
+    updateBackupCodesCount(total, usedList.length);
+}
+
+function updateBackupCodesCount(total, used) {
+    const el = document.getElementById('backupCodesUsedCount');
+    if (el) el.textContent = used > 0 ? `已用 ${used}/${total}` : `共 ${total} 个`;
+}
+
+function resetAllBackupCodes() {
+    const accountId = backupCodesPopupAccountId;
+    if (!accountId) return;
+    setUsedBackupCodes(accountId, []);
+    document.querySelectorAll('#backupCodesViewMode .backup-code-item').forEach(el => {
+        el.classList.remove('used');
+        el.querySelector('.code-status').textContent = '';
+    });
+    updateBackupCodesCount(backupCodesCache.length, 0);
+    showToast('↩️ 已全部重置');
+}
+
+// 编辑模式切换
+function toggleBackupEditMode() {
+    const editMode = document.getElementById('backupCodesEditMode');
+    if (editMode.style.display === 'none') {
+        // 进入编辑模式
+        document.getElementById('backupCodesTextarea').value = backupCodesCache.join('\n');
+        showBackupEditMode();
+        initBackupDropZone();
+    } else {
+        // 退出编辑模式
+        showBackupViewMode();
+    }
+}
+
+function showBackupEditMode() {
+    document.getElementById('backupCodesViewMode').style.display = 'none';
+    document.getElementById('backupCodesEditMode').style.display = 'block';
+    document.getElementById('btnBackupReset').style.display = 'none';
+    document.getElementById('backupViewFooter').style.display = 'none';
+    document.getElementById('btnBackupCancel').style.display = '';
+    document.getElementById('btnBackupSave').style.display = '';
+    document.getElementById('btnBackupEdit').textContent = '📋';
+    document.getElementById('btnBackupEdit').title = '查看';
+}
+
+function showBackupViewMode() {
+    document.getElementById('backupCodesViewMode').style.display = '';
+    document.getElementById('backupCodesEditMode').style.display = 'none';
+    document.getElementById('btnBackupReset').style.display = '';
+    document.getElementById('backupViewFooter').style.display = '';
+    document.getElementById('btnBackupCancel').style.display = 'none';
+    document.getElementById('btnBackupSave').style.display = 'none';
+    document.getElementById('btnBackupEdit').textContent = '✏️';
+    document.getElementById('btnBackupEdit').title = '编辑';
+}
+
+function cancelBackupEdit() {
+    showBackupViewMode();
+}
+
+async function saveBackupCodes() {
+    const accountId = backupCodesPopupAccountId;
+    if (!accountId) return;
+
+    const text = document.getElementById('backupCodesTextarea').value;
+    const codes = text.split('\n').map(s => s.trim()).filter(s => s && !s.startsWith('#'));
+
+    try {
+        const res = await apiRequest(`/accounts/${accountId}/totp`);
+        if (!res.ok) { showToast('无法读取 2FA 配置', true); return; }
+        const data = await res.json();
+
+        // 用现有 2FA 配置 + 新备份码保存
+        const config = {
+            secret: data.secret,
+            issuer: data.issuer || '',
+            totp_type: data.type || 'totp',
+            algorithm: data.algorithm || 'SHA1',
+            digits: data.digits || 6,
+            period: data.period || 30,
+            backup_codes: codes
+        };
+
+        const saveRes = await apiRequest(`/accounts/${accountId}/totp`, {
+            method: 'POST',
+            body: JSON.stringify(config)
+        });
+
+        if (saveRes.ok) {
+            backupCodesCache = codes;
+            const acc = accounts.find(a => a.id === accountId);
+            if (acc) acc.has_backup_codes = codes.length > 0;
+            // 更新编辑界面按钮
+            const btnBackup = document.getElementById('btnBackupCodes');
+            if (btnBackup) {
+                btnBackup.style.display = codes.length > 0 ? 'inline-flex' : 'none';
+                btnBackup.classList.toggle('has-codes', codes.length > 0);
+            }
+            renderCards();
+            showBackupViewMode();
+            if (codes.length > 0) {
+                renderBackupCodesGrid();
+                showToast(`✅ 已保存 ${codes.length} 个备份码`);
+            } else {
+                document.getElementById('backupCodesViewMode').innerHTML = '<div class="backup-codes-empty">暂无备份码，点击 ✏️ 添加</div>';
+                document.getElementById('backupCodesUsedCount').textContent = '';
+                showToast('备份码已清空');
+            }
+        } else {
+            showToast('保存失败', true);
+        }
+    } catch {
+        showToast('保存失败', true);
+    }
+}
+
+function initBackupDropZone() {
+    const zone = document.getElementById('backupCodesZone2');
     if (!zone || zone.dataset.initialized) return;
     zone.dataset.initialized = 'true';
-    
+
     ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(evt => {
         zone.addEventListener(evt, e => { e.preventDefault(); e.stopPropagation(); });
     });
-    
-    ['dragenter', 'dragover'].forEach(evt => {
-        zone.addEventListener(evt, () => zone.classList.add('drag-over'));
-    });
-    
-    ['dragleave', 'drop'].forEach(evt => {
-        zone.addEventListener(evt, () => zone.classList.remove('drag-over'));
-    });
-    
-    zone.addEventListener('drop', handleBackupCodesDrop);
-    
-    // 监听文本变化，更新预览
-    const textarea = document.getElementById('totp2FABackupCodes');
-    textarea.addEventListener('input', () => updateBackupCodesPreview(false));
-}
-
-function handleBackupCodesDrop(e) {
-    const file = e.dataTransfer.files[0];
-    if (!file) return;
-    
-    if (!file.name.endsWith('.txt')) {
-        showToast('请拖拽 .txt 文件', true);
-        return;
-    }
-    
-    const reader = new FileReader();
-    reader.onload = (event) => {
-        const content = event.target.result;
-        // 解析备份码，过滤空行和注释行
-        const codes = content.split('\n')
-            .map(s => s.trim())
-            .filter(s => s && !s.startsWith('#') && !s.startsWith('//'));
-        
-        if (codes.length > 0) {
-            document.getElementById('totp2FABackupCodes').value = codes.join('\n');
-            showToast(`✅ 已导入 ${codes.length} 个备份码`);
-            updateBackupCodesPreview(true);
-        } else {
-            showToast('文件中没有找到备份码', true);
+    zone.addEventListener('dragenter', () => zone.classList.add('drag-over'));
+    zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+    zone.addEventListener('drop', e => {
+        zone.classList.remove('drag-over');
+        const file = e.dataTransfer.files[0];
+        if (file && file.name.endsWith('.txt')) {
+            const reader = new FileReader();
+            reader.onload = ev => {
+                const codes = ev.target.result.split('\n').map(s => s.trim()).filter(s => s && !s.startsWith('#'));
+                if (codes.length > 0) {
+                    document.getElementById('backupCodesTextarea').value = codes.join('\n');
+                    showToast(`📄 已导入 ${codes.length} 个备份码`);
+                }
+            };
+            reader.readAsText(file);
         }
-    };
-    reader.readAsText(file);
+    });
 }
 
-function updateBackupCodesPreview(forceShow) {
-    const textarea = document.getElementById('totp2FABackupCodes');
-    const preview = document.getElementById('backupCodesPreview');
-    const grid = document.getElementById('backupCodesGrid');
-    const zone = document.getElementById('backupCodesZone');
-    
-    const codes = textarea.value.split('\n').map(s => s.trim()).filter(s => s);
-    
-    if (codes.length === 0) {
-        preview.style.display = 'none';
-        zone.style.display = 'block';
-        return;
-    }
-    
-    // 有码时显示预览
-    if (forceShow || codes.length >= 4) {
-        grid.innerHTML = codes.map((code, i) => `
-            <div class="backup-code-item" onclick="copyBackupCode('${escapeHtml(code)}', this)" title="点击复制">
-                <span class="code-num">${i + 1}.</span>
-                <span class="code-text">${escapeHtml(code)}</span>
-                <span class="code-copy">📋</span>
-            </div>
-        `).join('');
-        preview.style.display = 'block';
-        zone.style.display = 'none';
-    }
-}
-
-function copyBackupCode(code, element) {
-    copyToClipboard(code);
-    showToast('✅ 已复制: ' + code);
-    // 添加复制成功的视觉反馈
-    element.classList.add('copied');
-    setTimeout(() => element.classList.remove('copied'), 500);
-}
-
-function editBackupCodes() {
-    document.getElementById('backupCodesPreview').style.display = 'none';
-    document.getElementById('backupCodesZone').style.display = 'block';
-    document.getElementById('totp2FABackupCodes').focus();
+function closeBackupCodesPopup() {
+    document.getElementById('backupCodesModal').classList.remove('show');
+    backupCodesPopupAccountId = null;
+    showBackupViewMode();
 }
 
 // 二维码扫描功能
@@ -3537,11 +3708,17 @@ async function save2FAConfig() {
     const secret = document.getElementById('totp2FASecret').value.trim();
     if (!secret) { showToast('请输入密钥或扫描二维码', true); return; }
     if (secret.length < 8) { showToast('密钥长度不足', true); return; }
-    
-    // 解析备份码（每行一个，过滤空行）
-    const backupCodesText = document.getElementById('totp2FABackupCodes').value;
-    const backupCodes = backupCodesText.split('\n').map(s => s.trim()).filter(s => s);
-    
+
+    // 先读取现有备份码（备份码已独立管理，保存 2FA 时不覆盖）
+    let existingBackupCodes = [];
+    try {
+        const existing = await apiRequest(`/accounts/${current2FAAccountId}/totp`);
+        if (existing.ok) {
+            const d = await existing.json();
+            existingBackupCodes = d.backup_codes || [];
+        }
+    } catch {}
+
     const config = {
         secret: secret,
         issuer: document.getElementById('totp2FAIssuer').value.trim(),
@@ -3549,24 +3726,20 @@ async function save2FAConfig() {
         algorithm: document.getElementById('totp2FAAlgorithm').value,
         digits: parseInt(document.getElementById('totp2FADigits').value) || 6,
         period: 30,
-        backup_codes: backupCodes
+        backup_codes: existingBackupCodes
     };
-    
+
     try {
         const res = await apiRequest(`/accounts/${current2FAAccountId}/totp`, {
             method: 'POST',
             body: JSON.stringify(config)
         });
-        
+
         if (res.ok) {
             showToast('✅ 2FA 配置成功');
             close2FAConfigModal();
-            // 就地更新，不重载，保持滚动位置
             const acc = accounts.find(a => a.id === current2FAAccountId);
-            if (acc) {
-                acc.has_2fa = true;
-                acc.has_backup_codes = backupCodes.length > 0;
-            }
+            if (acc) { acc.has_2fa = true; }
             renderCards();
         } else {
             const data = await res.json();
@@ -4440,67 +4613,6 @@ async function fetchEmailsNow() {
     await checkNewEmails();
 }
 
-function markAllCodesRead() {
-    verificationCodes.forEach(c => c.is_read = true);
-    renderCodesList();
-    updateNotifyBadge();
-    
-    // 同步到后端
-    apiRequest('/emails/codes/read-all', { method: 'POST' }).catch(() => {});
-}
-
-// === 验证码弹窗 Toast ===
-function showCodeToast(code) {
-    if (!pushSettings.toast) return;
-    
-    const toast = document.getElementById('codeToast');
-    document.getElementById('toastService').textContent = code.service || '验证码';
-    document.getElementById('toastAccount').textContent = `${code.account_name || ''} · ${code.email}`;
-    document.getElementById('toastCode').textContent = code.code;
-    
-    // 倒计时
-    updateToastTimer(code.expires_at);
-    
-    toast.classList.add('show');
-    
-    // 10秒后自动关闭
-    if (codeToastTimer) clearTimeout(codeToastTimer);
-    codeToastTimer = setTimeout(closeCodeToast, 10000);
-}
-
-function updateToastTimer(expiresAt) {
-    const timerEl = document.getElementById('toastTimer');
-    if (!expiresAt) {
-        timerEl.textContent = '5:00';
-        return;
-    }
-    
-    const update = () => {
-        const remaining = Math.max(0, Math.floor((new Date(expiresAt) - new Date()) / 1000));
-        timerEl.textContent = `${Math.floor(remaining / 60)}:${(remaining % 60).toString().padStart(2, '0')}`;
-        
-        if (remaining > 0 && document.getElementById('codeToast').classList.contains('show')) {
-            setTimeout(update, 1000);
-        }
-    };
-    update();
-}
-
-function closeCodeToast() {
-    document.getElementById('codeToast').classList.remove('show');
-    if (codeToastTimer) {
-        clearTimeout(codeToastTimer);
-        codeToastTimer = null;
-    }
-}
-
-async function copyToastCode() {
-    const code = document.getElementById('toastCode').textContent;
-    await copyCode(code);
-}
-
-// === 邮箱轮询函数已移至后面统一定义 ===
-
 // 页面关闭时停止轮询
 window.addEventListener('beforeunload', () => {
     stopEmailPolling();
@@ -4606,47 +4718,61 @@ function restartEmailPolling() {
     }
 }
 
-// 执行一次邮件检查
+// 已弹过 toast 的验证码（sessionStorage 持久化，刷新页面不重复弹）
+const _toastedCodes = new Set(JSON.parse(sessionStorage.getItem('toasted_codes') || '[]'));
+function _markToasted(key) {
+    _toastedCodes.add(key);
+    // 只保留最近 50 条防止膨胀
+    const arr = [..._toastedCodes];
+    if (arr.length > 50) { _toastedCodes.clear(); arr.slice(-30).forEach(k => _toastedCodes.add(k)); }
+    sessionStorage.setItem('toasted_codes', JSON.stringify([..._toastedCodes]));
+}
+
+// 执行一次邮件检查（学注册机：直接从 refresh 响应解析码，内存去重）
 async function checkNewEmails() {
     if (authorizedEmails.length === 0) return;
-    
+
     try {
-        const res = await apiRequest('/emails/refresh', { 
+        const res = await apiRequest('/emails/refresh', {
             method: 'POST',
             body: JSON.stringify({})
         });
-        if (res.ok) {
-            const data = await res.json();
-            if (data.new_codes && data.new_codes.length > 0) {
-                const now = new Date();
-                // 过滤掉已过期的验证码
-                const validCodes = data.new_codes.filter(code => {
-                    if (!code.expires_at) return true;
-                    return new Date(code.expires_at) > now;
-                });
-                
-                if (validCodes.length > 0) {
-                    validCodes.forEach(code => {
-                        // 检查是否已存在
-                        const exists = verificationCodes.some(c => c.code === code.code && c.email === code.email);
-                        if (!exists) {
-                            verificationCodes.unshift(code);
-                            if (pushSettings.notify) {
-                                showToast(`📬 ${code.service || '验证码'}: ${code.code}`);
-                            }
-                            if (pushSettings.toast) {
-                                showCodeToast(code);
-                            }
-                        }
-                    });
-                    
-                    // 保留最近10条
-                    verificationCodes = verificationCodes.slice(0, 10);
-                    
-                    renderCodesList();
-                    updateNotifyBadge();
+        if (!res.ok) return;
+
+        const data = await res.json();
+        const allCodes = data.new_codes || [];
+        if (allCodes.length === 0) return;
+
+        const now = new Date();
+        const existingSet = new Set(verificationCodes.map(c => c.code + '|' + c.email));
+        let hasNew = false;
+
+        allCodes.forEach(code => {
+            if (code.expires_at && new Date(code.expires_at) < now) return;
+
+            const key = code.code + '|' + code.email;
+            if (!existingSet.has(key)) {
+                existingSet.add(key);
+                verificationCodes.unshift(code);
+                hasNew = true;
+
+                // 只有从未弹过的码才弹 toast
+                if (!_toastedCodes.has(key)) {
+                    _markToasted(key);
+                    if (pushSettings.notify) {
+                        showToast(`📬 ${code.service || '验证码'}: ${code.code}`);
+                    }
+                    if (pushSettings.toast) {
+                        showCodeToast(code);
+                    }
                 }
             }
+        });
+
+        if (hasNew) {
+            verificationCodes = verificationCodes.slice(0, 15);
+            renderCodesList();
+            updateNotifyBadge();
         }
     } catch (err) {
         // 静默失败
@@ -4678,10 +4804,9 @@ function startEmailPolling() {
     function scheduleNext() {
         const interval = Date.now() < fastModeEndTime ? pollingIntervalFast : pollingInterval;
         
-        emailPollingInterval = setTimeout(() => {
-            checkNewEmails();
-            cleanExpiredCodes();
-            scheduleNext(); // 递归调度下一次
+        emailPollingInterval = setTimeout(async () => {
+            await checkNewEmails(); // checkNewEmails 现在已包含 DB 同步，不需要单独 cleanExpiredCodes
+            scheduleNext();
         }, interval);
     }
     
@@ -5622,7 +5747,7 @@ function renderCodesList() {
 async function initEmailFeature() {
     setupVisibilityDetection(); // 设置页面可见性检测
     await loadEmailData();      // 等待邮箱数据加载完成
-    loadVerificationCodes();
+    await loadVerificationCodes(); // 必须 await，防止跟首次 poll 竞态
     startEmailPolling();
 }
 
