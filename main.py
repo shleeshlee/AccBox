@@ -3270,9 +3270,20 @@ def fetch_cloudflare_emails(worker_domain: str, cf_token: str) -> list:
         mails = data if isinstance(data, list) else data.get('results', data.get('mails', []))
 
         for mail in mails:
-            from_addr = mail.get('source', mail.get('from', mail.get('sender', '')))
-            raw = mail.get('raw', mail.get('text', mail.get('body', mail.get('html', ''))))
-            msg_id = mail.get('id', mail.get('messageId', ''))
+            raw = mail.get("raw", mail.get("text", mail.get("body", mail.get("html", ""))))
+            msg_id = mail.get("id", mail.get("messageId", ""))
+
+            # 从 MIME 原始内容解析真实 From 头（source 是 SMTP bounce 地址，不可读）
+            from_addr = mail.get("source", mail.get("from", mail.get("sender", "")))
+            try:
+                import email as _email
+                import email.policy
+                _msg = _email.message_from_string(raw, policy=email.policy.default)
+                mime_from = _msg.get("From", "")
+                if mime_from:
+                    from_addr = mime_from
+            except Exception:
+                pass
 
             # 用 MIME 解析器提取正文（处理 base64/quoted-printable/multipart）
             body = _parse_mime_body(raw)
