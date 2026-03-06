@@ -354,9 +354,13 @@
             <div class="modal-body">
                 <div class="import-section">
                     <div class="import-section-title">📝 批量导入账号</div>
-                    <div class="hint-box"><p>支持两种格式，每行一个账号：</p><p style="margin:4px 0;font-size:12px;opacity:0.8">① 邮箱----密码----辅助邮箱----2FA密钥（后两项可选）</p><p style="margin:4px 0;font-size:12px;opacity:0.8">② 邮箱,密码,国家,名称（后两项可选）</p></div>
+                    <div class="hint-box" style="background:none;border:none;padding:0 0 8px 0">
+                        <p>支持两种格式，每行一个账号：</p>
+                        <p style="margin:4px 0;font-size:12px;opacity:0.8">① 邮箱----密码----辅助邮箱----2FA密钥（后两项可选）</p>
+                        <p style="margin:4px 0;font-size:12px;opacity:0.8">② 邮箱,密码,国家,名称（后两项可选）</p>
+                    </div>
                     <div class="form-group import-paste-group">
-                        <textarea class="form-textarea" id="importCsv" rows="6"></textarea>
+                        <textarea class="form-textarea" id="importCsv" rows="6" placeholder="user@gmail.com----password----recovery@mail.com----2fa_secret"></textarea>
                         <button class="btn-paste-import" onclick="pasteToImport()" title="从剪贴板粘贴">📋 粘贴</button>
                     </div>
                 </div>
