@@ -1033,8 +1033,9 @@ html:not([data-theme="light"]) .btn-avatar:hover::before {
 @keyframes cardFadeOut {
     to { opacity: 0; transform: scale(0.95); height: 0; margin: 0; padding: 0; border-width: 0; overflow: hidden; }
 }
-/* 当菜单打开时，允许下拉菜单超出卡片边界 */
-.account-card:has(.card-menu.open) { overflow: visible; }
+/* 当菜单打开时，允许下拉菜单超出卡片边界，并提升层级 */
+.account-card:has(.card-menu.open) { overflow: visible; z-index: 100; }
+.card-menu-dropdown { z-index: 1000; }
 .account-card:hover { border-color: var(--border-light); transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.15); }
 /* Mixed status */
 .account-card.mixed { border-left: 3px solid rgba(234, 179, 8, 0.5); }
@@ -1185,7 +1186,8 @@ html:not([data-theme="light"]) .btn-avatar:hover::before {
 }
 .cards-grid.list-view .menu-item:nth-child(1)::before { content: '❤️'; }
 .cards-grid.list-view .menu-item:nth-child(2)::before { content: '✏️'; }
-.cards-grid.list-view .menu-item:nth-child(3)::before { content: '🗑️'; }
+.cards-grid.list-view .menu-item:nth-child(3)::before { content: '⏰'; }
+.cards-grid.list-view .menu-item:nth-child(4)::before { content: '🗑️'; }
 .cards-grid.list-view .card-body { padding: 10px 0; }
 .cards-grid.list-view .card-header { margin-bottom: 0; align-items: center; flex-wrap: nowrap; gap: 0; }
 
