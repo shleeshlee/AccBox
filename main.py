@@ -609,6 +609,21 @@ def migrate_add_timers_column():
                 except:
                     pass
 
+def migrate_add_backup_email_column():
+    """迁移：为账号表添加 backup_email 列"""
+    with get_db() as conn:
+        cursor = conn.execute("SELECT id FROM users")
+        for user in cursor.fetchall():
+            user_id = user["id"]
+            try:
+                conn.execute(f"SELECT backup_email FROM user_{user_id}_accounts LIMIT 1")
+            except sqlite3.OperationalError:
+                try:
+                    conn.execute(f"ALTER TABLE user_{user_id}_accounts ADD COLUMN backup_email TEXT DEFAULT ''")
+                    conn.commit()
+                except:
+                    pass
+
 def generate_token() -> str:
     return secrets.token_hex(32)
 
@@ -3633,4 +3648,5 @@ if __name__ == "__main__":
     migrate_add_2fa_columns()
     migrate_add_hidden_column()
     migrate_add_timers_column()
+    migrate_add_backup_email_column()
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
