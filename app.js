@@ -5448,27 +5448,9 @@ document.addEventListener('click', (e) => {
 });
 
 // 收集未授权的辅助邮箱到待授权列表
+// 注意：不再自动从账号的 backup_email 收集，避免批量导入的无效邮箱污染待授权列表
 function collectPendingEmails() {
-    const collectedEmails = new Set(pendingEmails.map(e => e.toLowerCase()));
-    const authorizedAddrs = new Set(authorizedEmails.map(e => e.address?.toLowerCase()));
-    
-    accounts.forEach(acc => {
-        if (acc.backup_email) {
-            const addr = acc.backup_email.toLowerCase();
-            // 如果既没有授权也没有在待授权列表中
-            if (!authorizedAddrs.has(addr) && !collectedEmails.has(addr)) {
-                collectedEmails.add(addr);
-            }
-        }
-    });
-    
-    // 更新待授权列表（转回数组）
-    const newPending = Array.from(collectedEmails);
-    if (newPending.length !== pendingEmails.length) {
-        pendingEmails = newPending;
-        // 可选：同步到后端
-        syncPendingEmails();
-    }
+    // 只保留后端已存的 pending 列表，不自动扫账号
 }
 
 // 同步待授权邮箱到后端

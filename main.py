@@ -1598,6 +1598,21 @@ def import_csv(data: dict, user: dict = Depends(get_current_user)):
 
     lines = csv_text.strip().split('\n')
     with get_db() as conn:
+        # 构建邮箱域名 → type_id 映射
+        domain_type_map = {}
+        type_cursor = conn.execute(f"SELECT id, name FROM user_{user['id']}_account_types")
+        for t in type_cursor.fetchall():
+            name_lower = t["name"].lower()
+            if 'google' in name_lower:
+                domain_type_map['gmail.com'] = t["id"]
+                domain_type_map['googlemail.com'] = t["id"]
+            elif 'microsoft' in name_lower or 'outlook' in name_lower:
+                domain_type_map['outlook.com'] = t["id"]
+                domain_type_map['hotmail.com'] = t["id"]
+                domain_type_map['live.com'] = t["id"]
+            elif 'discord' in name_lower:
+                domain_type_map['discord'] = t["id"]
+
         for i, line in enumerate(lines):
             if not line.strip() or line.startswith('#'):
                 continue
@@ -1637,11 +1652,15 @@ def import_csv(data: dict, user: dict = Depends(get_current_user)):
                     else:
                         totp_secret = totp_secret_raw.strip()
 
+                # 根据邮箱域名自动匹配账号类型
+                email_domain = email.split('@')[-1].lower() if '@' in email else ''
+                type_id = domain_type_map.get(email_domain)
+
                 cursor = conn.execute(f"""
                     INSERT INTO user_{user['id']}_accounts
-                    (email, password, country, custom_name, backup_email, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (email, encrypt_password(password), country, custom_name, backup_email, now, now))
+                    (type_id, email, password, country, custom_name, backup_email, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (type_id, email, encrypt_password(password), country, custom_name, backup_email, now, now))
 
                 # 写入 2FA
                 if totp_secret:
@@ -2287,16 +2306,6 @@ def get_emails(user: dict = Depends(get_current_user)):
                     pending_set.add(email)
         except:
             pass
-        
-        # 从账号的辅助邮箱字段获取
-        try:
-            cursor = conn.execute(f"SELECT DISTINCT backup_email FROM user_{user_id}_accounts WHERE backup_email IS NOT NULL AND backup_email != ''")
-            for row in cursor.fetchall():
-                email = row["backup_email"]
-                if email and email.lower() not in authorized_addresses:
-                    pending_set.add(email)
-        except:
-            pass  # backup_email字段可能不存在
         
         pending = list(pending_set)
     
