@@ -1192,12 +1192,12 @@ function sortAccounts(list) {
         sorted.sort((a, b) => {
             const aTime = a.last_used ? new Date(a.last_used).getTime() : 0;
             const bTime = b.last_used ? new Date(b.last_used).getTime() : 0;
-            return dir * (bTime - aTime) || dir * (new Date(b.created_at) - new Date(a.created_at));
+            return dir * (bTime - aTime) || dir * (new Date(b.created_at) - new Date(a.created_at)) || a.id - b.id;
         });
     } else if (currentSort === 'name') {
-        sorted.sort((a, b) => dir * (a.customName || a.email).localeCompare(b.customName || b.email));
+        sorted.sort((a, b) => dir * (a.customName || a.email).localeCompare(b.customName || b.email) || a.id - b.id);
     } else if (currentSort === 'created') {
-        sorted.sort((a, b) => dir * (new Date(b.created_at) - new Date(a.created_at)));
+        sorted.sort((a, b) => dir * (new Date(b.created_at) - new Date(a.created_at)) || a.id - b.id);
     }
     // Frozen cards sink to bottom
     if (propertyGroups.length > 0) {
