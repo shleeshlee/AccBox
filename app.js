@@ -5365,23 +5365,30 @@ function getBackupEmailSuggestions() {
 
 // 辅助邮箱输入事件处理
 function onBackupEmailInput(input) {
+    showBackupEmailSuggestions(input);
+}
+
+function onBackupEmailFocus(input) {
+    showBackupEmailSuggestions(input);
+}
+
+function showBackupEmailSuggestions(input) {
     const value = input.value.trim().toLowerCase();
     const suggestionsEl = document.getElementById('backupEmailSuggestions');
-    
+
     if (!suggestionsEl) return;
-    
-    if (!value) {
+
+    const allSuggestions = getBackupEmailSuggestions();
+    if (allSuggestions.length === 0) {
         suggestionsEl.classList.remove('show');
         suggestionsEl.innerHTML = '';
         return;
     }
-    
-    const allSuggestions = getBackupEmailSuggestions();
-    
-    // 过滤匹配的建议
-    const filtered = allSuggestions.filter(s => 
-        s.email.toLowerCase().includes(value)
-    ).slice(0, 8); // 最多显示8条
+
+    // 无输入时显示全部，有输入时过滤匹配
+    const filtered = value
+        ? allSuggestions.filter(s => s.email.toLowerCase().includes(value)).slice(0, 8)
+        : allSuggestions.slice(0, 8);
     
     if (filtered.length === 0) {
         suggestionsEl.classList.remove('show');
