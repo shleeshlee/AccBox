@@ -1472,15 +1472,16 @@ def import_data(data: dict, user: dict = Depends(get_current_user)):
                 new_combos.append(new_combo)
             
             cursor = conn.execute(f"""
-                INSERT INTO user_{user['id']}_accounts 
-                (type_id, email, password, country, custom_name, properties, combos, tags, notes, is_favorite, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO user_{user['id']}_accounts
+                (type_id, email, password, country, custom_name, properties, combos, tags, notes, backup_email, is_favorite, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 new_type_id, email, encrypt_password(acc.get("password", "")),
                 acc.get("country", "🌍"), acc.get("customName", ""),
                 json.dumps(acc.get("properties", {})), json.dumps(new_combos),
                 json.dumps(acc.get("tags", []), ensure_ascii=False),
-                acc.get("notes", ""), 1 if acc.get("is_favorite") else 0,
+                acc.get("notes", ""), acc.get("backup_email", ""),
+                1 if acc.get("is_favorite") else 0,
                 acc.get("created_at", now), now  # 保留原始创建时间
             ))
             
@@ -1575,36 +1576,71 @@ def import_csv(data: dict, user: dict = Depends(get_current_user)):
     csv_text = data.get("csv", "")
     if not csv_text:
         raise HTTPException(status_code=400, detail="CSV内容为空")
-    
+
     now = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
     imported = 0
     errors = []
-    
+
     lines = csv_text.strip().split('\n')
     with get_db() as conn:
         for i, line in enumerate(lines):
             if not line.strip() or line.startswith('#'):
                 continue
-            parts = [p.strip() for p in line.split(',')]
+
+            # 自动检测分隔符：---- 或 ,
+            if '----' in line:
+                parts = [p.strip() for p in line.split('----')]
+            else:
+                parts = [p.strip() for p in line.split(',')]
+
             if len(parts) < 2:
                 errors.append(f"第{i+1}行格式错误")
                 continue
             try:
                 email = parts[0]
                 password = parts[1]
-                country = parts[2] if len(parts) > 2 and parts[2] else "🌍"
-                custom_name = parts[3] if len(parts) > 3 else ""
-                
-                conn.execute(f"""
-                    INSERT INTO user_{user['id']}_accounts 
-                    (email, password, country, custom_name, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (email, encrypt_password(password), country, custom_name, now, now))
+                backup_email = ""
+                totp_secret_raw = ""
+                country = "🌍"
+                custom_name = ""
+
+                if '----' in line:
+                    # ---- 格式：邮箱----密码----辅助邮箱----2FA
+                    backup_email = parts[2] if len(parts) > 2 else ""
+                    totp_secret_raw = parts[3] if len(parts) > 3 else ""
+                else:
+                    # 逗号格式：邮箱,密码,国家,名称
+                    country = parts[2] if len(parts) > 2 and parts[2] else "🌍"
+                    custom_name = parts[3] if len(parts) > 3 else ""
+
+                # 解析 2FA：支持裸密钥或 https://2fa.live/tok/xxx 链接
+                totp_secret = ""
+                if totp_secret_raw:
+                    if '2fa.live/tok/' in totp_secret_raw:
+                        # 从 URL 提取 token 部分作为密钥
+                        totp_secret = totp_secret_raw.split('2fa.live/tok/')[-1].strip().rstrip('/')
+                    else:
+                        totp_secret = totp_secret_raw.strip()
+
+                cursor = conn.execute(f"""
+                    INSERT INTO user_{user['id']}_accounts
+                    (email, password, country, custom_name, backup_email, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (email, encrypt_password(password), country, custom_name, backup_email, now, now))
+
+                # 写入 2FA
+                if totp_secret:
+                    conn.execute(f"""
+                        UPDATE user_{user['id']}_accounts SET
+                        totp_secret=?, totp_issuer=?, totp_type=?, totp_algorithm=?, totp_digits=?, totp_period=?
+                        WHERE id=?
+                    """, (encrypt_password(totp_secret), "", "totp", "SHA1", 6, 30, cursor.lastrowid))
+
                 imported += 1
             except Exception as e:
                 errors.append(f"第{i+1}行: {str(e)}")
         conn.commit()
-    
+
     return {"message": f"成功导入 {imported} 个账号", "count": imported, "errors": errors[:10]}
 
 # ==================== 2FA TOTP API ====================

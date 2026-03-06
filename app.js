@@ -1712,9 +1712,10 @@ function openAddModal() {
     document.getElementById('accType').innerHTML = accountTypes.map(t => `<option value="${t.id}">${escapeHtml(t.icon)} ${escapeHtml(t.name)}</option>`).join('');
     ['accName', 'accEmail', 'accPassword', 'accNotes'].forEach(id => document.getElementById(id).value = '');
     document.getElementById('accCountry').value = '🌍';
-    // 辅助邮箱清空
+    // 辅助邮箱清空，显示输入框模式
     const backupEmail = document.getElementById('accBackupEmail');
     if (backupEmail) backupEmail.value = '';
+    showBackupEmailInput();
     // 密码默认隐藏
     const pwdField = document.getElementById('accPassword');
     if (pwdField) { pwdField.classList.add('pwd-hidden'); }
@@ -1737,9 +1738,15 @@ function openEditModal(id) {
     document.getElementById('accPassword').value = acc.password || '';
     document.getElementById('accCountry').value = acc.country || '🌍';
     document.getElementById('accNotes').value = acc.notes || '';
-    // 辅助邮箱
-    const backupEmail = document.getElementById('accBackupEmail');
-    if (backupEmail) backupEmail.value = acc.backup_email || '';
+    // 辅助邮箱：已绑定时展示文本，未绑定时显示输入框
+    const backupEmailVal = acc.backup_email || '';
+    const backupInput = document.getElementById('accBackupEmail');
+    if (backupInput) backupInput.value = backupEmailVal;
+    if (backupEmailVal) {
+        showBackupEmailDisplay(backupEmailVal);
+    } else {
+        showBackupEmailInput();
+    }
     // 密码默认隐藏
     const pwdField = document.getElementById('accPassword');
     if (pwdField) { pwdField.classList.add('pwd-hidden'); }
@@ -5175,7 +5182,7 @@ function renderAuthorizedEmails() {
         <div class="email-item">
             <div class="email-item-icon ${email.provider || 'imap'}">📧</div>
             <div class="email-item-info">
-                <div class="email-item-address">${escapeHtml(email.address)}</div>
+                <div class="email-item-address copyable" onclick="navigator.clipboard.writeText('${escapeAttr(email.address)}').then(()=>showToast('邮箱已复制'))" title="点击复制">${escapeHtml(email.address)}</div>
                 <div class="email-item-status">
                     <span class="dot ${email.status || 'active'}"></span>
                     ${email.status === 'error' ? '连接失败' : '已连接'}
@@ -5224,6 +5231,44 @@ document.addEventListener('click', (e) => {
         closeMoreMenu();
     }
 });
+
+// === 辅助邮箱展示/切换 ===
+
+function showBackupEmailDisplay(emailAddr) {
+    const display = document.getElementById('backupEmailDisplay');
+    const inputWrapper = document.getElementById('backupEmailInputWrapper');
+    const addrEl = document.getElementById('backupEmailAddr');
+    const statusEl = document.getElementById('backupEmailStatus');
+    if (!display || !inputWrapper) return;
+
+    addrEl.textContent = emailAddr;
+    // 检查是否已授权
+    const isAuthorized = authorizedEmails.some(e => e.address?.toLowerCase() === emailAddr.toLowerCase());
+    statusEl.textContent = isAuthorized ? '✅ 已授权' : '';
+    statusEl.className = 'backup-email-status' + (isAuthorized ? ' authorized' : '');
+
+    display.style.display = '';
+    inputWrapper.style.display = 'none';
+}
+
+function showBackupEmailInput() {
+    const display = document.getElementById('backupEmailDisplay');
+    const inputWrapper = document.getElementById('backupEmailInputWrapper');
+    if (display) display.style.display = 'none';
+    if (inputWrapper) inputWrapper.style.display = '';
+}
+
+function switchToBackupEmailInput() {
+    showBackupEmailInput();
+    const input = document.getElementById('accBackupEmail');
+    if (input) input.focus();
+}
+
+function copyBackupEmail() {
+    const addrEl = document.getElementById('backupEmailAddr');
+    if (!addrEl) return;
+    navigator.clipboard.writeText(addrEl.textContent).then(() => showToast('辅助邮箱已复制'));
+}
 
 // === 辅助邮箱自动联想功能 ===
 
