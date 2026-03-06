@@ -3140,13 +3140,24 @@ html:not([data-theme="light"]) .user-avatar-large {
     background: rgba(34, 197, 94, 0.1);
 }
 
-/* 卡片底部 2FA 按钮 */
+/* 卡片底部 2FA 按钮 - 未设置时灰色虚线 */
 .btn-action.btn-2fa {
+    border-style: dashed;
+    opacity: 0.5;
+}
+.btn-action.btn-2fa:hover {
+    opacity: 0.8;
+    border-color: var(--accent);
+}
+
+/* 已设置 2FA */
+.btn-action.btn-2fa.active {
+    border-style: solid;
+    opacity: 1;
     background: linear-gradient(135deg, rgba(139, 92, 246, 0.15), rgba(59, 130, 246, 0.15));
     border-color: rgba(139, 92, 246, 0.3);
 }
-
-.btn-action.btn-2fa:hover {
+.btn-action.btn-2fa.active:hover {
     background: linear-gradient(135deg, rgba(139, 92, 246, 0.25), rgba(59, 130, 246, 0.25));
     border-color: var(--accent);
 }
@@ -3578,9 +3589,10 @@ html:not([data-theme="light"]) .user-avatar-large {
 .backup-codes-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 6px 20px;
+    gap: 6px 8px;
     font-family: "JetBrains Mono", monospace;
     font-size: 0.85rem;
+    overflow: hidden;
 }
 
 .backup-code-item {
@@ -3603,6 +3615,10 @@ html:not([data-theme="light"]) .user-avatar-large {
 .backup-code-item .code-text {
     flex: 1;
     letter-spacing: 1px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
 }
 
 .backup-code-item.used {

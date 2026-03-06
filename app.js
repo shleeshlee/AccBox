@@ -1056,7 +1056,8 @@ function renderCards() {
             </div>
             <div class="card-footer">
                 <button class="btn-action" onclick="event.stopPropagation();copyPassword(${acc.id})" title="复制密码">🔑 密码</button>
-                ${acc.has_2fa ? `<button class="btn-action btn-2fa${acc.has_backup_codes ? ' has-backup' : ''}" onclick="event.stopPropagation();show2FAPopup(${acc.id})" title="${acc.has_backup_codes ? '有备份码' : '无备份码'}">🛡️ 2FA</button>` : ''}
+                <button class="btn-action btn-2fa${acc.has_2fa ? ' active' : ''}${acc.has_backup_codes ? ' has-backup' : ''}" onclick="event.stopPropagation();${acc.has_2fa ? `show2FAPopup(${acc.id})` : `open2FAConfig(${acc.id})`}" title="${acc.has_2fa ? (acc.has_backup_codes ? '有备份码' : '查看2FA') : '设置2FA'}">🛡️ 2FA</button>
+                <button class="btn-action" onclick="event.stopPropagation();copyEmail('${escapeHtml(acc.email)}')" title="复制邮箱">📋 复制</button>
                 <button class="btn-action" onclick="event.stopPropagation();loginTest(${acc.id})" title="登录测试">🔗 登录</button>
             </div>
         </div>`;
