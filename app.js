@@ -2411,6 +2411,21 @@ async function doImportJson(data, option) {
     } catch { showToast('导入失败', true); }
 }
 
+async function pasteToImport() {
+    try {
+        const text = await navigator.clipboard.readText();
+        if (text) {
+            const textarea = document.getElementById('importCsv');
+            textarea.value = textarea.value ? textarea.value + '\n' + text : text;
+            showToast('已粘贴');
+        } else {
+            showToast('剪贴板为空', true);
+        }
+    } catch {
+        showToast('无法读取剪贴板，请用 Ctrl+V 粘贴', true);
+    }
+}
+
 async function doImport() {
     const csv = document.getElementById('importCsv').value.trim();
     if (csv) { try { const res = await fetch(API + '/import-csv', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ csv }) }); const result = await res.json(); showToast(result.message); closeImportModal(); loadData(); } catch { showToast('导入失败', true); } }
