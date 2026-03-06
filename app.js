@@ -5447,10 +5447,36 @@ document.addEventListener('click', (e) => {
     }
 });
 
-// 收集未授权的辅助邮箱到待授权列表
-// 注意：不再自动从账号的 backup_email 收集，避免批量导入的无效邮箱污染待授权列表
-function collectPendingEmails() {
-    // 只保留后端已存的 pending 列表，不自动扫账号
+// 不再自动收集，改为手动拉取/清空
+function collectPendingEmails() {}
+
+async function pullPendingEmails() {
+    try {
+        const res = await apiRequest('/emails/pending/pull', { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+            showToast(`拉取完成，新增 ${data.added} 个`);
+            await loadEmailData();
+            renderPendingEmails();
+        }
+    } catch (err) {
+        showToast('拉取失败: ' + err.message, true);
+    }
+}
+
+async function clearPendingEmails() {
+    if (!confirm('确定清空所有待授权邮箱？')) return;
+    try {
+        const res = await apiRequest('/emails/pending', { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) {
+            pendingEmails = [];
+            renderPendingEmails();
+            showToast('已清空');
+        }
+    } catch (err) {
+        showToast('清空失败: ' + err.message, true);
+    }
 }
 
 // 同步待授权邮箱到后端

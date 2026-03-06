@@ -694,7 +694,13 @@
                 </div>
                 <!-- 待授权邮箱 -->
                 <div class="email-section">
-                    <div class="email-section-title">💡 待授权邮箱 <span class="section-hint">从账号辅助邮箱收集</span></div>
+                    <div class="email-section-title">
+                        💡 待授权邮箱
+                        <span class="pending-email-actions">
+                            <button class="btn-pending-action" onclick="pullPendingEmails()" title="从账号辅助邮箱拉取">📥 拉取</button>
+                            <button class="btn-pending-action danger" onclick="clearPendingEmails()" title="清空待授权列表">🗑️ 清空</button>
+                        </span>
+                    </div>
                     <div class="pending-emails-list" id="pendingEmailsList">
                         <div class="emails-empty">暂无待授权邮箱</div>
                     </div>
