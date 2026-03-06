@@ -2411,7 +2411,38 @@ async function doImportJson(data, option) {
     } catch { showToast('导入失败', true); }
 }
 
+function showImportContextMenu(e) {
+    e.preventDefault();
+    document.querySelectorAll('.qr-context-menu').forEach(m => m.remove());
+    const menu = document.createElement('div');
+    menu.className = 'qr-context-menu';
+    menu.innerHTML = `
+        <div class="qr-menu-item" onclick="pasteToImport()">
+            <span>📋</span>
+            <span>粘贴</span>
+            <span class="shortcut">Ctrl+V</span>
+        </div>
+        <div class="qr-menu-item" onclick="clearImportText()">
+            <span>🗑️</span>
+            <span>清空</span>
+        </div>
+    `;
+    menu.style.cssText = `position:fixed;left:${e.clientX}px;top:${e.clientY}px;z-index:100001;`;
+    document.body.appendChild(menu);
+    setTimeout(() => document.addEventListener('click', closeImportContextMenu, { once: true }), 0);
+}
+
+function closeImportContextMenu() {
+    document.querySelectorAll('.qr-context-menu').forEach(m => m.remove());
+}
+
+function clearImportText() {
+    document.getElementById('importCsv').value = '';
+    closeImportContextMenu();
+}
+
 async function pasteToImport() {
+    closeImportContextMenu();
     try {
         const text = await navigator.clipboard.readText();
         if (text) {
