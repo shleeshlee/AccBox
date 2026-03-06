@@ -912,6 +912,7 @@ function renderSidebar() {
 
 // 卡片渲染
 function renderCards() {
+    const scrollY = window.scrollY;
     const cardsList = document.getElementById('cardsList');
     const filtered = getFilteredAccounts(), sorted = sortAccounts(filtered);
     if (sorted.length === 0) { 
@@ -1065,6 +1066,8 @@ function renderCards() {
     
     // 应用视图模式
     updateViewModeClass();
+    // 恢复滚动位置
+    requestAnimationFrame(() => window.scrollTo(0, scrollY));
 }
 
 function getFilteredAccounts() {
@@ -3558,7 +3561,13 @@ async function save2FAConfig() {
         if (res.ok) {
             showToast('✅ 2FA 配置成功');
             close2FAConfigModal();
-            await loadData();
+            // 就地更新，不重载，保持滚动位置
+            const acc = accounts.find(a => a.id === current2FAAccountId);
+            if (acc) {
+                acc.has_2fa = true;
+                acc.has_backup_codes = backupCodes.length > 0;
+            }
+            renderCards();
         } else {
             const data = await res.json();
             showToast(data.detail || '保存失败', true);
@@ -3577,7 +3586,12 @@ async function delete2FAFromModal() {
         if (res.ok) {
             showToast('🗑️ 2FA 已移除');
             close2FAConfigModal();
-            await loadData();
+            const acc = accounts.find(a => a.id === current2FAAccountId);
+            if (acc) {
+                acc.has_2fa = false;
+                acc.has_backup_codes = false;
+            }
+            renderCards();
         } else {
             showToast('移除失败', true);
         }
