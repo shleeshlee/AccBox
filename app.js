@@ -6129,10 +6129,11 @@ function renderTimers(acc) {
     const now = Math.floor(Date.now() / 1000);
     const parts = timers.map(t => {
         const remaining = t.expires_at - now;
+        const targetMs = t.expires_at * 1000;
         if (remaining <= 0) {
-            return `<span class="meta-timer done"><span class="t-label">${t.label || ''}</span> <span class="t-icon">⏱️</span> 0m</span>`;
+            return `<span class="meta-timer done" data-target="${targetMs}"><span class="t-label">${t.label || ''}</span> <span class="t-icon">⏱️</span> <span class="t-time">0m</span></span>`;
         }
-        return `<span class="meta-timer">${t.label ? `<span class="t-label">${t.label}</span> ` : ''}<span class="t-icon">⏱️</span> ${formatDuration(remaining)}</span>`;
+        return `<span class="meta-timer" data-target="${targetMs}">${t.label ? `<span class="t-label">${t.label}</span> ` : ''}<span class="t-icon">⏱️</span> <span class="t-time">${formatDuration(remaining)}</span></span>`;
     });
     return `<div class="meta-timers">${parts.join('')}</div>`;
 }
@@ -6231,10 +6232,26 @@ function dismissDoneTimers(card) {
     }
 }
 
-// Timer countdown refresh
+// Timer countdown refresh - only update timer text, don't re-render entire card list
 setInterval(() => {
     const timerEls = document.querySelectorAll('.meta-timer:not(.done)');
     if (!timerEls.length) return;
-    // Just re-render cards to update timer display
-    renderCards();
+
+    timerEls.forEach(el => {
+        const target = parseInt(el.dataset.target);
+        if (!target) return;
+        const remaining = Math.max(0, target - Date.now());
+        const mins = Math.floor(remaining / 60000);
+        const timeEl = el.querySelector('.t-time');
+        if (timeEl) {
+            if (remaining <= 0) {
+                timeEl.textContent = '0m';
+                el.classList.add('done');
+            } else if (mins >= 60) {
+                timeEl.textContent = Math.floor(mins / 60) + 'h' + (mins % 60) + 'm';
+            } else {
+                timeEl.textContent = mins + 'm';
+            }
+        }
+    });
 }, 60000);
