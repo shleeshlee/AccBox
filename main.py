@@ -1237,8 +1237,8 @@ def batch_add_timers(data: dict, user: dict = Depends(get_current_user)):
             existing = json.loads(row["timers"] or "[]") if row["timers"] else []
             existing.append({"label": label, "expires_at": expires_at})
             conn.execute(
-                f"UPDATE user_{user['id']}_accounts SET timers = ?, last_used = ?, updated_at = ? WHERE id = ?",
-                (json.dumps(existing), now_str, now_str, aid)
+                f"UPDATE user_{user['id']}_accounts SET timers = ?, updated_at = ? WHERE id = ?",
+                (json.dumps(existing), now_str, aid)
             )
         conn.commit()
         for aid in account_ids:
