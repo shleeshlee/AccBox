@@ -295,6 +295,7 @@ class AccountCreate(BaseModel):
     combos: List[List[int]] = []
     tags: List[str] = []
     notes: str = ""
+    backup_email: str = ""
 
 class AccountUpdate(BaseModel):
     type_id: Optional[int] = None
@@ -306,6 +307,7 @@ class AccountUpdate(BaseModel):
     combos: Optional[List[List[int]]] = None
     tags: Optional[List[str]] = None
     notes: Optional[str] = None
+    backup_email: Optional[str] = None
     is_favorite: Optional[bool] = None
     timers: Optional[List[Dict[str, Any]]] = None
 
@@ -1045,13 +1047,13 @@ def create_account(data: AccountCreate, user: dict = Depends(get_current_user)):
     
     with get_db() as conn:
         cursor = conn.execute(f"""
-            INSERT INTO user_{user['id']}_accounts 
-            (type_id, email, password, country, custom_name, properties, combos, tags, notes, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO user_{user['id']}_accounts
+            (type_id, email, password, country, custom_name, properties, combos, tags, notes, backup_email, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             data.type_id, data.email, encrypted_pwd, data.country, data.customName,
             json.dumps(data.properties), json.dumps(data.combos),
-            json.dumps(data.tags, ensure_ascii=False), data.notes, now, now
+            json.dumps(data.tags, ensure_ascii=False), data.notes, data.backup_email, now, now
         ))
         conn.commit()
     return {"message": "创建成功", "id": cursor.lastrowid}
@@ -1088,6 +1090,9 @@ def update_account(account_id: int, data: AccountUpdate, user: dict = Depends(ge
     if data.notes is not None:
         updates.append("notes = ?")
         values.append(data.notes)
+    if data.backup_email is not None:
+        updates.append("backup_email = ?")
+        values.append(data.backup_email)
     if data.is_favorite is not None:
         updates.append("is_favorite = ?")
         values.append(1 if data.is_favorite else 0)
