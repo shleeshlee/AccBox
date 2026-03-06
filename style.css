@@ -3109,25 +3109,33 @@ html:not([data-theme="light"]) .user-avatar-large {
     margin-right: auto !important;
 }
 
-/* 2FA 配置按钮 */
-.btn-2fa-config {
-    display: inline-flex;
+/* 2FA 内联按钮（密码行旁边） */
+.form-group.w-2fa { width: 120px; flex: none; }
+.btn-2fa-inline {
+    display: flex;
     align-items: center;
+    justify-content: center;
     gap: 6px;
-    padding: 8px 14px;
-    background: var(--bg-hover);
+    width: 100%;
+    padding: 12px 14px;
+    background: var(--bg-dark);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: 10px;
     color: var(--text-secondary);
+    font-size: 0.85rem;
     cursor: pointer;
-    margin-right: auto;
     transition: all 0.2s;
+    white-space: nowrap;
 }
-
-.btn-2fa-config:hover {
+.btn-2fa-inline:hover {
     border-color: var(--accent);
     color: var(--accent);
     background: var(--accent-dim);
+}
+.btn-2fa-inline.has-2fa {
+    border-color: var(--green);
+    color: var(--green);
+    background: rgba(34, 197, 94, 0.1);
 }
 
 /* 卡片底部 2FA 按钮 */
@@ -4493,8 +4501,7 @@ body.no-particles .season-particles {
 .btn-primary,
 .btn-toolbar-sm,
 .nav-item,
-.prop-item,
-.account-card {
+.prop-item {
     position: relative;
     overflow: hidden;
 }
