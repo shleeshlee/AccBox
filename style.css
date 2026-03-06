@@ -3604,12 +3604,15 @@ html:not([data-theme="light"]) .user-avatar-large {
     display: flex;
     align-items: center;
     gap: 8px;
+    min-width: 0;
+    overflow: hidden;
 }
 
 .backup-code-item .code-num {
     color: var(--text-muted);
     font-size: 0.75rem;
     min-width: 20px;
+    flex-shrink: 0;
 }
 
 .backup-code-item .code-text {
@@ -3663,6 +3666,7 @@ html:not([data-theme="light"]) .user-avatar-large {
     opacity: 0;
     font-size: 0.75rem;
     transition: opacity 0.2s;
+    flex-shrink: 0;
 }
 
 .backup-code-item:hover .code-copy {
