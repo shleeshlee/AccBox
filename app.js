@@ -2467,7 +2467,7 @@ async function pasteToImport() {
 
 async function doImport() {
     const csv = document.getElementById('importCsv').value.trim();
-    if (csv) { try { const res = await fetch(API + '/import-csv', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ csv }) }); const result = await res.json(); showToast(result.message); closeImportModal(); loadData(); } catch { showToast('导入失败', true); } }
+    if (csv) { try { const res = await fetch(API + '/import-csv', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ csv }) }); const result = await res.json(); if (result.errors?.length) { showToast(result.message + '（' + result.errors[0] + '）', true); } else { showToast(result.message); } closeImportModal(); loadData(); } catch { showToast('导入失败', true); } }
     else showToast('请选择文件或粘贴CSV', true);
 }
 
