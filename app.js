@@ -2294,11 +2294,12 @@ async function updateType(id, field, value) { try { await fetch(API + `/account-
 async function deleteType(id) { if (!confirm('删除此类型?')) return; try { await fetch(API + `/account-types/${id}`, { method: 'DELETE', headers: { Authorization: 'Bearer ' + token } }); await loadAccountTypes(); renderTypeEditor(); renderSidebar(); } catch {} }
 
 // 导入导出
-function openImportModal() { 
-    document.getElementById('importFile').value = ''; 
-    document.getElementById('importCsv').value = ''; 
-    document.getElementById('importModal').classList.add('show'); 
+function openImportModal() {
+    document.getElementById('importFile').value = '';
+    document.getElementById('importCsv').value = '';
+    document.getElementById('importModal').classList.add('show');
     initDropZone();
+    initImportPaste();
 }
 function closeImportModal() { document.getElementById('importModal').classList.remove('show'); }
 
@@ -2409,6 +2410,13 @@ async function doImportJson(data, option) {
         showToast(result.message || '导入成功');
         closeImportModal(); loadData();
     } catch { showToast('导入失败', true); }
+}
+
+function initImportPaste() {
+    const textarea = document.getElementById('importCsv');
+    if (!textarea || textarea.dataset.pasteInit) return;
+    textarea.dataset.pasteInit = 'true';
+    textarea.addEventListener('contextmenu', showImportContextMenu);
 }
 
 function showImportContextMenu(e) {
