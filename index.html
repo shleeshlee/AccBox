@@ -274,18 +274,9 @@
                 </div>
                 <div class="form-group"><label class="form-label">服务状态</label><div class="combos-box" id="accCombosBox"></div></div>
                 <!-- 辅助邮箱（验证码接收） -->
-                <div class="form-group" id="backupEmailGroup">
+                <div class="form-group">
                     <label class="form-label">📬 辅助邮箱 <span class="form-label-hint">（验证码接收，可选）</span></label>
-                    <!-- 已绑定：展示模式 -->
-                    <div class="backup-email-display" id="backupEmailDisplay" style="display:none">
-                        <div class="backup-email-bound">
-                            <span class="backup-email-addr" id="backupEmailAddr" onclick="copyBackupEmail()" title="点击复制"></span>
-                            <span class="backup-email-status" id="backupEmailStatus"></span>
-                            <button class="btn-backup-email-edit" onclick="switchToBackupEmailInput()" title="修改">✏️</button>
-                        </div>
-                    </div>
-                    <!-- 未绑定 / 编辑模式：输入框 -->
-                    <div class="backup-email-wrapper" id="backupEmailInputWrapper">
+                    <div class="backup-email-wrapper">
                         <input type="email" class="form-input" id="accBackupEmail" placeholder="如：backup@gmail.com" autocomplete="off" oninput="onBackupEmailInput(this)">
                         <div class="backup-email-suggestions" id="backupEmailSuggestions"></div>
                     </div>
@@ -353,20 +344,8 @@
             <div class="modal-header"><h2 class="modal-title">导入数据</h2><button class="btn-close" onclick="closeImportModal()">✕</button></div>
             <div class="modal-body">
                 <div class="import-section">
-                    <div class="import-section-title">📝 批量导入账号</div>
-                    <div class="hint-box" style="background:none;border:none;padding:0 0 8px 0">
-                        <p>支持两种格式，每行一个账号：</p>
-                        <p style="margin:4px 0;font-size:12px;opacity:0.8">① 邮箱----密码----辅助邮箱----2FA密钥（后两项可选）</p>
-                        <p style="margin:4px 0;font-size:12px;opacity:0.8">② 邮箱,密码,国家,名称（后两项可选）</p>
-                    </div>
-                    <div class="form-group import-paste-group">
-                        <textarea class="form-textarea" id="importCsv" rows="6" placeholder="user@gmail.com----password----recovery@mail.com----2fa_secret"></textarea>
-                        <button class="btn-paste-import" onclick="pasteToImport()" title="从剪贴板粘贴">📋 粘贴</button>
-                    </div>
-                </div>
-                <div class="import-divider"><span>或</span></div>
-                <div class="import-section">
                     <div class="import-section-title">📁 从JSON文件导入（完整备份）</div>
+                    <div class="hint-box"><p>选择或拖拽JSON备份文件到下方区域</p></div>
                     <div class="form-group">
                         <label class="import-file-label drop-zone" id="dropZone" for="importFile">
                             <span class="import-file-icon">📄</span>
@@ -376,8 +355,14 @@
                         <input type="file" class="import-file-input" id="importFile" accept=".json" onchange="handleImportFile(event)">
                     </div>
                 </div>
+                <div class="import-divider"><span>或</span></div>
+                <div class="import-section">
+                    <div class="import-section-title">📝 从CSV文本导入（批量添加）</div>
+                    <div class="hint-box"><p>每行格式：邮箱,密码,国家,名称（后两项可选）</p></div>
+                    <div class="form-group"><textarea class="form-textarea" id="importCsv" placeholder="example@gmail.com,password123,US,主账号&#10;backup@gmail.com,pass456"></textarea></div>
+                </div>
             </div>
-            <div class="modal-footer"><button class="btn-cancel" onclick="closeImportModal()">取消</button><button class="btn-save" onclick="doImport()">导入</button></div>
+            <div class="modal-footer"><button class="btn-cancel" onclick="closeImportModal()">取消</button><button class="btn-save" onclick="doImport()">导入CSV</button></div>
         </div>
     </div>
 
