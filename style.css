@@ -5724,6 +5724,66 @@ html:not([data-theme="light"]) .toast-code {
     line-height: 1.5;
 }
 
+/* === 辅助邮箱绑定展示 === */
+.backup-email-bound {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--bg-hover);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+}
+
+.backup-email-addr {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--text-primary);
+    cursor: pointer;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.backup-email-addr:hover {
+    color: var(--accent);
+    text-decoration: underline;
+}
+
+.backup-email-status {
+    font-size: 0.7rem;
+    white-space: nowrap;
+}
+
+.backup-email-status.authorized {
+    color: #22c55e;
+}
+
+.btn-backup-email-edit {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 0.85rem;
+    padding: 2px 4px;
+    opacity: 0.6;
+    transition: opacity 0.15s;
+}
+
+.btn-backup-email-edit:hover {
+    opacity: 1;
+}
+
+/* === 可复制邮箱地址 === */
+.email-item-address.copyable {
+    cursor: pointer;
+}
+
+.email-item-address.copyable:hover {
+    color: var(--accent);
+    text-decoration: underline;
+}
+
 /* === 辅助邮箱输入框 === */
 .backup-email-wrapper {
     position: relative;
