@@ -2046,13 +2046,32 @@ async function saveAccount() {
         backup_email: document.getElementById('accBackupEmail')?.value || ''
     };
     try {
-        const res = await fetch(editingAccountId ? API + `/accounts/${editingAccountId}` : API + '/accounts', { method: editingAccountId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify(data) });
-        if (res.ok) { 
-            showToast(editingAccountId ? '已更新' : '已添加'); 
-            closeAccountModal(); 
-            await loadAccounts(); 
-            renderSidebar(); 
-            renderCards();
+        const isEdit = !!editingAccountId;
+        const res = await fetch(isEdit ? API + `/accounts/${editingAccountId}` : API + '/accounts', { method: isEdit ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify(data) });
+        if (res.ok) {
+            showToast(isEdit ? '已更新' : '已添加');
+            closeAccountModal();
+            if (isEdit) {
+                // 编辑模式：只更新内存数据，不重排序，避免卡片位置跳动
+                const updated = await res.json();
+                const idx = accounts.findIndex(a => a.id === editingAccountId);
+                if (idx !== -1 && updated) {
+                    // 保留原有的排序关键字段，只更新编辑字段
+                    const old = accounts[idx];
+                    Object.assign(old, {
+                        type_id: data.type_id, email: data.email, password: data.password,
+                        country: data.country, customName: data.customName,
+                        combos: data.combos, tags: data.tags, notes: data.notes,
+                        backup_email: data.backup_email
+                    });
+                }
+                renderCards();
+            } else {
+                // 新增模式：需要完整reload获取新ID
+                await loadAccounts();
+                renderSidebar();
+                renderCards();
+            }
         }
         else { const err = await res.json(); showToast(err.detail || '保存失败', true); }
     } catch(e) { console.error('保存错误:', e); showToast('网络错误', true); }
@@ -6198,7 +6217,7 @@ async function submitTimer() {
         timers.push({ label, expires_at: Math.floor(Date.now() / 1000) + duration });
         await apiRequest('/accounts/' + timerTargetAccountId, {
             method: 'PUT',
-            body: JSON.stringify({ ...acc, timers: JSON.stringify(timers), last_used: new Date().toISOString() })
+            body: JSON.stringify({ ...acc, timers: JSON.stringify(timers) })
         });
     }
     closeTimerModal();
