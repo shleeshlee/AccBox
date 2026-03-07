@@ -5432,6 +5432,22 @@ function renderAuthorizedEmails() {
     `).join('');
 }
 
+async function removeEmail(emailId) {
+    if (!confirm('确定要移除这个授权邮箱吗？')) return;
+    try {
+        const res = await apiRequest(`/emails/${emailId}`, { method: 'DELETE' });
+        if (res.ok) {
+            showToast('已移除');
+            authorizedEmails = authorizedEmails.filter(e => String(e.id) !== String(emailId));
+            renderAuthorizedEmails();
+        } else {
+            showToast('移除失败', true);
+        }
+    } catch (e) {
+        showToast('网络错误', true);
+    }
+}
+
 function renderPendingEmails() {
     const container = document.getElementById('pendingEmailsList');
     if (!container) return;
