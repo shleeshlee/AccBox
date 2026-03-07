@@ -3249,6 +3249,19 @@ function close2FAConfigModal() {
     current2FAAccountId = null;
 }
 
+function updateEditModal2FAButton(accountId) {
+    const btn2FA = document.getElementById('btn2FAConfig');
+    const btnBackup = document.getElementById('btnBackupCodes');
+    const acc = accounts.find(a => a.id === accountId);
+    if (!acc || !btn2FA) return;
+    btn2FA.textContent = acc.has_2fa ? '🛡️ 2FA ✓' : '🛡️ 设置 2FA';
+    btn2FA.classList.toggle('has-2fa', !!acc.has_2fa);
+    if (btnBackup) {
+        btnBackup.style.display = acc.has_2fa ? 'inline-flex' : 'none';
+        btnBackup.classList.toggle('has-codes', !!acc.has_backup_codes);
+    }
+}
+
 async function loadExisting2FAConfig(accountId) {
     try {
         const res = await apiRequest(`/accounts/${accountId}/totp`);
@@ -3737,10 +3750,15 @@ async function save2FAConfig() {
 
         if (res.ok) {
             showToast('✅ 2FA 配置成功');
+            const savedId = current2FAAccountId;
             close2FAConfigModal();
-            const acc = accounts.find(a => a.id === current2FAAccountId);
-            if (acc) { acc.has_2fa = true; }
+            const acc = accounts.find(a => a.id === savedId);
+            if (acc) {
+                acc.has_2fa = true;
+                acc.has_backup_codes = existingBackupCodes.length > 0;
+            }
             renderCards();
+            updateEditModal2FAButton(savedId);
         } else {
             const data = await res.json();
             showToast(data.detail || '保存失败', true);
@@ -3758,13 +3776,15 @@ async function delete2FAFromModal() {
         const res = await apiRequest(`/accounts/${current2FAAccountId}/totp`, { method: 'DELETE' });
         if (res.ok) {
             showToast('🗑️ 2FA 已移除');
+            const savedId = current2FAAccountId;
             close2FAConfigModal();
-            const acc = accounts.find(a => a.id === current2FAAccountId);
+            const acc = accounts.find(a => a.id === savedId);
             if (acc) {
                 acc.has_2fa = false;
                 acc.has_backup_codes = false;
             }
             renderCards();
+            updateEditModal2FAButton(savedId);
         } else {
             showToast('移除失败', true);
         }
