@@ -63,7 +63,31 @@ APP_MASTER_KEY=    # 数据加密密钥，不设置则自动生成
 JWT_SECRET_KEY=    # 登录令牌密钥，不设置则从主密钥派生
 ```
 
-> ⚠️ **迁移服务器时必须保留密钥，否则已有数据无法解密。**
+> 迁移服务器时记得一起迁移 `.env` 中的密钥，数据解密依赖它。
+
+### 备份存储
+
+默认备份保存在 `./backups`（项目目录下）。如需存到其他位置：
+
+```bash
+# .env
+BACKUP_HOST_PATH=/mnt/backup_disk/accbox    # 宿主机外部路径
+```
+
+如果需要额外的自定义备份路径，在 `docker-compose.yml` 添加挂载并配置白名单：
+
+```yaml
+# docker-compose.yml
+volumes:
+  - /your/external/path:/backup-ext
+```
+
+```bash
+# .env
+ALLOWED_BACKUP_PATHS=/app/backups,/app/data,/backup-ext
+```
+
+> 白名单填**容器内路径**，不是宿主机路径。详见 `.env.example`。
 
 ## 🔒 安全
 

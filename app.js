@@ -32,18 +32,31 @@ let pollingInterval = 5000; // 默认5秒轮询（学注册机：高频短间隔
 let pollingIntervalFast = 3000; // 高频模式3秒轮询
 let fastModeEndTime = 0; // 高频模式结束时间
 
-// ==================== 补丁：核心 API 请求函数 ====================
+
+// ==================== CSRF Token 读取 ====================
+function getCsrfToken() {
+    const match = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]*)/);
+    return match ? decodeURIComponent(match[1]) : '';
+}
+
+// ==================== 补丁：核心 API 请求函数 ==
 async function apiRequest(endpoint, options = {}) {
     const url = API + endpoint;
-    
-    // 自动携带 Token 和 Content-Type
+
     const defaultHeaders = {
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + token
     };
+    // 灰度期：Bearer + Cookie 并行
+    if (token) defaultHeaders['Authorization'] = 'Bearer ' + token;
+    // 非 GET 请求附加 CSRF token
+    const method = (options.method || 'GET').toUpperCase();
+    if (method !== 'GET' && method !== 'HEAD') {
+        defaultHeaders['X-CSRF-Token'] = getCsrfToken();
+    }
 
     const config = {
         ...options,
+        credentials: 'same-origin',
         headers: {
             ...defaultHeaders,
             ...options.headers
@@ -706,6 +719,7 @@ async function handleLogin(e) {
     try {
         const res = await fetch(API + '/login', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
             body: JSON.stringify({ username: document.getElementById('loginUsername').value, password: document.getElementById('loginPassword').value })
         });
         const data = await res.json();
@@ -721,6 +735,7 @@ async function handleRegister(e) {
     try {
         const res = await fetch(API + '/register', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
             body: JSON.stringify({ username: document.getElementById('regUsername').value, password: p1 })
         });
         const data = await res.json();
@@ -736,6 +751,7 @@ function logout() {
 
 // 统一退出处理
 function doLogout() {
+    fetch(API + '/logout', { method: 'POST', credentials: 'same-origin' }).catch(() => {});
     localStorage.removeItem('token'); localStorage.removeItem('user'); token = null; user = null;
     accounts = []; accountTypes = []; propertyGroups = [];
     document.getElementById('app').classList.remove('show');
@@ -801,7 +817,7 @@ function showSkeletonCards(count = 6) {
 
 async function loadAccounts() {
     try { 
-        const res = await fetch(API + '/accounts', { headers: { Authorization: 'Bearer ' + token } }); 
+        const res = await fetch(API + '/accounts', { credentials: 'same-origin', headers: { Authorization: 'Bearer ' + token } }); 
         if (res.status === 401) { handleAuthError(); return; }
         if (!res.ok) { showToast('加载账号失败', true); return; }
         const data = await res.json(); 
@@ -815,7 +831,7 @@ async function loadAccounts() {
 
 async function loadAccountTypes() {
     try { 
-        const res = await fetch(API + '/account-types', { headers: { Authorization: 'Bearer ' + token } }); 
+        const res = await fetch(API + '/account-types', { credentials: 'same-origin', headers: { Authorization: 'Bearer ' + token } }); 
         if (res.status === 401) { handleAuthError(); return; }
         if (!res.ok) return;
         const data = await res.json(); 
@@ -827,7 +843,7 @@ async function loadAccountTypes() {
 
 async function loadPropertyGroups() {
     try { 
-        const res = await fetch(API + '/property-groups', { headers: { Authorization: 'Bearer ' + token } }); 
+        const res = await fetch(API + '/property-groups', { credentials: 'same-origin', headers: { Authorization: 'Bearer ' + token } }); 
         if (res.status === 401) { handleAuthError(); return; }
         if (!res.ok) return;
         const data = await res.json(); 
@@ -1658,7 +1674,7 @@ function renderCardsWithTransition() {
 
 // 账号操作
 async function toggleFavorite(id) {
-    try { const res = await fetch(API + `/accounts/${id}/favorite`, { method: 'POST', headers: { Authorization: 'Bearer ' + token } }); if (res.ok) { const data = await res.json(); const acc = accounts.find(a => a.id === id); if (acc) acc.is_favorite = data.is_favorite; renderSidebar(); renderCards(); } } catch {}
+    try { const res = await fetch(API + `/accounts/${id}/favorite`, { credentials: 'same-origin', method: 'POST', headers: { Authorization: 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() } }); if (res.ok) { const data = await res.json(); const acc = accounts.find(a => a.id === id); if (acc) acc.is_favorite = data.is_favorite; renderSidebar(); renderCards(); } } catch {}
 }
 
 function copyEmail(email) { copyToClipboard(email).then(ok => ok && showToast('📋 邮箱已复制')); }
@@ -1677,7 +1693,7 @@ async function copyPassword(accountId) {
 async function loginTest(id) {
     const acc = accounts.find(a => a.id === id);
     if (!acc) return;
-    try { await fetch(API + `/accounts/${id}/use`, { method: 'POST', headers: { Authorization: 'Bearer ' + token } }); acc.last_used = new Date().toISOString(); } catch {}
+    try { await fetch(API + `/accounts/${id}/use`, { credentials: 'same-origin', method: 'POST', headers: { Authorization: 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() } }); acc.last_used = new Date().toISOString(); } catch {}
     copyToClipboard(acc.email).then(ok => ok && showToast('已复制邮箱'));
     const type = accountTypes.find(t => t.id === acc.type_id);
     if (type?.login_url) { let url = type.login_url; if (url.includes('Email=')) url += encodeURIComponent(acc.email); setTimeout(() => window.open(url, '_blank'), 300); }
@@ -1692,7 +1708,7 @@ async function deleteAccount(id) {
         await new Promise(r => setTimeout(r, 250));
     }
     try { 
-        const res = await fetch(API + `/accounts/${id}`, { method: 'DELETE', headers: { Authorization: 'Bearer ' + token } }); 
+        const res = await fetch(API + `/accounts/${id}`, { credentials: 'same-origin', method: 'DELETE', headers: { Authorization: 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() } }); 
         if (res.ok) { 
             accounts = accounts.filter(a => a.id !== id); 
             showToast('已删除'); 
@@ -2103,7 +2119,7 @@ async function saveAccount() {
     };
     try {
         const isEdit = !!editingAccountId;
-        const res = await fetch(isEdit ? API + `/accounts/${editingAccountId}` : API + '/accounts', { method: isEdit ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify(data) });
+        const res = await fetch(isEdit ? API + `/accounts/${editingAccountId}` : API + '/accounts', { credentials: 'same-origin', method: isEdit ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() }, body: JSON.stringify(data) });
         if (res.ok) {
             showToast(isEdit ? '已更新' : '已添加');
             closeAccountModal();
@@ -2226,8 +2242,9 @@ function toggleGroupCollapse(groupId, btn) {
 async function toggleValueVisibility(valueId, hidden) {
     try {
         await fetch(API + `/property-values/${valueId}`, {
+            credentials: 'same-origin',
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+            headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() },
             body: JSON.stringify({ hidden: hidden })
         });
         await loadPropertyGroups();
@@ -2288,8 +2305,9 @@ async function savePropertyGroupOrder() {
     
     try {
         const res = await fetch(API + '/property-groups/reorder', {
+            credentials: 'same-origin',
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+            headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() },
             body: JSON.stringify({ order: newOrder })
         });
         if (res.ok) {
@@ -2309,8 +2327,9 @@ async function cleanupInvalidCombos() {
     try {
         showToast('⏳ 正在清理...');
         const res = await fetch(API + '/cleanup-invalid-combos', {
+            credentials: 'same-origin',
             method: 'POST',
-            headers: { Authorization: 'Bearer ' + token }
+            headers: { Authorization: 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() }
         });
         const data = await res.json();
         if (res.ok) {
@@ -2326,12 +2345,12 @@ async function cleanupInvalidCombos() {
     }
 }
 
-async function addGroup() { const name = prompt('属性组名称:'); if (!name) return; try { await fetch(API + '/property-groups', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ name }) }); await loadPropertyGroups(); renderPropertyEditor(); renderSidebar(); } catch {} }
-async function updateGroupName(id, name) { try { await fetch(API + `/property-groups/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ name }) }); await loadPropertyGroups(); renderSidebar(); } catch {} }
-async function deleteGroup(id) { if (!confirm('删除此属性组?')) return; try { await fetch(API + `/property-groups/${id}`, { method: 'DELETE', headers: { Authorization: 'Bearer ' + token } }); await loadPropertyGroups(); renderPropertyEditor(); renderSidebar(); } catch {} }
-async function addValue(groupId) { const name = prompt('属性值名称:'); if (!name) return; try { await fetch(API + '/property-values', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ group_id: groupId, name, color: '#8b5cf6' }) }); await loadPropertyGroups(); renderPropertyEditor(); renderSidebar(); } catch {} }
-async function updateValue(id, name, color) { const data = {}; if (name !== null) data.name = name; if (color !== null) data.color = color; try { await fetch(API + `/property-values/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify(data) }); await loadPropertyGroups(); renderSidebar(); renderCards(); } catch {} }
-async function deleteValue(id) { if (!confirm('删除此属性值?')) return; try { await fetch(API + `/property-values/${id}`, { method: 'DELETE', headers: { Authorization: 'Bearer ' + token } }); await loadPropertyGroups(); renderPropertyEditor(); renderSidebar(); } catch {} }
+async function addGroup() { const name = prompt('属性组名称:'); if (!name) return; try { await fetch(API + '/property-groups', { credentials: 'same-origin', method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() }, body: JSON.stringify({ name }) }); await loadPropertyGroups(); renderPropertyEditor(); renderSidebar(); } catch {} }
+async function updateGroupName(id, name) { try { await fetch(API + `/property-groups/${id}`, { credentials: 'same-origin', method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() }, body: JSON.stringify({ name }) }); await loadPropertyGroups(); renderSidebar(); } catch {} }
+async function deleteGroup(id) { if (!confirm('删除此属性组?')) return; try { await fetch(API + `/property-groups/${id}`, { credentials: 'same-origin', method: 'DELETE', headers: { Authorization: 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() } }); await loadPropertyGroups(); renderPropertyEditor(); renderSidebar(); } catch {} }
+async function addValue(groupId) { const name = prompt('属性值名称:'); if (!name) return; try { await fetch(API + '/property-values', { credentials: 'same-origin', method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() }, body: JSON.stringify({ group_id: groupId, name, color: '#8b5cf6' }) }); await loadPropertyGroups(); renderPropertyEditor(); renderSidebar(); } catch {} }
+async function updateValue(id, name, color) { const data = {}; if (name !== null) data.name = name; if (color !== null) data.color = color; try { await fetch(API + `/property-values/${id}`, { credentials: 'same-origin', method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() }, body: JSON.stringify(data) }); await loadPropertyGroups(); renderSidebar(); renderCards(); } catch {} }
+async function deleteValue(id) { if (!confirm('删除此属性值?')) return; try { await fetch(API + `/property-values/${id}`, { credentials: 'same-origin', method: 'DELETE', headers: { Authorization: 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() } }); await loadPropertyGroups(); renderPropertyEditor(); renderSidebar(); } catch {} }
 
 // 类型管理
 function openTypeManager() { renderTypeEditor(); document.getElementById('typeModal').classList.add('show'); }
@@ -2362,15 +2381,15 @@ async function addType() {
     const icon = prompt('图标:', '🔑') || '🔑'; 
     const color = '#22c55e';
     try { 
-        await fetch(API + '/account-types', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ name, icon, color, login_url: '' }) }); 
+        await fetch(API + '/account-types', { credentials: 'same-origin', method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() }, body: JSON.stringify({ name, icon, color, login_url: '' }) }); 
         await loadAccountTypes(); 
         renderTypeEditor(); 
         renderSidebar(); 
         showToast('添加成功');
     } catch {} 
 }
-async function updateType(id, field, value) { try { await fetch(API + `/account-types/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ [field]: value }) }); await loadAccountTypes(); renderSidebar(); renderCards(); } catch {} }
-async function deleteType(id) { if (!confirm('删除此类型?')) return; try { await fetch(API + `/account-types/${id}`, { method: 'DELETE', headers: { Authorization: 'Bearer ' + token } }); await loadAccountTypes(); renderTypeEditor(); renderSidebar(); } catch {} }
+async function updateType(id, field, value) { try { await fetch(API + `/account-types/${id}`, { credentials: 'same-origin', method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() }, body: JSON.stringify({ [field]: value }) }); await loadAccountTypes(); renderSidebar(); renderCards(); } catch {} }
+async function deleteType(id) { if (!confirm('删除此类型?')) return; try { await fetch(API + `/account-types/${id}`, { credentials: 'same-origin', method: 'DELETE', headers: { Authorization: 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() } }); await loadAccountTypes(); renderTypeEditor(); renderSidebar(); } catch {} }
 
 // 导入导出
 function openImportModal() {
@@ -2484,7 +2503,7 @@ async function doImportJson(data, option) {
             const existingEmails = new Set(accounts.map(a => a.email?.toLowerCase()));
             importData.accounts = (data.accounts || []).filter(a => !a.email || !existingEmails.has(a.email.toLowerCase()));
         }
-        const res = await fetch(API + '/import', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ ...importData, import_mode: option }) });
+        const res = await fetch(API + '/import', { credentials: 'same-origin', method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() }, body: JSON.stringify({ ...importData, import_mode: option }) });
         const result = await res.json();
         showToast(result.message || '导入成功');
         closeImportModal(); loadData();
@@ -2546,7 +2565,7 @@ async function pasteToImport() {
 
 async function doImport() {
     const csv = document.getElementById('importCsv').value.trim();
-    if (csv) { try { const res = await fetch(API + '/import-csv', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ csv }) }); const result = await res.json(); if (result.errors?.length) { showToast(result.message + '（' + result.errors[0] + '）', true); } else { showToast(result.message); } closeImportModal(); loadData(); } catch { showToast('导入失败', true); } }
+    if (csv) { try { const res = await fetch(API + '/import-csv', { credentials: 'same-origin', method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() }, body: JSON.stringify({ csv }) }); const result = await res.json(); if (result.errors?.length) { showToast(result.message + '（' + result.errors[0] + '）', true); } else { showToast(result.message); } closeImportModal(); loadData(); } catch { showToast('导入失败', true); } }
     else showToast('请选择文件或粘贴CSV', true);
 }
 
@@ -2766,8 +2785,9 @@ async function batchDelete() {
     for (const id of selectedAccounts) {
         try {
             const res = await fetch(API + `/accounts/${id}`, { 
+                credentials: 'same-origin',
                 method: 'DELETE', 
-                headers: { 'Authorization': 'Bearer ' + token }
+                headers: { 'Authorization': 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() }
             });
             
             // 401 表示认证失败，直接退出登录
@@ -2866,8 +2886,9 @@ async function submitPasswordReset() {
     
     try {
         const res = await fetch(API + '/change-password', {
+            credentials: 'same-origin',
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+            headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() },
             body: JSON.stringify({ old_password: oldPwd, new_password: newPwd })
         });
         const data = await res.json();
@@ -2902,8 +2923,9 @@ function closeAvatarModal() {
 async function selectAvatar(avatar) {
     try {
         const res = await fetch(API + '/update-avatar', {
+            credentials: 'same-origin',
             method: 'POST',
-            headers: { 'Content-Type': 'application/json; charset=utf-8', Authorization: 'Bearer ' + token },
+            headers: { 'Content-Type': 'application/json; charset=utf-8', Authorization: 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() },
             body: JSON.stringify({ avatar: avatar })
         });
         const data = await res.json();
@@ -4020,8 +4042,9 @@ async function applyBatchProps() {
         
         try {
             const res = await fetch(API + `/accounts/${accId}`, {
+                credentials: 'same-origin',
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+                headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() },
                 body: JSON.stringify({ combos: newCombos })
             });
             if (res.ok) successCount++;
@@ -4112,9 +4135,10 @@ async function createBackup() {
     try {
         showToast('⏳ 正在备份...');
         const resp = await fetch(API + '/backup', {
+            credentials: 'same-origin',
             method: 'POST',
             headers: {
-                'Authorization': 'Bearer ' + token,
+                'Authorization': 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken(),
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({})
@@ -4300,9 +4324,10 @@ async function restoreBackup(filename) {
     try {
         showToast('⏳ 正在恢复...');
         const resp = await fetch(API + '/backups/' + encodeURIComponent(filename) + '/restore', {
+            credentials: 'same-origin',
             method: 'POST',
             headers: { 
-                'Authorization': 'Bearer ' + token,
+                'Authorization': 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken(),
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({})
@@ -4323,8 +4348,9 @@ async function deleteBackup(filename) {
     if (!confirm('确定要删除此备份吗？')) return;
     try {
         const resp = await fetch(API + '/backups/' + encodeURIComponent(filename), {
+            credentials: 'same-origin',
             method: 'DELETE',
-            headers: { 'Authorization': 'Bearer ' + token }
+            headers: { 'Authorization': 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() }
         });
         const data = await resp.json();
         if (resp.ok) {
@@ -4368,9 +4394,10 @@ async function saveAutoBackupSettings() {
     
     try {
         const resp = await fetch(API + '/backup/settings', {
+            credentials: 'same-origin',
             method: 'POST',
             headers: {
-                'Authorization': 'Bearer ' + token,
+                'Authorization': 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken(),
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({ interval_hours: interval, keep_count: keep })

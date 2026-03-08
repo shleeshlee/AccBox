@@ -5,8 +5,9 @@ RUN apt-get update && apt-get install -y nginx supervisor && \
     rm -rf /var/lib/apt/lists/* && \
     rm /etc/nginx/sites-enabled/default
 
-# 安装 Python 依赖（指定 bcrypt 版本以兼容 passlib）
-RUN pip install --no-cache-dir fastapi uvicorn cryptography pydantic "passlib[bcrypt]" "python-jose[cryptography]" "bcrypt==4.0.1"
+# 安装 Python 依赖（从 lock 文件精确安装）
+COPY requirements.lock .
+RUN pip install --no-cache-dir -r requirements.lock
 
 # 创建应用目录
 WORKDIR /app

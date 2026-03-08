@@ -62,6 +62,8 @@ import secrets
 import base64
 import time
 import re
+import ipaddress
+import socket
 import shutil
 import hmac
 import struct
@@ -70,7 +72,7 @@ from datetime import datetime, timedelta, timezone
 from contextlib import contextmanager
 from pathlib import Path
 import threading
-from fastapi import FastAPI, HTTPException, Depends, Header, Request
+from fastapi import FastAPI, HTTPException, Depends, Header, Request, Cookie
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
@@ -155,8 +157,53 @@ app.add_middleware(
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_headers=["Authorization", "Content-Type", "X-CSRF-Token"],
 )
+# ==================== Cookie & CSRF 配置 ====================
+import secrets as _secrets
+
+# Secure 标志：生产环境（有 HTTPS 反代）开启
+COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "true").lower() == "true"
+COOKIE_MAX_AGE = 7 * 24 * 3600  # 7 天
+
+# CSRF 豁免清单：不需要 CSRF token 的端点
+CSRF_EXEMPT_PREFIXES = (
+    "/api/login",
+    "/api/register",
+    "/api/health",
+    "/api/emails/oauth/callback",
+)
+
+def set_auth_cookies(response, jwt_token: str):
+    """设置 HttpOnly auth cookie + CSRF token cookie"""
+    csrf_token = _secrets.token_hex(32)
+    response.set_cookie(
+        key="auth_token",
+        value=jwt_token,
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite="lax",
+        max_age=COOKIE_MAX_AGE,
+        path="/",
+    )
+    # CSRF token: JS 可读（非 HttpOnly），用于 header 回传
+    response.set_cookie(
+        key="csrf_token",
+        value=csrf_token,
+        httponly=False,
+        secure=COOKIE_SECURE,
+        samesite="lax",
+        max_age=COOKIE_MAX_AGE,
+        path="/",
+    )
+    return csrf_token
+
+def clear_auth_cookies(response):
+    """清除认证 cookie"""
+    response.delete_cookie("auth_token", path="/")
+    response.delete_cookie("csrf_token", path="/")
+
+
 
 # ==================== 加密模块 ====================
 
@@ -261,6 +308,57 @@ def validate_password_strength(password: str) -> tuple:
 
 # ==================== URL 协议验证 ====================
 
+
+# 允许的备份根目录（容器内）
+# 备份路径白名单（容器内路径），从环境变量读取
+_raw_paths = os.environ.get("ALLOWED_BACKUP_PATHS", "/app/backups,/app/data")
+ALLOWED_BACKUP_ROOTS = [
+    os.path.realpath(p.strip()) for p in _raw_paths.split(",")
+    if p.strip() and os.path.realpath(p.strip()) != "/"
+]
+if not ALLOWED_BACKUP_ROOTS:
+    ALLOWED_BACKUP_ROOTS = [os.path.realpath(DEFAULT_BACKUP_DIR)]
+
+def safe_backup_dir(user_path: str = None) -> str:
+    """校验备份路径合法性：realpath + commonpath，拒绝穿越和非白名单路径"""
+    if not user_path:
+        # 校验默认路径也在白名单内（防止配置不一致）
+        resolved_default = os.path.realpath(DEFAULT_BACKUP_DIR)
+        for root in ALLOWED_BACKUP_ROOTS:
+            try:
+                if os.path.commonpath([root, resolved_default]) == root:
+                    return DEFAULT_BACKUP_DIR
+            except ValueError:
+                continue
+        # 配置不一致时仍返回默认路径但打印警告
+        print(f"⚠ DEFAULT_BACKUP_DIR ({DEFAULT_BACKUP_DIR}) 不在 ALLOWED_BACKUP_PATHS 白名单内，请检查配置")
+        return DEFAULT_BACKUP_DIR
+    resolved = os.path.realpath(user_path)
+    if resolved == "/":
+        raise HTTPException(status_code=400, detail="不允许使用根目录作为备份路径")
+    for root in ALLOWED_BACKUP_ROOTS:
+        try:
+            if os.path.commonpath([root, resolved]) == root:
+                return resolved
+        except ValueError:
+            continue
+    raise HTTPException(status_code=400, detail=f"备份路径不在允许范围内，允许: {', '.join(ALLOWED_BACKUP_ROOTS)}")
+
+
+def validate_worker_domain(domain: str) -> str:
+    """校验 worker_domain 格式 + DNS 解析拦截私网 IP"""
+    if not re.match(r'^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.workers\.dev$', domain, re.IGNORECASE):
+        raise HTTPException(status_code=400, detail="worker_domain 必须是 *.workers.dev 域名")
+    try:
+        addrs = socket.getaddrinfo(domain, 443, proto=socket.IPPROTO_TCP)
+        for family, _, _, _, sockaddr in addrs:
+            ip = ipaddress.ip_address(sockaddr[0])
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                raise HTTPException(status_code=400, detail="worker_domain 解析到不安全的 IP 地址")
+    except socket.gaierror:
+        raise HTTPException(status_code=400, detail="worker_domain DNS 解析失败")
+    return domain
+
 def validate_url_protocol(url: str) -> bool:
     """验证 URL 是否使用安全协议"""
     if not url:
@@ -361,6 +459,7 @@ class TOTPCreate(BaseModel):
 # ==================== 数据库 ====================
 
 @contextmanager
+
 def get_db():
     conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
@@ -629,11 +728,25 @@ def migrate_add_backup_email_column():
 def generate_token() -> str:
     return secrets.token_hex(32)
 
-def get_current_user(authorization: str = Header(None)):
-    if not authorization or not authorization.startswith("Bearer "):
+def get_current_user(request: Request, authorization: str = Header(None), auth_token: str = Cookie(None)):
+    token = None
+
+    # 优先级：Bearer header > Cookie
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.replace("Bearer ", "")
+    elif auth_token:
+        token = auth_token
+        # Cookie 认证时，非 GET 请求需要 CSRF 校验
+        if request.method not in ("GET", "HEAD", "OPTIONS"):
+            csrf_cookie = request.cookies.get("csrf_token")
+            csrf_header = request.headers.get("x-csrf-token")
+            if not csrf_cookie or not csrf_header or csrf_cookie != csrf_header:
+                if not any(request.url.path.startswith(p) for p in CSRF_EXEMPT_PREFIXES):
+                    raise HTTPException(status_code=403, detail="CSRF token 无效")
+
+    if not token:
         raise HTTPException(status_code=401, detail="未授权")
-    token = authorization.replace("Bearer ", "")
-    
+
     # JWT 验证
     jwt_user = verify_jwt_token(token)
     if not jwt_user:
@@ -668,7 +781,9 @@ def register(data: UserRegister):
     init_user_tables(user_id)
     token = create_access_token(user_id, data.username)
     
-    return {"message": "注册成功", "token": token, "user": {"id": user_id, "username": data.username, "avatar": "👤"}}
+    response = JSONResponse(content={"message": "注册成功", "token": token, "user": {"id": user_id, "username": data.username, "avatar": "👤"}})
+    set_auth_cookies(response, token)
+    return response
 
 @app.post("/api/login")
 def login(data: UserLogin):
@@ -725,11 +840,21 @@ def login(data: UserLogin):
     init_user_tables(user["id"])
     token = create_access_token(user["id"], user["username"])
     
-    return {
+    response = JSONResponse(content={
         "message": "登录成功",
         "token": token,
         "user": {"id": user["id"], "username": user["username"], "avatar": user["avatar"] or "👤"}
-    }
+    })
+    set_auth_cookies(response, token)
+    return response
+
+
+@app.post("/api/logout")
+def logout_user():
+    """清除认证 cookie"""
+    response = JSONResponse(content={"message": "已退出"})
+    clear_auth_cookies(response)
+    return response
 
 @app.post("/api/update-avatar")
 def update_avatar(data: UpdateAvatar, user: dict = Depends(get_current_user)):
@@ -1814,7 +1939,7 @@ def parse_totp_uri(account_id: int, data: dict, user: dict = Depends(get_current
 
 @app.post("/api/backup")
 def create_backup(config: BackupConfig = BackupConfig(), user: dict = Depends(get_current_user)):
-    backup_dir = config.backup_dir if config.backup_dir else DEFAULT_BACKUP_DIR
+    backup_dir = safe_backup_dir(config.backup_dir)
     
     try:
         os.makedirs(backup_dir, exist_ok=True)
@@ -1841,7 +1966,7 @@ def create_backup(config: BackupConfig = BackupConfig(), user: dict = Depends(ge
         "message": "备份成功",
         "timestamp": timestamp,
         "backup_dir": backup_dir,
-        "files": [db_backup_name]
+        "files": [db_backup_name],
     }
     
     # 如果是自动备份，自动清理旧备份
@@ -1915,7 +2040,7 @@ def download_existing_backup(filename: str, path: Optional[str] = None, user: di
     if not (filename.startswith("backup_") or filename.startswith("accounts_backup_") or filename.startswith("accbox_backup_")) or ".." in filename:
         raise HTTPException(status_code=400, detail="无效的文件名")
     
-    backup_dir = path if path else DEFAULT_BACKUP_DIR
+    backup_dir = safe_backup_dir(path)
     file_path = os.path.join(backup_dir, filename)
     
     if not os.path.exists(file_path):
@@ -1939,7 +2064,7 @@ def save_backup_settings(settings: BackupSettings, backup_dir: Optional[str] = N
     auto_backup_settings["enabled"] = settings.interval_hours > 0
     auto_backup_settings["interval_hours"] = settings.interval_hours
     auto_backup_settings["keep_count"] = settings.keep_count
-    auto_backup_settings["backup_dir"] = backup_dir
+    auto_backup_settings["backup_dir"] = safe_backup_dir(backup_dir)
     
     # 保存到文件
     try:
@@ -1966,16 +2091,17 @@ def validate_backup_path(path: str, user: dict = Depends(get_current_user)):
     """验证备份路径是否有效且可写"""
     if not path:
         return {"valid": True, "path": DEFAULT_BACKUP_DIR, "message": "使用默认路径"}
-    
+
     try:
-        # 尝试创建目录
-        os.makedirs(path, exist_ok=True)
-        # 尝试写入测试文件
-        test_file = os.path.join(path, ".write_test")
+        resolved = safe_backup_dir(path)
+        os.makedirs(resolved, exist_ok=True)
+        test_file = os.path.join(resolved, ".write_test")
         with open(test_file, 'w') as f:
             f.write("test")
         os.remove(test_file)
-        return {"valid": True, "path": path, "message": "路径有效"}
+        return {"valid": True, "path": resolved, "message": "路径有效"}
+    except HTTPException as e:
+        return {"valid": False, "path": path, "message": e.detail}
     except PermissionError:
         return {"valid": False, "path": path, "message": "没有写入权限"}
     except Exception as e:
@@ -2089,7 +2215,7 @@ setup_auto_backup()
 
 @app.get("/api/backups")
 def list_backups(path: Optional[str] = None, user: dict = Depends(get_current_user)):
-    backup_dir = path if path else DEFAULT_BACKUP_DIR
+    backup_dir = safe_backup_dir(path)
     
     if not os.path.exists(backup_dir):
         return {"backups": [], "backup_dir": backup_dir}
@@ -2145,7 +2271,7 @@ def delete_backup(filename: str, path: Optional[str] = None, user: dict = Depend
     if not (filename.startswith("backup_") or filename.startswith("accounts_backup_")) or ".." in filename:
         raise HTTPException(status_code=400, detail="无效的文件名")
     
-    backup_dir = path if path else DEFAULT_BACKUP_DIR
+    backup_dir = safe_backup_dir(path)
     backup_path = os.path.join(backup_dir, filename)
     
     if not os.path.exists(backup_path):
@@ -2170,7 +2296,7 @@ def restore_backup(filename: str, config: RestoreConfig = RestoreConfig(), user:
     if not (filename.startswith("backup_") or filename.startswith("accounts_backup_")) or ".." in filename:
         raise HTTPException(status_code=400, detail="无效的文件名")
     
-    backup_dir = config.backup_dir if config.backup_dir else DEFAULT_BACKUP_DIR
+    backup_dir = safe_backup_dir(config.backup_dir)
     backup_path = os.path.join(backup_dir, filename)
     
     if not os.path.exists(backup_path):
@@ -2193,17 +2319,17 @@ def restore_backup(filename: str, config: RestoreConfig = RestoreConfig(), user:
         raise HTTPException(status_code=500, detail=f"恢复失败: {str(e)}")
 
 @app.post("/api/backup/cleanup")
-def cleanup_old_backups(max_keep: int = 7, user: dict = Depends(get_current_user)):
+def cleanup_old_backups(max_keep: int = 7, path: Optional[str] = None, user: dict = Depends(get_current_user)):
     if max_keep < 1:
         raise HTTPException(status_code=400, detail="至少保留1个备份")
     
-    backup_dir = DEFAULT_BACKUP_DIR
+    backup_dir = safe_backup_dir(path)
     if not os.path.exists(backup_dir):
         return {"message": "没有备份需要清理", "deleted": 0}
     
     backups = []
     for filename in os.listdir(backup_dir):
-        if filename.startswith("accounts_backup_") and filename.endswith(".db"):
+        if filename.endswith(".db") and (filename.startswith("backup_") or filename.startswith("accounts_backup_") or filename.startswith("accbox_backup_")):
             filepath = os.path.join(backup_dir, filename)
             backups.append((filename, os.path.getmtime(filepath)))
     
@@ -2896,6 +3022,7 @@ def add_cloudflare_email(data: EmailCloudflareAdd, user: dict = Depends(get_curr
     import urllib.error
 
     user_id = user['id']
+    validate_worker_domain(data.worker_domain)
     worker_base = f"https://{data.worker_domain}"
     CF_UA = 'AccBox/1.0'
 
@@ -3284,40 +3411,43 @@ def fetch_outlook_emails(access_token: str) -> list:
     
     emails_content = []
     
+    # 固定查询最近5分钟
+    since_time = datetime.now(timezone.utc) - timedelta(minutes=5)
+    since_iso = since_time.strftime('%Y-%m-%dT%H:%M:%SZ')
+
+    base_url = "https://graph.microsoft.com/v1.0/me/messages"
+    params = [
+        "$top=10",
+        "$orderby=receivedDateTime desc",
+        "$select=from,body,subject",
+        f"$filter=receivedDateTime ge {since_iso}"
+    ]
+
+    url = f"{base_url}?{'&'.join(params)}"
+
+    req = urllib.request.Request(url)
+    req.add_header('Authorization', f'Bearer {access_token}')
+
     try:
-        # 固定查询最近5分钟
-        since_time = datetime.now(timezone.utc) - timedelta(minutes=5)
-        since_iso = since_time.strftime('%Y-%m-%dT%H:%M:%SZ')
-        
-        base_url = "https://graph.microsoft.com/v1.0/me/messages"
-        params = [
-            "$top=10", 
-            "$orderby=receivedDateTime desc", 
-            "$select=from,body,subject",
-            f"$filter=receivedDateTime ge {since_iso}"
-        ]
-        
-        url = f"{base_url}?{'&'.join(params)}"
-        
-        req = urllib.request.Request(url)
-        req.add_header('Authorization', f'Bearer {access_token}')
-        
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode())
-        
-        for msg in data.get('value', []):
-            from_addr = msg.get('from', {}).get('emailAddress', {}).get('address', '')
-            body = msg.get('body', {}).get('content', '')
-            # 去除 HTML 标签（简单处理）
-            import re
-            body = re.sub(r'<[^>]+>', '', body)
-            
-            emails_content.append({
-                'from': from_addr,
-                'body': body
-            })
+    except urllib.error.HTTPError:
+        raise  # 401/403 等状态码交给调用方处理
     except Exception as e:
         print(f"Outlook 获取邮件失败: {e}")
+        return emails_content
+
+    for msg in data.get('value', []):
+        from_addr = msg.get('from', {}).get('emailAddress', {}).get('address', '')
+        body = msg.get('body', {}).get('content', '')
+        # 去除 HTML 标签（简单处理）
+        import re
+        body = re.sub(r'<[^>]+>', '', body)
+
+        emails_content.append({
+            'from': from_addr,
+            'body': body
+        })
 
     return emails_content
 
@@ -3363,6 +3493,7 @@ def fetch_cloudflare_emails(worker_domain: str, cf_token: str) -> list:
     emails_content = []
 
     try:
+        validate_worker_domain(worker_domain)
         url = f"https://{worker_domain}/api/mails?limit=10&offset=0"
         req = urllib.request.Request(url)
         req.add_header('Authorization', f'Bearer {cf_token}')
@@ -3377,8 +3508,9 @@ def fetch_cloudflare_emails(worker_domain: str, cf_token: str) -> list:
             raw = mail.get("raw", mail.get("text", mail.get("body", mail.get("html", ""))))
             msg_id = mail.get("id", mail.get("messageId", ""))
 
-            # 从 MIME 原始内容解析真实 From 头（source 是 SMTP bounce 地址，不可读）
+            # 从 MIME 原始内容解析真实 From/To 头（source 是 SMTP bounce 地址，不可读）
             from_addr = mail.get("source", mail.get("from", mail.get("sender", "")))
+            to_addr = mail.get("to", "")
             try:
                 import email as _email
                 import email.policy
@@ -3386,6 +3518,10 @@ def fetch_cloudflare_emails(worker_domain: str, cf_token: str) -> list:
                 mime_from = _msg.get("From", "")
                 if mime_from:
                     from_addr = mime_from
+                # 优先 Delivered-To（实际投递地址），其次 To
+                mime_to = _msg.get("Delivered-To", "") or _msg.get("To", "")
+                if mime_to:
+                    to_addr = mime_to
             except Exception:
                 pass
 
@@ -3396,6 +3532,7 @@ def fetch_cloudflare_emails(worker_domain: str, cf_token: str) -> list:
 
             emails_content.append({
                 'from': from_addr,
+                'to': to_addr,
                 'body': full_body,
                 'msg_id': str(msg_id)
             })
@@ -3409,8 +3546,8 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
     """刷新邮箱，获取最新验证码（支持 Gmail、Outlook、QQ、IMAP）"""
     user_id = user['id']
     new_codes = []
-    
-    # 获取客户端传来的启动时间戳（只检测此时间之后的邮件）
+
+    # ========== 第一段：读配置，立即释放 DB 连接 ==========
     with get_db() as conn:
         # 确保 source_msg_id 列存在（兼容旧版升级）
         try:
@@ -3418,205 +3555,215 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
             conn.commit()
         except:
             pass
-        
-        # 获取已授权的邮箱
+
         try:
             cursor = conn.execute(f"SELECT id, address, provider, credentials FROM user_{user_id}_emails WHERE status = 'active'")
-            emails = cursor.fetchall()
+            emails = [dict(row) for row in cursor.fetchall()]
         except:
             return {"success": False, "message": "无法获取邮箱列表", "codes": []}
-        
-        for email_row in emails:
-            email_address = email_row["address"]
-            email_id = email_row["id"]
-            provider = email_row["provider"]
-            encrypted_creds = email_row["credentials"]
-            
-            try:
-                creds = json.loads(decrypt_password(encrypted_creds))
-                emails_content = []
-                
-                # ==================== Gmail ====================
-                if provider == 'gmail':
-                    access_token = creds.get('access_token')
-                    refresh_token = creds.get('refresh_token')
-                    
-                    if not access_token:
+
+    # ========== 第二段：网络请求，不持有 DB 连接 ==========
+    codes_to_insert = []
+
+    for email_row in emails:
+        email_address = email_row["address"]
+        email_id = email_row["id"]
+        provider = email_row["provider"]
+        encrypted_creds = email_row["credentials"]
+
+        try:
+            creds = json.loads(decrypt_password(encrypted_creds))
+            emails_content = []
+
+            # ==================== Gmail ====================
+            if provider == 'gmail':
+                access_token = creds.get('access_token')
+                refresh_token = creds.get('refresh_token')
+
+                if not access_token:
+                    continue
+
+                import urllib.request
+                import urllib.error
+                import time
+
+                five_minutes_ago = int(time.time()) - 300
+                query = f"after:{five_minutes_ago}"
+
+                list_url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages?q={urllib.parse.quote(query)}&maxResults=50"
+
+                messages_data = None
+                for attempt in range(2):
+                    req = urllib.request.Request(list_url)
+                    req.add_header('Authorization', f'Bearer {access_token}')
+
+                    try:
+                        with urllib.request.urlopen(req, timeout=10) as resp:
+                            messages_data = json.loads(resp.read().decode())
+                        break
+                    except urllib.error.HTTPError as e:
+                        if e.code == 401 and attempt == 0 and refresh_token:
+                            new_token = refresh_gmail_token(refresh_token, email_id, user_id)
+                            if new_token:
+                                access_token = new_token
+                                continue
+                        break
+
+                if not messages_data:
+                    print(f"[Gmail] {email_address}: messages_data 为空")
+                    continue
+
+                msg_count = len(messages_data.get('messages', []))
+                print(f"[Gmail] {email_address}: 查询 after:{five_minutes_ago}, 获取到 {msg_count} 封邮件")
+
+                for msg in messages_data.get('messages', []):
+                    msg_id = msg['id']
+                    detail_url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{msg_id}?format=full"
+                    req = urllib.request.Request(detail_url)
+                    req.add_header('Authorization', f'Bearer {access_token}')
+
+                    try:
+                        with urllib.request.urlopen(req, timeout=10) as resp:
+                            msg_data = json.loads(resp.read().decode())
+                    except:
                         continue
-                    
-                    import urllib.request
-                    import urllib.error
-                    import time
-                    
-                    # 使用 epoch 时间戳精确查询最近5分钟的邮件
-                    # Gmail API 支持 after:EPOCH_SECONDS 格式，比 newer_than 更精确
-                    five_minutes_ago = int(time.time()) - 300
-                    query = f"after:{five_minutes_ago}"
-                    
-                    list_url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages?q={urllib.parse.quote(query)}&maxResults=50"
-                    
-                    # 尝试请求，如果401则刷新token重试
-                    messages_data = None
-                    for attempt in range(2):
-                        req = urllib.request.Request(list_url)
-                        req.add_header('Authorization', f'Bearer {access_token}')
-                        
-                        try:
-                            with urllib.request.urlopen(req, timeout=10) as resp:
-                                messages_data = json.loads(resp.read().decode())
-                            break
-                        except urllib.error.HTTPError as e:
-                            if e.code == 401 and attempt == 0 and refresh_token:
-                                new_token = refresh_gmail_token(refresh_token, email_id, user_id)
-                                if new_token:
-                                    access_token = new_token
-                                    continue
-                            break
-                    
-                    if not messages_data:
-                        print(f"[Gmail] {email_address}: messages_data 为空")
-                        continue
-                    
-                    msg_count = len(messages_data.get('messages', []))
-                    print(f"[Gmail] {email_address}: 查询 after:{five_minutes_ago}, 获取到 {msg_count} 封邮件")
-                    
-                    for msg in messages_data.get('messages', []):
-                        msg_id = msg['id']
-                        detail_url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{msg_id}?format=full"
-                        req = urllib.request.Request(detail_url)
-                        req.add_header('Authorization', f'Bearer {access_token}')
-                        
-                        try:
-                            with urllib.request.urlopen(req, timeout=10) as resp:
-                                msg_data = json.loads(resp.read().decode())
-                        except:
-                            continue
-                        
-                        snippet = msg_data.get('snippet', '')
-                        payload = msg_data.get('payload', {})
-                        body_data = ''
-                        
-                        if 'body' in payload and payload['body'].get('data'):
-                            body_data = base64.urlsafe_b64decode(payload['body']['data']).decode('utf-8', errors='ignore')
-                        elif 'parts' in payload:
-                            for part in payload['parts']:
-                                if part.get('mimeType') == 'text/plain' and part.get('body', {}).get('data'):
-                                    body_data = base64.urlsafe_b64decode(part['body']['data']).decode('utf-8', errors='ignore')
-                                    break
-                        
-                        from_addr = ''
-                        for h in payload.get('headers', []):
-                            if h['name'].lower() == 'from':
-                                from_addr = h['value']
+
+                    snippet = msg_data.get('snippet', '')
+                    payload = msg_data.get('payload', {})
+                    body_data = ''
+
+                    if 'body' in payload and payload['body'].get('data'):
+                        body_data = base64.urlsafe_b64decode(payload['body']['data']).decode('utf-8', errors='ignore')
+                    elif 'parts' in payload:
+                        for part in payload['parts']:
+                            if part.get('mimeType') == 'text/plain' and part.get('body', {}).get('data'):
+                                body_data = base64.urlsafe_b64decode(part['body']['data']).decode('utf-8', errors='ignore')
                                 break
-                        
-                        emails_content.append({
-                            'from': from_addr,
-                            'body': snippet + ' ' + body_data,
-                            'msg_id': msg_id
-                        })
-                        print(f"[Gmail] 添加邮件: from={from_addr[:30]}..., body长度={len(snippet + body_data)}")
-                
-                # ==================== Outlook ====================
-                elif provider == 'outlook':
-                    access_token = creds.get('access_token')
-                    refresh_token = creds.get('refresh_token')
-                    
-                    if not access_token:
+
+                    from_addr = ''
+                    for h in payload.get('headers', []):
+                        if h['name'].lower() == 'from':
+                            from_addr = h['value']
+                            break
+
+                    emails_content.append({
+                        'from': from_addr,
+                        'body': snippet + ' ' + body_data,
+                        'msg_id': msg_id
+                    })
+                    print(f"[Gmail] 添加邮件: from={from_addr[:30]}..., body长度={len(snippet + body_data)}")
+
+            # ==================== Outlook ====================
+            elif provider == 'outlook':
+                access_token = creds.get('access_token')
+                refresh_token = creds.get('refresh_token')
+
+                if not access_token:
+                    continue
+
+                import urllib.request
+                import urllib.error
+
+                # 尝试获取邮件，如果401/403则刷新token重试
+                for attempt in range(2):
+                    try:
+                        emails_content = fetch_outlook_emails(access_token)
+                        break
+                    except urllib.error.HTTPError as e:
+                        if e.code in (401, 403) and attempt == 0 and refresh_token:
+                            print(f"[Outlook] {email_address}: {e.code} token失效，尝试刷新")
+                            new_token = refresh_outlook_token(refresh_token, email_id, user_id)
+                            if new_token:
+                                access_token = new_token
+                                continue
+                        print(f"[Outlook] {email_address}: HTTP {e.code} 失败")
+                        break
+                    except Exception as e:
+                        print(f"[Outlook] {email_address}: 获取失败 {e}")
+                        break
+
+            # ==================== QQ / IMAP ====================
+            elif provider in ['qq', 'imap']:
+                import time
+                now = time.time()
+                last_fetch = imap_last_fetch.get(email_address, 0)
+                if now - last_fetch < IMAP_MIN_INTERVAL:
+                    continue
+
+                emails_content = fetch_imap_emails(email_address, creds)
+                imap_last_fetch[email_address] = now
+
+            # ==================== Cloudflare ====================
+            elif provider == 'cloudflare':
+                cf_token = creds.get('cf_token')
+                worker_domain = creds.get('worker_domain')
+                if cf_token and worker_domain:
+                    emails_content = fetch_cloudflare_emails(worker_domain, cf_token)
+
+            # ==================== 提取验证码 ====================
+            print(f"[验证码] emails_content 数量: {len(emails_content)}")
+            for email_data in emails_content:
+                # CF 邮件校验收件人：to 字段须包含当前授权邮箱，否则跳过
+                to_field = email_data.get('to', '')
+                if 'to' in email_data:
+                    if not to_field or email_address.lower() not in to_field.lower():
+                        print(f"[验证码] 跳过非本邮箱邮件: to={to_field}, 授权={email_address}")
                         continue
-                    
-                    import urllib.request
-                    import urllib.error
-                    
-                    # 尝试获取邮件，如果401则刷新token
-                    for attempt in range(2):
-                        try:
-                            emails_content = fetch_outlook_emails(access_token)
-                            break
-                        except urllib.error.HTTPError as e:
-                            if e.code == 401 and attempt == 0 and refresh_token:
-                                new_token = refresh_outlook_token(refresh_token, email_id, user_id)
-                                if new_token:
-                                    access_token = new_token
-                                    continue
-                            break
-                        except:
-                            break
-                
-                # ==================== QQ / IMAP ====================
-                elif provider in ['qq', 'imap']:
-                    # 频率限制：防止频繁登录被封号
-                    import time
-                    now = time.time()
-                    last_fetch = imap_last_fetch.get(email_address, 0)
-                    if now - last_fetch < IMAP_MIN_INTERVAL:
-                        # 距离上次请求不足60秒，跳过
-                        continue
-                    
-                    emails_content = fetch_imap_emails(email_address, creds)
-                    imap_last_fetch[email_address] = now  # 更新最后请求时间
 
-                # ==================== Cloudflare ====================
-                elif provider == 'cloudflare':
-                    cf_token = creds.get('cf_token')
-                    worker_domain = creds.get('worker_domain')
-                    if cf_token and worker_domain:
-                        emails_content = fetch_cloudflare_emails(worker_domain, cf_token)
+                full_text = email_data.get('body', '')
+                from_addr = email_data.get('from', '')
+                source_msg_id = email_data.get('msg_id', '')
 
-                # ==================== 提取验证码 ====================
-                print(f"[验证码] emails_content 数量: {len(emails_content)}")
-                for email_data in emails_content:
-                    full_text = email_data.get('body', '')
-                    from_addr = email_data.get('from', '')
-                    source_msg_id = email_data.get('msg_id', '')
+                code, service = extract_verification_code(full_text)
 
-                    code, service = extract_verification_code(full_text)
+                if code:
+                    if service == 'unknown':
+                        service = from_addr.split('<')[0].strip() or from_addr
 
-                    if code:
-                        # 如果服务未识别，用发件人
-                        if service == 'unknown':
-                            service = from_addr.split('<')[0].strip() or from_addr
+                    expires_at = (datetime.now(timezone.utc) + timedelta(minutes=3)).strftime('%Y-%m-%dT%H:%M:%SZ')
 
-                        expires_at = (datetime.now(timezone.utc) + timedelta(minutes=3)).strftime('%Y-%m-%dT%H:%M:%SZ')
+                    new_codes.append({
+                        "email": email_address,
+                        "service": service,
+                        "code": code,
+                        "expires_at": expires_at,
+                        "source_msg_id": source_msg_id
+                    })
 
-                        # 所有解析到的码都返回给前端（前端自行判断新旧）
-                        new_codes.append({
-                            "email": email_address,
-                            "service": service,
-                            "code": code,
-                            "expires_at": expires_at,
-                            "source_msg_id": source_msg_id
-                        })
+                    codes_to_insert.append((email_address, service[:50], code, source_msg_id))
 
-                        # DB 仅做持久化（去重写入，不影响返回）
-                        try:
-                            already_exists = False
-                            if source_msg_id:
-                                cursor = conn.execute(f"""
-                                    SELECT id FROM user_{user_id}_verification_codes
-                                    WHERE email = ? AND source_msg_id = ?
-                                """, (email_address, source_msg_id))
-                                already_exists = cursor.fetchone() is not None
-                            else:
-                                cursor = conn.execute(f"""
-                                    SELECT id FROM user_{user_id}_verification_codes
-                                    WHERE email = ? AND code = ? AND created_at > datetime('now', '-5 minutes')
-                                """, (email_address, code))
-                                already_exists = cursor.fetchone() is not None
+        except Exception as e:
+            print(f"处理邮箱 {email_address} 失败: {e}")
+            continue
 
-                            if not already_exists:
-                                conn.execute(f"""
-                                    INSERT INTO user_{user_id}_verification_codes
-                                    (email, service, code, account_name, is_read, expires_at, created_at, source_msg_id)
-                                    VALUES (?, ?, ?, ?, 0, datetime('now', '+3 minutes'), datetime('now'), ?)
-                                """, (email_address, service[:50], code, '', source_msg_id))
-                                conn.commit()
-                        except Exception:
-                            pass
+    # ========== 第三段：批量写入 DB，锁持有时间最短 ==========
+    if codes_to_insert:
+        with get_db() as conn:
+            for email_addr, service, code, source_msg_id in codes_to_insert:
+                try:
+                    already_exists = False
+                    if source_msg_id:
+                        cursor = conn.execute(f"""
+                            SELECT id FROM user_{user_id}_verification_codes
+                            WHERE email = ? AND source_msg_id = ?
+                        """, (email_addr, source_msg_id))
+                        already_exists = cursor.fetchone() is not None
+                    else:
+                        cursor = conn.execute(f"""
+                            SELECT id FROM user_{user_id}_verification_codes
+                            WHERE email = ? AND code = ? AND created_at > datetime('now', '-5 minutes')
+                        """, (email_addr, code))
+                        already_exists = cursor.fetchone() is not None
 
-            except Exception as e:
-                print(f"处理邮箱 {email_address} 失败: {e}")
-                continue
+                    if not already_exists:
+                        conn.execute(f"""
+                            INSERT INTO user_{user_id}_verification_codes
+                            (email, service, code, account_name, is_read, expires_at, created_at, source_msg_id)
+                            VALUES (?, ?, ?, ?, 0, datetime('now', '+3 minutes'), datetime('now'), ?)
+                        """, (email_addr, service, code, '', source_msg_id))
+                except Exception:
+                    pass
+            conn.commit()
 
     return {"success": True, "new_codes": new_codes}
 
