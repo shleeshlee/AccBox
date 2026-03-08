@@ -26,4 +26,6 @@ services:
       - APP_MASTER_KEY=${APP_MASTER_KEY:-MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=}
       # JWT 密钥 (可选，不设置则自动从 APP_MASTER_KEY 派生)
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-}
+      # 📂 备份路径白名单（容器内路径，逗号分隔）
+      - ALLOWED_BACKUP_PATHS=${ALLOWED_BACKUP_PATHS:-/app/backups,/app/data}
 
