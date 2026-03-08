@@ -5,7 +5,7 @@ services:
     build: .
     container_name: accbox-v5
     ports:
-      - "${PORT:-9111}:80"
+      - "127.0.0.1:${PORT:-9111}:80"
     volumes:
       # 🗃️ 核心数据
       - ./data:/app/data
@@ -26,3 +26,4 @@ services:
       - APP_MASTER_KEY=${APP_MASTER_KEY:-MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=}
       # JWT 密钥 (可选，不设置则自动从 APP_MASTER_KEY 派生)
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-}
+

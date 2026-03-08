@@ -1034,7 +1034,7 @@ function renderCards() {
             <div class="card-body">
                 <div class="card-header">
                     ${checkboxHtml}
-                    <div class="card-icon" style="background:linear-gradient(135deg,${type.color},${adjustColor(type.color,-20)})">${type.icon}</div>
+                    <div class="card-icon" style="background:linear-gradient(135deg,${escapeAttr(type.color)},${adjustColor(type.color,-20)})">${escapeHtml(type.icon)}</div>
                     <div class="card-info" ${!batchMode ? `onclick="copyEmail('${escapeHtml(acc.email)}')" title="点击复制邮箱"` : ''}><div class="card-name">${escapeHtml(acc.customName || acc.email)}</div><div class="card-email">${escapeHtml(acc.email)}</div></div>
                     <div class="card-combos">${combosHtml}</div>
                     <div class="card-meta">
@@ -1053,7 +1053,7 @@ function renderCards() {
                         ${renderTimers(acc)}
                     </div>
                 </div>
-                ${(acc.tags||[]).length ? `<div class="card-tags">${acc.tags.map(t => `<span class="free-tag">${t}</span>`).join('')}</div>` : ''}
+                ${(acc.tags||[]).length ? `<div class="card-tags">${acc.tags.map(t => `<span class="free-tag">${escapeHtml(t)}</span>`).join('')}</div>` : ''}
             </div>
             <div class="card-footer">
                 <button class="btn-action" onclick="event.stopPropagation();copyPassword(${acc.id})" title="复制密码">🔑 密码</button>
@@ -2624,8 +2624,8 @@ async function exportData() {
 function toggleSidebar() { const s = document.getElementById('sidebar'); s.classList.toggle('collapsed'); s.classList.toggle('open'); }
 function toggleGroup(el) { el.closest('.collapsible-group').classList.toggle('collapsed'); }
 function showToast(msg, isError = false) { const t = document.getElementById('toast'); t.textContent = msg; t.className = 'toast show' + (isError ? ' error' : ''); setTimeout(() => t.classList.remove('show'), 2000); }
-function escapeHtml(str) { return str ? str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') : ''; }
-function escapeAttr(str) { return str ? str.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;') : ''; }
+function escapeHtml(str) { return str ? str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;') : ''; }
+function escapeAttr(str) { return str ? str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;') : ''; }
 function hexToRgba(hex, alpha) { const r = parseInt(hex.slice(1,3), 16), g = parseInt(hex.slice(3,5), 16), b = parseInt(hex.slice(5,7), 16); return `rgba(${r},${g},${b},${alpha})`; }
 function adjustColor(hex, amount) { const num = parseInt(hex.slice(1), 16); return '#' + (0x1000000 + Math.min(255, Math.max(0, (num >> 16) + amount))*0x10000 + Math.min(255, Math.max(0, ((num >> 8) & 0xFF) + amount))*0x100 + Math.min(255, Math.max(0, (num & 0xFF) + amount))).toString(16).slice(1); }
 
