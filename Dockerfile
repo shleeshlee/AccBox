@@ -22,8 +22,15 @@ COPY flags.js /var/www/html/
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 COPY docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
-# 创建数据目录
-RUN mkdir -p /app/data
+# 创建数据目录和非 root 用户
+RUN mkdir -p /app/data && \
+    useradd -r -s /bin/false appuser && \
+    chown -R appuser:appuser /app && \
+    chown -R appuser:appuser /var/www/html && \
+    chown -R appuser:appuser /var/log/nginx && \
+    chown -R appuser:appuser /var/lib/nginx && \
+    chown -R appuser:appuser /run
+
 
 # 暴露端口
 EXPOSE 80

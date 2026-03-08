@@ -634,18 +634,11 @@ def get_current_user(authorization: str = Header(None)):
         raise HTTPException(status_code=401, detail="未授权")
     token = authorization.replace("Bearer ", "")
     
-    # 先尝试 JWT 验证
+    # JWT 验证
     jwt_user = verify_jwt_token(token)
-    if jwt_user:
-        return jwt_user
-    
-    # 回退到数据库 Token (兼容旧版)
-    with get_db() as conn:
-        cursor = conn.execute("SELECT id, username FROM users WHERE token = ?", (token,))
-        user = cursor.fetchone()
-    if not user:
+    if not jwt_user:
         raise HTTPException(status_code=401, detail="无效令牌或已过期")
-    return {"id": user["id"], "username": user["username"]}
+    return jwt_user
 
 # ==================== 用户 API ====================
 
@@ -781,6 +774,8 @@ def create_account_type(data: AccountTypeCreate, user: dict = Depends(get_curren
     if data.login_url and not validate_url_protocol(data.login_url):
         raise HTTPException(status_code=400, detail="登录URL必须以 http:// 或 https:// 开头")
     
+    if data.color and not re.match(r'^#[0-9a-fA-F]{6}$', data.color):
+        raise HTTPException(status_code=400, detail="颜色格式无效，需要 #RRGGBB")
     with get_db() as conn:
         cursor = conn.execute(f"""
             INSERT INTO user_{user['id']}_account_types (name, icon, color, login_url)
@@ -803,6 +798,8 @@ def update_account_type(type_id: int, data: AccountTypeUpdate, user: dict = Depe
         updates.append("icon = ?")
         values.append(data.icon)
     if data.color is not None:
+        if not re.match(r'^#[0-9a-fA-F]{6}$', data.color):
+            raise HTTPException(status_code=400, detail="颜色格式无效，需要 #RRGGBB")
         updates.append("color = ?")
         values.append(data.color)
     if data.login_url is not None:
@@ -917,6 +914,8 @@ def update_property_value(value_id: int, data: PropertyValueUpdate, user: dict =
         updates.append("name = ?")
         values.append(data.name)
     if data.color is not None:
+        if not re.match(r'^#[0-9a-fA-F]{6}$', data.color):
+            raise HTTPException(status_code=400, detail="颜色格式无效，需要 #RRGGBB")
         updates.append("color = ?")
         values.append(data.color)
     if data.hidden is not None:
@@ -1328,8 +1327,7 @@ def export_data(include_emails: bool = False, user: dict = Depends(get_current_u
                 for row in oauth_cursor.fetchall():
                     oauth_configs.append({
                         "provider": row["provider"],
-                        "client_id": row["client_id"],
-                        "client_secret": decrypt_password(row["client_secret"])
+                        "client_id": row["client_id"]
                     })
             except:
                 pass
@@ -2409,8 +2407,7 @@ def get_oauth_config_status(provider: str, user: dict = Depends(get_current_user
                 return {
                     "configured": True, 
                     "source": "db", 
-                    "client_id": row["client_id"],
-                    "client_secret": decrypt_password(row["client_secret"])
+                    "client_id": row["client_id"]
                 }
         except:
             pass
