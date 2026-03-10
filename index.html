@@ -203,7 +203,7 @@
                 <!-- 搜索框（内联） -->
                 <form class="search-box-inline mobile-only" role="search" action="javascript:void(0)" onsubmit="return false">
                     <span class="search-icon">🔍</span>
-                    <input type="search" id="mobileSearchInput" placeholder="搜索..." oninput="filterAccounts()" autocomplete="off">
+                    <input type="search" id="mobileSearchInput" placeholder="搜索..." oninput="filterAccounts()" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-form-type="other" data-1p-ignore="true" data-protonpass-ignore="true" data-bitwarden-ignore="true" role="searchbox" name="q" aria-autocomplete="none">
                 </form>
                 <!-- 视图切换（单按钮） -->
                 <button class="btn-tool-icon-sm mobile-only" id="mobileViewBtn" onclick="toggleViewMode()" title="切换视图">🃏</button>
@@ -237,29 +237,7 @@
             <form class="modal-body" autocomplete="off" onsubmit="return false" data-form-type="other">
                 <div class="form-row">
                     <div class="form-group"><label class="form-label">账号类型</label><select class="form-select" id="accType"></select></div>
-                    <div class="form-group w100"><label class="form-label">国家/地区</label><select class="form-select" id="accCountry">
-                        <option value="🌍">🌍 全球</option>
-                        <option value="US">🇺🇸 US</option>
-                        <option value="JP">🇯🇵 JP</option>
-                        <option value="TW">🇹🇼 TW</option>
-                        <option value="HK">🇭🇰 HK</option>
-                        <option value="SG">🇸🇬 SG</option>
-                        <option value="KR">🇰🇷 KR</option>
-                        <option value="GB">🇬🇧 GB</option>
-                        <option value="DE">🇩🇪 DE</option>
-                        <option value="FR">🇫🇷 FR</option>
-                        <option value="AU">🇦🇺 AU</option>
-                        <option value="CA">🇨🇦 CA</option>
-                        <option value="IN">🇮🇳 IN</option>
-                        <option value="VN">🇻🇳 VN</option>
-                        <option value="TH">🇹🇭 TH</option>
-                        <option value="MY">🇲🇾 MY</option>
-                        <option value="ID">🇮🇩 ID</option>
-                        <option value="PH">🇵🇭 PH</option>
-                        <option value="BR">🇧🇷 BR</option>
-                        <option value="RU">🇷🇺 RU</option>
-                        <option value="CN">🇨🇳 CN</option>
-                    </select></div>
+                    <div class="form-group w100"><label class="form-label">国家/地区</label><select class="form-select" id="accCountry"></select></div>
                 </div>
                 <div class="form-row">
                     <div class="form-group"><label class="form-label">邮箱/账号</label><input type="text" class="form-input" id="accEmail" autocomplete="off" autocorrect="off" autocapitalize="off" data-lpignore="true" data-1p-ignore="true" data-protonpass-ignore="true" data-form-type="other" name="accbox_email_nofill_xyz" readonly onfocus="this.removeAttribute('readonly')"></div>
@@ -544,6 +522,25 @@
                 <!-- 编辑模式 footer -->
                 <button class="btn-secondary btn-sm" id="btnBackupCancel" onclick="cancelBackupEdit()" style="display:none">取消</button>
                 <button class="btn-primary btn-sm" id="btnBackupSave" onclick="saveBackupCodes()" style="display:none">💾 保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 定时弹窗 -->
+    <div class="modal-overlay" id="timerModal">
+        <div class="modal" style="max-width:420px">
+            <div class="modal-header"><h2 class="modal-title" id="timerModalTitle">添加定时</h2><button class="btn-close" onclick="closeTimerModal()">✕</button></div>
+            <div class="modal-body" style="padding:20px">
+                <div style="margin-bottom:14px">
+                    <label style="font-size:0.8rem;color:var(--text-muted);display:block;margin-bottom:5px">备注</label>
+                    <input type="text" id="timerLabel" placeholder="CLI / 续费 / ..." style="width:100%;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:0.85rem;outline:none">
+                </div>
+                <div style="margin-bottom:14px">
+                    <label style="font-size:0.8rem;color:var(--text-muted);display:block;margin-bottom:5px">时长</label>
+                    <input type="text" id="timerDuration" placeholder="2h / 7d / 5h30m / 90m" style="width:100%;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:'JetBrains Mono',monospace;font-size:0.85rem;outline:none">
+                </div>
+                <div style="font-size:0.7rem;color:var(--text-muted);margin-bottom:16px">支持格式：5h、7d、2h30m、90m</div>
+                <button class="btn-primary" onclick="submitTimer()" style="width:100%">确定</button>
             </div>
         </div>
     </div>
@@ -1036,29 +1033,16 @@
         const flagsScript = document.createElement('script');
         flagsScript.src = 'flags.js?v=' + Date.now();
         flagsScript.onload = function() {
+            // 从 flags.js 动态填充国家下拉框
+            const countrySelect = document.getElementById('accCountry');
+            if (countrySelect && typeof generateCountryOptions === 'function') {
+                countrySelect.innerHTML = generateCountryOptions();
+            }
             const appScript = document.createElement('script');
             appScript.src = 'app.js?v=' + Date.now();
             document.body.appendChild(appScript);
         };
         document.body.appendChild(flagsScript);
     </script>
-<!-- 定时弹窗 -->
-<div class="modal-overlay" id="timerModal">
-    <div class="modal" style="max-width:420px">
-        <div class="modal-header"><h2 class="modal-title" id="timerModalTitle">添加定时</h2><button class="btn-close" onclick="closeTimerModal()">✕</button></div>
-        <div class="modal-body" style="padding:20px">
-            <div style="margin-bottom:14px">
-                <label style="font-size:0.8rem;color:var(--text-muted);display:block;margin-bottom:5px">备注</label>
-                <input type="text" id="timerLabel" placeholder="CLI / 续费 / ..." style="width:100%;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:0.85rem;outline:none">
-            </div>
-            <div style="margin-bottom:14px">
-                <label style="font-size:0.8rem;color:var(--text-muted);display:block;margin-bottom:5px">时长</label>
-                <input type="text" id="timerDuration" placeholder="2h / 7d / 5h30m / 90m" style="width:100%;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:'JetBrains Mono',monospace;font-size:0.85rem;outline:none">
-            </div>
-            <div style="font-size:0.7rem;color:var(--text-muted);margin-bottom:16px">支持格式：5h、7d、2h30m、90m</div>
-            <button class="btn-primary" onclick="submitTimer()" style="width:100%">确定</button>
-        </div>
-    </div>
-</div>
 </body>
 </html>

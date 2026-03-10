@@ -817,8 +817,7 @@ function showSkeletonCards(count = 6) {
 
 async function loadAccounts() {
     try { 
-        const res = await fetch(API + '/accounts', { credentials: 'same-origin', headers: { Authorization: 'Bearer ' + token } }); 
-        if (res.status === 401) { handleAuthError(); return; }
+        const res = await apiRequest('/accounts');
         if (!res.ok) { showToast('加载账号失败', true); return; }
         const data = await res.json(); 
         accounts = data.accounts || [];
@@ -831,8 +830,7 @@ async function loadAccounts() {
 
 async function loadAccountTypes() {
     try { 
-        const res = await fetch(API + '/account-types', { credentials: 'same-origin', headers: { Authorization: 'Bearer ' + token } }); 
-        if (res.status === 401) { handleAuthError(); return; }
+        const res = await apiRequest('/account-types');
         if (!res.ok) return;
         const data = await res.json(); 
         accountTypes = data.types || [];
@@ -843,8 +841,7 @@ async function loadAccountTypes() {
 
 async function loadPropertyGroups() {
     try { 
-        const res = await fetch(API + '/property-groups', { credentials: 'same-origin', headers: { Authorization: 'Bearer ' + token } }); 
-        if (res.status === 401) { handleAuthError(); return; }
+        const res = await apiRequest('/property-groups');
         if (!res.ok) return;
         const data = await res.json(); 
         propertyGroups = data.groups || [];
@@ -1674,7 +1671,7 @@ function renderCardsWithTransition() {
 
 // 账号操作
 async function toggleFavorite(id) {
-    try { const res = await fetch(API + `/accounts/${id}/favorite`, { credentials: 'same-origin', method: 'POST', headers: { Authorization: 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() } }); if (res.ok) { const data = await res.json(); const acc = accounts.find(a => a.id === id); if (acc) acc.is_favorite = data.is_favorite; renderSidebar(); renderCards(); } } catch {}
+    try { const res = await apiRequest(`/accounts/${id}/favorite`, { method: 'POST' }); if (res.ok) { const data = await res.json(); const acc = accounts.find(a => a.id === id); if (acc) acc.is_favorite = data.is_favorite; renderSidebar(); renderCards(); } } catch {}
 }
 
 function copyEmail(email) { copyToClipboard(email).then(ok => ok && showToast('📋 邮箱已复制')); }
@@ -1693,7 +1690,7 @@ async function copyPassword(accountId) {
 async function loginTest(id) {
     const acc = accounts.find(a => a.id === id);
     if (!acc) return;
-    try { await fetch(API + `/accounts/${id}/use`, { credentials: 'same-origin', method: 'POST', headers: { Authorization: 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() } }); acc.last_used = new Date().toISOString(); } catch {}
+    try { await apiRequest(`/accounts/${id}/use`, { method: 'POST' }); acc.last_used = new Date().toISOString(); } catch {}
     copyToClipboard(acc.email).then(ok => ok && showToast('已复制邮箱'));
     const type = accountTypes.find(t => t.id === acc.type_id);
     if (type?.login_url) { let url = type.login_url; if (url.includes('Email=')) url += encodeURIComponent(acc.email); setTimeout(() => window.open(url, '_blank'), 300); }
@@ -1708,8 +1705,8 @@ async function deleteAccount(id) {
         await new Promise(r => setTimeout(r, 250));
     }
     try { 
-        const res = await fetch(API + `/accounts/${id}`, { credentials: 'same-origin', method: 'DELETE', headers: { Authorization: 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() } }); 
-        if (res.ok) { 
+        const res = await apiRequest(`/accounts/${id}`, { method: 'DELETE' });
+        if (res.ok) {
             accounts = accounts.filter(a => a.id !== id); 
             showToast('已删除'); 
             renderSidebar(); 
@@ -2119,7 +2116,7 @@ async function saveAccount() {
     };
     try {
         const isEdit = !!editingAccountId;
-        const res = await fetch(isEdit ? API + `/accounts/${editingAccountId}` : API + '/accounts', { credentials: 'same-origin', method: isEdit ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() }, body: JSON.stringify(data) });
+        const res = await apiRequest(isEdit ? `/accounts/${editingAccountId}` : '/accounts', { method: isEdit ? 'PUT' : 'POST', body: JSON.stringify(data) });
         if (res.ok) {
             showToast(isEdit ? '已更新' : '已添加');
             closeAccountModal();
@@ -2241,10 +2238,8 @@ function toggleGroupCollapse(groupId, btn) {
 // 切换属性值隐藏状态
 async function toggleValueVisibility(valueId, hidden) {
     try {
-        await fetch(API + `/property-values/${valueId}`, {
-            credentials: 'same-origin',
+        await apiRequest(`/property-values/${valueId}`, {
             method: 'PUT',
-            headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() },
             body: JSON.stringify({ hidden: hidden })
         });
         await loadPropertyGroups();
@@ -2304,10 +2299,8 @@ async function savePropertyGroupOrder() {
     }));
     
     try {
-        const res = await fetch(API + '/property-groups/reorder', {
-            credentials: 'same-origin',
+        const res = await apiRequest('/property-groups/reorder', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() },
             body: JSON.stringify({ order: newOrder })
         });
         if (res.ok) {
@@ -2326,11 +2319,7 @@ async function cleanupInvalidCombos() {
     if (!confirm('确定要清理所有账号中引用已删除属性值的记录吗？')) return;
     try {
         showToast('⏳ 正在清理...');
-        const res = await fetch(API + '/cleanup-invalid-combos', {
-            credentials: 'same-origin',
-            method: 'POST',
-            headers: { Authorization: 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() }
-        });
+        const res = await apiRequest('/cleanup-invalid-combos', { method: 'POST' });
         const data = await res.json();
         if (res.ok) {
             showToast(`✅ ${data.message}`);
@@ -2345,12 +2334,12 @@ async function cleanupInvalidCombos() {
     }
 }
 
-async function addGroup() { const name = prompt('属性组名称:'); if (!name) return; try { await fetch(API + '/property-groups', { credentials: 'same-origin', method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() }, body: JSON.stringify({ name }) }); await loadPropertyGroups(); renderPropertyEditor(); renderSidebar(); } catch {} }
-async function updateGroupName(id, name) { try { await fetch(API + `/property-groups/${id}`, { credentials: 'same-origin', method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() }, body: JSON.stringify({ name }) }); await loadPropertyGroups(); renderSidebar(); } catch {} }
-async function deleteGroup(id) { if (!confirm('删除此属性组?')) return; try { await fetch(API + `/property-groups/${id}`, { credentials: 'same-origin', method: 'DELETE', headers: { Authorization: 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() } }); await loadPropertyGroups(); renderPropertyEditor(); renderSidebar(); } catch {} }
-async function addValue(groupId) { const name = prompt('属性值名称:'); if (!name) return; try { await fetch(API + '/property-values', { credentials: 'same-origin', method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() }, body: JSON.stringify({ group_id: groupId, name, color: '#8b5cf6' }) }); await loadPropertyGroups(); renderPropertyEditor(); renderSidebar(); } catch {} }
-async function updateValue(id, name, color) { const data = {}; if (name !== null) data.name = name; if (color !== null) data.color = color; try { await fetch(API + `/property-values/${id}`, { credentials: 'same-origin', method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() }, body: JSON.stringify(data) }); await loadPropertyGroups(); renderSidebar(); renderCards(); } catch {} }
-async function deleteValue(id) { if (!confirm('删除此属性值?')) return; try { await fetch(API + `/property-values/${id}`, { credentials: 'same-origin', method: 'DELETE', headers: { Authorization: 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() } }); await loadPropertyGroups(); renderPropertyEditor(); renderSidebar(); } catch {} }
+async function addGroup() { const name = prompt('属性组名称:'); if (!name) return; try { await apiRequest('/property-groups', { method: 'POST', body: JSON.stringify({ name }) }); await loadPropertyGroups(); renderPropertyEditor(); renderSidebar(); } catch {} }
+async function updateGroupName(id, name) { try { await apiRequest(`/property-groups/${id}`, { method: 'PUT', body: JSON.stringify({ name }) }); await loadPropertyGroups(); renderSidebar(); } catch {} }
+async function deleteGroup(id) { if (!confirm('删除此属性组?')) return; try { await apiRequest(`/property-groups/${id}`, { method: 'DELETE' }); await loadPropertyGroups(); renderPropertyEditor(); renderSidebar(); } catch {} }
+async function addValue(groupId) { const name = prompt('属性值名称:'); if (!name) return; try { await apiRequest('/property-values', { method: 'POST', body: JSON.stringify({ group_id: groupId, name, color: '#8b5cf6' }) }); await loadPropertyGroups(); renderPropertyEditor(); renderSidebar(); } catch {} }
+async function updateValue(id, name, color) { const data = {}; if (name !== null) data.name = name; if (color !== null) data.color = color; try { await apiRequest(`/property-values/${id}`, { method: 'PUT', body: JSON.stringify(data) }); await loadPropertyGroups(); renderSidebar(); renderCards(); } catch {} }
+async function deleteValue(id) { if (!confirm('删除此属性值?')) return; try { await apiRequest(`/property-values/${id}`, { method: 'DELETE' }); await loadPropertyGroups(); renderPropertyEditor(); renderSidebar(); } catch {} }
 
 // 类型管理
 function openTypeManager() { renderTypeEditor(); document.getElementById('typeModal').classList.add('show'); }
@@ -2381,15 +2370,15 @@ async function addType() {
     const icon = prompt('图标:', '🔑') || '🔑'; 
     const color = '#22c55e';
     try { 
-        await fetch(API + '/account-types', { credentials: 'same-origin', method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() }, body: JSON.stringify({ name, icon, color, login_url: '' }) }); 
+        await apiRequest('/account-types', { method: 'POST', body: JSON.stringify({ name, icon, color, login_url: '' }) });
         await loadAccountTypes(); 
         renderTypeEditor(); 
         renderSidebar(); 
         showToast('添加成功');
     } catch {} 
 }
-async function updateType(id, field, value) { try { await fetch(API + `/account-types/${id}`, { credentials: 'same-origin', method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() }, body: JSON.stringify({ [field]: value }) }); await loadAccountTypes(); renderSidebar(); renderCards(); } catch {} }
-async function deleteType(id) { if (!confirm('删除此类型?')) return; try { await fetch(API + `/account-types/${id}`, { credentials: 'same-origin', method: 'DELETE', headers: { Authorization: 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() } }); await loadAccountTypes(); renderTypeEditor(); renderSidebar(); } catch {} }
+async function updateType(id, field, value) { try { await apiRequest(`/account-types/${id}`, { method: 'PUT', body: JSON.stringify({ [field]: value }) }); await loadAccountTypes(); renderSidebar(); renderCards(); } catch {} }
+async function deleteType(id) { if (!confirm('删除此类型?')) return; try { await apiRequest(`/account-types/${id}`, { method: 'DELETE' }); await loadAccountTypes(); renderTypeEditor(); renderSidebar(); } catch {} }
 
 // 导入导出
 function openImportModal() {
@@ -2503,7 +2492,7 @@ async function doImportJson(data, option) {
             const existingEmails = new Set(accounts.map(a => a.email?.toLowerCase()));
             importData.accounts = (data.accounts || []).filter(a => !a.email || !existingEmails.has(a.email.toLowerCase()));
         }
-        const res = await fetch(API + '/import', { credentials: 'same-origin', method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() }, body: JSON.stringify({ ...importData, import_mode: option }) });
+        const res = await apiRequest('/import', { method: 'POST', body: JSON.stringify({ ...importData, import_mode: option }) });
         const result = await res.json();
         showToast(result.message || '导入成功');
         closeImportModal(); loadData();
@@ -2565,7 +2554,7 @@ async function pasteToImport() {
 
 async function doImport() {
     const csv = document.getElementById('importCsv').value.trim();
-    if (csv) { try { const res = await fetch(API + '/import-csv', { credentials: 'same-origin', method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() }, body: JSON.stringify({ csv }) }); const result = await res.json(); if (result.errors?.length) { showToast(result.message + '（' + result.errors[0] + '）', true); } else { showToast(result.message); } closeImportModal(); loadData(); } catch { showToast('导入失败', true); } }
+    if (csv) { try { const res = await apiRequest('/import-csv', { method: 'POST', body: JSON.stringify({ csv }) }); const result = await res.json(); if (result.errors?.length) { showToast(result.message + '（' + result.errors[0] + '）', true); } else { showToast(result.message); } closeImportModal(); loadData(); } catch { showToast('导入失败', true); } }
     else showToast('请选择文件或粘贴CSV', true);
 }
 
@@ -2596,15 +2585,9 @@ async function exportData() {
     }
     
     try {
-        const url = includeEmails ? API + '/export?include_emails=true' : API + '/export';
-        const res = await fetch(url, { headers: { 'Authorization': 'Bearer ' + token } });
-        
-        if (res.status === 401) {
-            showToast('登录已过期，请重新登录', true);
-            setTimeout(() => doLogout(), 500);
-            return;
-        }
-        
+        const endpoint = includeEmails ? '/export?include_emails=true' : '/export';
+        const res = await apiRequest(endpoint);
+
         if (!res.ok) {
             showToast('导出失败', true);
             return;
@@ -2644,7 +2627,7 @@ function toggleSidebar() { const s = document.getElementById('sidebar'); s.class
 function toggleGroup(el) { el.closest('.collapsible-group').classList.toggle('collapsed'); }
 function showToast(msg, isError = false) { const t = document.getElementById('toast'); t.textContent = msg; t.className = 'toast show' + (isError ? ' error' : ''); setTimeout(() => t.classList.remove('show'), 2000); }
 function escapeHtml(str) { return str ? str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;') : ''; }
-function escapeAttr(str) { return str ? str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;') : ''; }
+const escapeAttr = escapeHtml;
 function hexToRgba(hex, alpha) { const r = parseInt(hex.slice(1,3), 16), g = parseInt(hex.slice(3,5), 16), b = parseInt(hex.slice(5,7), 16); return `rgba(${r},${g},${b},${alpha})`; }
 function adjustColor(hex, amount) { const num = parseInt(hex.slice(1), 16); return '#' + (0x1000000 + Math.min(255, Math.max(0, (num >> 16) + amount))*0x10000 + Math.min(255, Math.max(0, ((num >> 8) & 0xFF) + amount))*0x100 + Math.min(255, Math.max(0, (num & 0xFF) + amount))).toString(16).slice(1); }
 
@@ -2784,19 +2767,8 @@ async function batchDelete() {
     let ok = 0, fail = 0;
     for (const id of selectedAccounts) {
         try {
-            const res = await fetch(API + `/accounts/${id}`, { 
-                credentials: 'same-origin',
-                method: 'DELETE', 
-                headers: { 'Authorization': 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() }
-            });
-            
-            // 401 表示认证失败，直接退出登录
-            if (res.status === 401) {
-                showToast('登录已过期，请重新登录', true);
-                setTimeout(() => doLogout(), 500);
-                return;
-            }
-            
+            const res = await apiRequest(`/accounts/${id}`, { method: 'DELETE' });
+
             // 200 成功删除，404 表示已不存在（也算删除成功）
             if (res.ok || res.status === 404) { 
                 accounts = accounts.filter(a => a.id !== id); 
@@ -2885,10 +2857,8 @@ async function submitPasswordReset() {
     if (newPwd.length < 4) { showToast('密码至少4位', true); return; }
     
     try {
-        const res = await fetch(API + '/change-password', {
-            credentials: 'same-origin',
+        const res = await apiRequest('/change-password', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() },
             body: JSON.stringify({ old_password: oldPwd, new_password: newPwd })
         });
         const data = await res.json();
@@ -2922,10 +2892,8 @@ function closeAvatarModal() {
 
 async function selectAvatar(avatar) {
     try {
-        const res = await fetch(API + '/update-avatar', {
-            credentials: 'same-origin',
+        const res = await apiRequest('/update-avatar', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json; charset=utf-8', Authorization: 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() },
             body: JSON.stringify({ avatar: avatar })
         });
         const data = await res.json();
@@ -4041,10 +4009,8 @@ async function applyBatchProps() {
         }
         
         try {
-            const res = await fetch(API + `/accounts/${accId}`, {
-                credentials: 'same-origin',
+            const res = await apiRequest(`/accounts/${accId}`, {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() },
                 body: JSON.stringify({ combos: newCombos })
             });
             if (res.ok) successCount++;
@@ -4134,13 +4100,8 @@ function getBackupPath() {
 async function createBackup() {
     try {
         showToast('⏳ 正在备份...');
-        const resp = await fetch(API + '/backup', {
-            credentials: 'same-origin',
+        const resp = await apiRequest('/backup', {
             method: 'POST',
-            headers: {
-                'Authorization': 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken(),
-                'Content-Type': 'application/json'
-            },
             body: JSON.stringify({})
         });
         const data = await resp.json();
@@ -4162,9 +4123,7 @@ async function downloadBackupToLocal() {
     try {
         showToast('⏳ 正在打包...');
         
-        const resp = await fetch(API + '/backup/download', {
-            headers: { 'Authorization': 'Bearer ' + token }
-        });
+        const resp = await apiRequest('/backup/download');
         
         if (!resp.ok) {
             const err = await resp.json().catch(() => ({}));
@@ -4195,9 +4154,7 @@ async function downloadBackupToLocal() {
 async function updateBackupCount() {
     const count = document.getElementById('backupCount');
     try {
-        const resp = await fetch(`${API}/backups`, {
-            headers: { 'Authorization': 'Bearer ' + token }
-        });
+        const resp = await apiRequest('/backups');
         const data = await resp.json();
         if (resp.ok && count) {
             count.textContent = data.backups.length + ' 个';
@@ -4214,9 +4171,7 @@ async function listBackups() {
     if (container) container.innerHTML = '<div class="backup-empty">加载中...</div>';
     
     try {
-        const resp = await fetch(`${API}/backups`, {
-            headers: { 'Authorization': 'Bearer ' + token }
-        });
+        const resp = await apiRequest('/backups');
         const data = await resp.json();
         if (resp.ok) {
             if (count) count.textContent = data.backups.length + ' 个';
@@ -4292,9 +4247,7 @@ async function downloadExistingBackup(filename) {
     try {
         showToast('⏳ 正在下载...');
         
-        const resp = await fetch(`${API}/backups/${encodeURIComponent(filename)}/download`, {
-            headers: { 'Authorization': 'Bearer ' + token }
-        });
+        const resp = await apiRequest(`/backups/${encodeURIComponent(filename)}/download`);
         
         if (!resp.ok) {
             const err = await resp.json().catch(() => ({}));
@@ -4323,13 +4276,8 @@ async function restoreBackup(filename) {
     if (!confirm('⚠️ 确定要恢复此备份吗？\n\n当前数据将被覆盖，此操作不可撤销！')) return;
     try {
         showToast('⏳ 正在恢复...');
-        const resp = await fetch(API + '/backups/' + encodeURIComponent(filename) + '/restore', {
-            credentials: 'same-origin',
+        const resp = await apiRequest('/backups/' + encodeURIComponent(filename) + '/restore', {
             method: 'POST',
-            headers: { 
-                'Authorization': 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken(),
-                'Content-Type': 'application/json'
-            },
             body: JSON.stringify({})
         });
         const data = await resp.json();
@@ -4347,11 +4295,7 @@ async function restoreBackup(filename) {
 async function deleteBackup(filename) {
     if (!confirm('确定要删除此备份吗？')) return;
     try {
-        const resp = await fetch(API + '/backups/' + encodeURIComponent(filename), {
-            credentials: 'same-origin',
-            method: 'DELETE',
-            headers: { 'Authorization': 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken() }
-        });
+        const resp = await apiRequest('/backups/' + encodeURIComponent(filename), { method: 'DELETE' });
         const data = await resp.json();
         if (resp.ok) {
             showToast('✅ 已删除');
@@ -4373,9 +4317,7 @@ async function loadAutoBackupSettings() {
     const keepSelect = document.getElementById('autoBackupKeep');
     
     try {
-        const resp = await fetch(API + '/backup/settings', {
-            headers: { 'Authorization': 'Bearer ' + token }
-        });
+        const resp = await apiRequest('/backup/settings');
         if (resp.ok) {
             const settings = await resp.json();
             if (intervalSelect) intervalSelect.value = settings.interval_hours || '0';
@@ -4393,13 +4335,8 @@ async function saveAutoBackupSettings() {
     const keep = parseInt(document.getElementById('autoBackupKeep').value);
     
     try {
-        const resp = await fetch(API + '/backup/settings', {
-            credentials: 'same-origin',
+        const resp = await apiRequest('/backup/settings', {
             method: 'POST',
-            headers: {
-                'Authorization': 'Bearer ' + token, 'X-CSRF-Token': getCsrfToken(),
-                'Content-Type': 'application/json'
-            },
             body: JSON.stringify({ interval_hours: interval, keep_count: keep })
         });
         
@@ -4451,9 +4388,7 @@ async function loadKeyInfo() {
     if (!container) return;
     
     try {
-        const resp = await fetch(API + '/encryption-key/info', {
-            headers: { 'Authorization': 'Bearer ' + token }
-        });
+        const resp = await apiRequest('/encryption-key/info');
         if (resp.ok) {
             const info = await resp.json();
             
@@ -4621,13 +4556,6 @@ document.addEventListener('click', (e) => {
 
 // 卡片角标功能已移除
 
-async function copyCode(code) {
-    const success = await copyToClipboard(code);
-    if (success) {
-        showToast('✅ 验证码已复制');
-    }
-}
-
 // 立即获取验证码，并进入1分钟高频轮询模式
 let fastModeTimer = null;
 
@@ -4751,11 +4679,7 @@ function copyToastCode() {
 
 // === 智能轮询（根据页面可见性调整频率） ===
 
-// 页面可见性检测
-function setupVisibilityDetection() {
-    // 页面关闭时停止轮询（这是唯一需要处理的情况）
-    // visibilitychange 不再触发重启，因为只要页面存在就保持轮询
-}
+// setupVisibilityDetection: removed, visibilitychange no longer restarts polling
 
 // 重启轮询（根据当前状态调整间隔）
 function restartEmailPolling() {
@@ -5257,134 +5181,7 @@ async function checkOAuthConfig(provider) {
     return { configured: false };
 }
 
-// 开始邮箱授权
-async function startEmailAuth() {
-    const btnStartAuth = document.getElementById('btnStartAuth');
-    const originalText = btnStartAuth.textContent;
-    
-    try {
-        btnStartAuth.disabled = true;
-        btnStartAuth.textContent = '⏳ 处理中...';
-        
-        if (selectedProvider === 'gmail' || selectedProvider === 'outlook') {
-            // 检查是否需要先保存OAuth配置
-            const clientId = document.getElementById('oauthClientId')?.value.trim();
-            const clientSecret = document.getElementById('oauthClientSecret')?.value.trim();
-            
-            // 如果填写了凭证，先保存
-            if (clientId && clientSecret) {
-                const saveRes = await apiRequest('/emails/oauth/config', {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        provider: selectedProvider,
-                        client_id: clientId,
-                        client_secret: clientSecret
-                    })
-                });
-                
-                if (!saveRes.ok) {
-                    const errData = await saveRes.json();
-                    showToast('❌ 保存凭证失败: ' + (errData.detail || '未知错误'), true);
-                    return;
-                }
-                
-                showToast('✅ OAuth 凭证已保存');
-            }
-            
-            // OAuth 授权流程
-            const res = await apiRequest('/emails/oauth/start', {
-                method: 'POST',
-                body: JSON.stringify({ provider: selectedProvider })
-            });
-            
-            if (res.ok) {
-                const data = await res.json();
-                if (data.auth_url) {
-                    // 打开授权窗口
-                    const authWindow = window.open(data.auth_url, 'oauth', 'width=600,height=700');
-                    
-                    showToast('🔗 请在弹出窗口中完成授权');
-                    
-                    // 轮询检查授权结果
-                    const checkAuth = setInterval(async () => {
-                        try {
-                            const statusRes = await apiRequest('/emails/oauth/status?state=' + data.state);
-                            if (statusRes.ok) {
-                                const statusData = await statusRes.json();
-                                if (statusData.status === 'success') {
-                                    clearInterval(checkAuth);
-                                    showToast('✅ 授权成功！');
-                                    closeAddEmailModal();
-                                    loadEmailData();
-                                    renderAuthorizedEmails();
-                                } else if (statusData.status === 'error') {
-                                    clearInterval(checkAuth);
-                                    showToast('❌ 授权失败: ' + (statusData.message || '未知错误'), true);
-                                }
-                            }
-                        } catch (e) {
-                            // 静默重试
-                        }
-                    }, 2000);
-                    
-                    // 30秒后停止检查
-                    setTimeout(() => clearInterval(checkAuth), 30000);
-                } else {
-                    showToast('❌ 无法获取授权链接', true);
-                }
-            } else {
-                const errData = await res.json();
-                showToast('❌ ' + (errData.detail || '授权启动失败'), true);
-            }
-        } else {
-            // IMAP 验证流程
-            const email = document.getElementById('imapEmail').value.trim();
-            const password = document.getElementById('imapPassword').value;
-            
-            if (!email || !password) {
-                showToast('请填写邮箱和授权码', true);
-                return;
-            }
-            
-            const config = {
-                provider: selectedProvider,
-                email: email,
-                password: password
-            };
-            
-            if (selectedProvider === 'imap') {
-                config.server = document.getElementById('imapServer').value.trim();
-                config.port = parseInt(document.getElementById('imapPort').value) || 993;
-                
-                if (!config.server) {
-                    showToast('请填写 IMAP 服务器地址', true);
-                    return;
-                }
-            }
-            
-            const res = await apiRequest('/emails/imap/add', {
-                method: 'POST',
-                body: JSON.stringify(config)
-            });
-            
-            if (res.ok) {
-                showToast('✅ 邮箱添加成功！');
-                closeAddEmailModal();
-                loadEmailData();
-                renderAuthorizedEmails();
-            } else {
-                const errData = await res.json();
-                showToast('❌ ' + (errData.detail || '连接失败，请检查配置'), true);
-            }
-        }
-    } catch (e) {
-        console.error('邮箱授权错误:', e);
-        showToast('❌ 网络错误', true);
-    } finally {
-        btnStartAuth.disabled = false;
-        btnStartAuth.textContent = originalText;
-    }
-}
+// startEmailAuth: removed, replaced by startProviderAuth()
 
 // 从待授权列表授权邮箱
 function authorizeEmail(email) {
@@ -5680,8 +5477,7 @@ document.addEventListener('click', (e) => {
     }
 });
 
-// 不再自动收集，改为手动拉取/清空
-function collectPendingEmails() {}
+// collectPendingEmails: removed, now manual-only
 
 async function pullPendingEmails() {
     try {
@@ -5748,8 +5544,7 @@ async function loadEmailData() {
                 if (mobileCountHint) mobileCountHint.style.display = 'none';
             }
             
-            // 收集未授权的辅助邮箱
-            collectPendingEmails();
+            // collectPendingEmails removed, now manual-only
         }
     } catch (err) {
         console.log('邮箱数据加载失败（可能未启用此功能）:', err.message);
@@ -5808,7 +5603,6 @@ function renderCodesList() {
 // === 初始化 ===
 // 在用户登录后调用
 async function initEmailFeature() {
-    setupVisibilityDetection(); // 设置页面可见性检测
     await loadEmailData();      // 等待邮箱数据加载完成
     await loadVerificationCodes(); // 必须 await，防止跟首次 poll 竞态
     startEmailPolling();
