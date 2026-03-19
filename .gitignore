@@ -29,3 +29,4 @@ Thumbs.db
 *.bak
 *.bak.*
 docker-compose.yml.bak.*
+CLAUDE.md
