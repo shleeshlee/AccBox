@@ -9,7 +9,7 @@ AccBox 赛博金库 - 你的账号都在这里喵~
 
 **自部署的账号管理工具 · Docker 一键启动 · 数据加密存储**
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 
 > 🐱 本项目完全免费开源，如果你是付费获取的，你被骗了喵！
 
