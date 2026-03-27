@@ -37,7 +37,7 @@ echo -e "${MAGENTA}║                                                          
 echo -e "${MAGENTA}║  ${CYAN}作者: Author${NC}${MAGENTA}                                              ║${NC}"
 echo -e "${MAGENTA}║  ${CYAN}GitHub: https://github.com/shleeshlee/AccBox${NC}${MAGENTA}              ║${NC}"
 echo -e "${MAGENTA}║                                                               ║${NC}"
-echo -e "${MAGENTA}║  ${GREEN}✓ 免费开源 | ✓ MIT 协议 | ✓ 禁止倒卖${NC}${MAGENTA}                     ║${NC}"
+echo -e "${MAGENTA}║  ${GREEN}✓ 免费开源 | ✓ AGPL-3.0 | ✓ 禁止倒卖${NC}${MAGENTA}                    ║${NC}"
 echo -e "${MAGENTA}║                                                               ║${NC}"
 echo -e "${MAGENTA}║  ${YELLOW}⚠ 如果你是付费获取的本项目，你被骗了！${NC}${MAGENTA}                  ║${NC}"
 echo -e "${MAGENTA}║                                                               ║${NC}"
