@@ -1048,7 +1048,7 @@ function renderCards() {
                 <div class="card-header">
                     ${checkboxHtml}
                     <div class="card-icon" style="background:linear-gradient(135deg,${escapeAttr(type.color)},${adjustColor(type.color,-20)})">${escapeHtml(type.icon)}</div>
-                    <div class="card-info" ${!batchMode ? `onclick="copyEmail('${escapeHtml(acc.email)}')" title="点击复制邮箱"` : ''}><div class="card-name">${escapeHtml(acc.customName || acc.email)}</div><div class="card-email">${escapeHtml(acc.email)}</div></div>
+                    <div class="card-info" ${!batchMode ? `onclick="copyEmail('${escapeInlineJs(acc.email)}')" title="点击复制邮箱"` : ''}><div class="card-name">${escapeHtml(acc.customName || acc.email)}</div><div class="card-email">${escapeHtml(acc.email)}</div></div>
                     <div class="card-combos">${combosHtml}</div>
                     <div class="card-meta">
                         <div class="meta-top">
@@ -1071,7 +1071,7 @@ function renderCards() {
             <div class="card-footer">
                 <button class="btn-action" onclick="event.stopPropagation();copyPassword(${acc.id})" title="复制密码">🔑 密码</button>
                 <button class="btn-action btn-2fa${acc.has_2fa ? ' active' : ''}${acc.has_backup_codes ? ' has-backup' : ''}" onclick="event.stopPropagation();${acc.has_2fa ? `show2FAPopup(${acc.id})` : `open2FAConfig(${acc.id})`}" title="${acc.has_2fa ? (acc.has_backup_codes ? '有备份码' : '查看2FA') : '设置2FA'}">🛡️ 2FA</button>
-                <button class="btn-action" onclick="event.stopPropagation();copyEmail('${escapeHtml(acc.email)}')" title="复制邮箱">📋 复制</button>
+                <button class="btn-action" onclick="event.stopPropagation();copyEmail('${escapeInlineJs(acc.email)}')" title="复制邮箱">📋 复制</button>
                 <button class="btn-action" onclick="event.stopPropagation();loginTest(${acc.id})" title="登录测试">🔗 登录</button>
             </div>
         </div>`;
@@ -2017,9 +2017,9 @@ function renderTagSuggestions(filter = '') {
     suggestions = suggestions.slice(0, 10);
     
     suggestionsEl.innerHTML = suggestions.map(t => `
-        <span class="tag-suggestion" onclick="selectTagSuggestion('${escapeHtml(t)}')">
+        <span class="tag-suggestion" onclick="selectTagSuggestion('${escapeInlineJs(t)}')">
             ${escapeHtml(t)}
-            <span class="remove-history" onclick="event.stopPropagation(); removeFromTagHistory('${escapeHtml(t)}')" title="从历史中移除">✕</span>
+            <span class="remove-history" onclick="event.stopPropagation(); removeFromTagHistory('${escapeInlineJs(t)}')" title="从历史中移除">✕</span>
         </span>
     `).join('');
     suggestionsEl.style.display = 'flex';
@@ -2035,8 +2035,8 @@ function selectTagSuggestion(tag) {
 
 function renderTagsBox() {
     // 1. 渲染现有的标签
-    const tagsHtml = editingTags.map(t => 
-        `<span class="tag-badge">${escapeHtml(t)}<span class="remove" onclick="removeTag('${escapeHtml(t)}')">✕</span></span>`
+    const tagsHtml = editingTags.map(t =>
+        `<span class="tag-badge">${escapeHtml(t)}<span class="remove" onclick="removeTag('${escapeInlineJs(t)}')">✕</span></span>`
     ).join('');
     
     // 2. 渲染输入框和建议区域
@@ -2628,6 +2628,8 @@ function toggleGroup(el) { el.closest('.collapsible-group').classList.toggle('co
 function showToast(msg, isError = false) { const t = document.getElementById('toast'); t.textContent = msg; t.className = 'toast show' + (isError ? ' error' : ''); setTimeout(() => t.classList.remove('show'), 2000); }
 function escapeHtml(str) { return str ? str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;') : ''; }
 const escapeAttr = escapeHtml;
+function escapeJsString(str) { return str ? str.replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"').replace(/\n/g,'\\n').replace(/\r/g,'\\r').replace(/\u2028/g,'\\u2028').replace(/\u2029/g,'\\u2029') : ''; }
+function escapeInlineJs(str) { return escapeHtml(escapeJsString(str)); }
 function hexToRgba(hex, alpha) { const r = parseInt(hex.slice(1,3), 16), g = parseInt(hex.slice(3,5), 16), b = parseInt(hex.slice(5,7), 16); return `rgba(${r},${g},${b},${alpha})`; }
 function adjustColor(hex, amount) { const num = parseInt(hex.slice(1), 16); return '#' + (0x1000000 + Math.min(255, Math.max(0, (num >> 16) + amount))*0x10000 + Math.min(255, Math.max(0, ((num >> 8) & 0xFF) + amount))*0x100 + Math.min(255, Math.max(0, (num & 0xFF) + amount))).toString(16).slice(1); }
 
@@ -5243,7 +5245,7 @@ function renderAuthorizedEmails() {
         <div class="email-item">
             <div class="email-item-icon ${email.provider || 'imap'}">📧</div>
             <div class="email-item-info">
-                <div class="email-item-address copyable" onclick="navigator.clipboard.writeText('${escapeAttr(email.address)}').then(()=>showToast('邮箱已复制'))" title="点击复制">${escapeHtml(email.address)}</div>
+                <div class="email-item-address copyable" onclick="navigator.clipboard.writeText('${escapeInlineJs(email.address)}').then(()=>showToast('邮箱已复制'))" title="点击复制">${escapeHtml(email.address)}</div>
                 <div class="email-item-status">
                     <span class="dot ${email.status || 'active'}"></span>
                     ${email.status === 'error' ? '连接失败' : '已连接'}
@@ -5292,7 +5294,7 @@ function renderPendingEmails() {
                 </div>
             </div>
             <div class="email-item-actions">
-                <button class="btn-email-auth" onclick="authorizeEmail('${escapeHtml(email)}')">授权</button>
+                <button class="btn-email-auth" onclick="authorizeEmail('${escapeInlineJs(email)}')">授权</button>
             </div>
         </div>
     `).join('');
@@ -5440,7 +5442,7 @@ function showBackupEmailSuggestions(input) {
         }
         
         return `
-            <div class="${className}" onclick="selectBackupEmailSuggestion('${escapeHtml(s.email)}')">
+            <div class="${className}" onclick="selectBackupEmailSuggestion('${escapeInlineJs(s.email)}')">
                 <span class="suggestion-icon">${icon}</span>
                 <span class="suggestion-text">${escapeHtml(s.email)}</span>
                 <span class="suggestion-hint">${hint}</span>
@@ -5583,7 +5585,7 @@ function renderCodesList() {
         const timerText = `${Math.floor(remaining / 60)}:${(remaining % 60).toString().padStart(2, '0')}`;
         
         return `
-            <div class="code-item ${isExpired ? 'expired' : ''} ${code.is_read ? '' : 'unread'}" onclick="copyCode('${escapeHtml(code.code)}')">
+            <div class="code-item ${isExpired ? 'expired' : ''} ${code.is_read ? '' : 'unread'}" onclick="copyCode('${escapeInlineJs(code.code)}')">
                 <div class="code-item-header">
                     <span class="code-service">${escapeHtml(code.service || '验证码')}</span>
                     ${!isExpired ? `<span class="code-timer ${timerClass}">${timerText}</span>` : ''}

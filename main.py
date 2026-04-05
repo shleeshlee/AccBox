@@ -1452,7 +1452,8 @@ def export_data(include_emails: bool = False, user: dict = Depends(get_current_u
                 for row in oauth_cursor.fetchall():
                     oauth_configs.append({
                         "provider": row["provider"],
-                        "client_id": row["client_id"]
+                        "client_id": row["client_id"],
+                        "client_secret": decrypt_password(row["client_secret"])
                     })
             except:
                 pass
@@ -1597,15 +1598,36 @@ def import_data(data: dict, user: dict = Depends(get_current_user)):
                     
                     conn.execute(f"""
                         UPDATE user_{user['id']}_accounts SET
-                        type_id=?, password=?, country=?, custom_name=?, properties=?, combos=?, tags=?, notes=?, is_favorite=?, updated_at=?
+                        type_id=?, password=?, country=?, custom_name=?, properties=?, combos=?, tags=?, notes=?, backup_email=?, is_favorite=?, updated_at=?
                         WHERE id=?
                     """, (
                         new_type_id, encrypt_password(acc.get("password", "")),
                         acc.get("country", "🌍"), acc.get("customName", ""),
                         json.dumps(acc.get("properties", {})), json.dumps(new_combos),
                         json.dumps(acc.get("tags", []), ensure_ascii=False),
-                        acc.get("notes", ""), 1 if acc.get("is_favorite") else 0, now, existing["id"]
+                        acc.get("notes", ""), acc.get("backup_email", ""),
+                        1 if acc.get("is_favorite") else 0, now, existing["id"]
                     ))
+                    # overwrite 模式同步 2FA 数据：有则更新，无则清除
+                    if "totp" in acc and acc["totp"].get("secret"):
+                        totp = acc["totp"]
+                        conn.execute(f"""
+                            UPDATE user_{user['id']}_accounts SET
+                            totp_secret=?, totp_issuer=?, totp_type=?, totp_algorithm=?, totp_digits=?, totp_period=?, backup_codes=?
+                            WHERE id=?
+                        """, (
+                            encrypt_password(totp["secret"]), totp.get("issuer", ""),
+                            totp.get("type", "totp"), totp.get("algorithm", "SHA1"),
+                            totp.get("digits", 6), totp.get("period", 30),
+                            json.dumps(totp.get("backup_codes", [])), existing["id"]
+                        ))
+                    else:
+                        # 源端无 2FA，清除目标端残留
+                        conn.execute(f"""
+                            UPDATE user_{user['id']}_accounts SET
+                            totp_secret=NULL, totp_issuer=NULL, totp_type=NULL, totp_algorithm=NULL, totp_digits=NULL, totp_period=NULL, backup_codes=NULL
+                            WHERE id=?
+                        """, (existing["id"],))
                     updated_accounts += 1
                     continue
             
@@ -2303,12 +2325,23 @@ def restore_backup(filename: str, config: RestoreConfig = RestoreConfig(), user:
         raise HTTPException(status_code=404, detail="备份文件不存在")
     
     try:
-        # 恢复前先备份当前数据
+        # 恢复前先备份当前数据（用 SQLite backup API 保证一致性）
         current_backup = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}_before_restore.db"
         os.makedirs(DEFAULT_BACKUP_DIR, exist_ok=True)
-        shutil.copy2(DB_PATH, os.path.join(DEFAULT_BACKUP_DIR, current_backup))
-        shutil.copy2(backup_path, DB_PATH)
-        
+        import sqlite3 as _sqlite3
+        _src = _sqlite3.connect(DB_PATH)
+        _dst = _sqlite3.connect(os.path.join(DEFAULT_BACKUP_DIR, current_backup))
+        _src.backup(_dst)
+        _src.close()
+        _dst.close()
+
+        # 用 SQLite backup API 原子恢复，避免并发写入导致数据库损坏
+        src_conn = _sqlite3.connect(backup_path)
+        dst_conn = _sqlite3.connect(DB_PATH)
+        src_conn.backup(dst_conn)
+        src_conn.close()
+        dst_conn.close()
+
         return {
             "message": "恢复成功",
             "restored_from": filename,
