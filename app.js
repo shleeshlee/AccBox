@@ -1693,7 +1693,17 @@ async function loginTest(id) {
     try { await apiRequest(`/accounts/${id}/use`, { method: 'POST' }); acc.last_used = new Date().toISOString(); } catch {}
     copyToClipboard(acc.email).then(ok => ok && showToast('已复制邮箱'));
     const type = accountTypes.find(t => t.id === acc.type_id);
-    if (type?.login_url) { let url = type.login_url; if (url.includes('Email=')) url += encodeURIComponent(acc.email); setTimeout(() => window.open(url, '_blank'), 300); }
+    if (type?.login_url) {
+        let url = type.login_url;
+        if (url.includes('{email}')) {
+            url = url.replace('{email}', encodeURIComponent(acc.email));
+        } else if (/[?&](email|Email|login_hint|username|account)=$/i.test(url)) {
+            url += encodeURIComponent(acc.email);
+        }
+        window.open(url, '_blank');
+    } else {
+        showToast('该类型未配置登录链接', true);
+    }
 }
 
 async function deleteAccount(id) {
@@ -2377,7 +2387,7 @@ async function addType() {
         showToast('添加成功');
     } catch {} 
 }
-async function updateType(id, field, value) { try { await apiRequest(`/account-types/${id}`, { method: 'PUT', body: JSON.stringify({ [field]: value }) }); await loadAccountTypes(); renderSidebar(); renderCards(); } catch {} }
+async function updateType(id, field, value) { try { const res = await apiRequest(`/account-types/${id}`, { method: 'PUT', body: JSON.stringify({ [field]: value }) }); if (!res.ok) { const err = await res.json().catch(() => ({})); showToast(err.detail || '保存失败', true); return; } await loadAccountTypes(); renderSidebar(); renderCards(); } catch(e) { console.error('类型更新失败:', e); showToast('保存失败', true); } }
 async function deleteType(id) { if (!confirm('删除此类型?')) return; try { await apiRequest(`/account-types/${id}`, { method: 'DELETE' }); await loadAccountTypes(); renderTypeEditor(); renderSidebar(); } catch {} }
 
 // 导入导出
