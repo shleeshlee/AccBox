@@ -24,7 +24,19 @@ let verificationCodes = []; // 验证码列表（最近5条）
 let selectedProvider = 'gmail'; // 当前选择的邮箱类型
 let pushSettings = JSON.parse(localStorage.getItem('pushSettings') || '{"notify":true,"toast":true}');
 let codeToastTimer = null; // 验证码弹窗定时器
+let codeToastCloseTimer = null;
 let emailPollingInterval = null; // 邮箱轮询定时器
+let authSessionVersion = 0;
+let pendingLogoutPromise = Promise.resolve();
+let pendingLogoutController = null;
+let emailPollingGeneration = 0;
+let emailPollingActive = false;
+let emailCheckInFlight = null;
+let emailDataLoaded = false;
+let emailCodesLoaded = false;
+const emailRequests = new Set();
+const emailAuthTimers = new Set();
+const emailIssues = new Map();
 
 // v5.1.4 新增：智能轮询 - 页面可见性检测
 let isPageVisible = true;
@@ -41,6 +53,8 @@ function getCsrfToken() {
 
 // ==================== 补丁：核心 API 请求函数 ==
 async function apiRequest(endpoint, options = {}) {
+    const sessionVersion = authSessionVersion;
+    if (!token || !user) throw new Error('当前未登录');
     const url = API + endpoint;
 
     const defaultHeaders = {
@@ -64,6 +78,9 @@ async function apiRequest(endpoint, options = {}) {
     };
 
     const response = await fetch(url, config);
+
+    // 旧会话的迟到响应不能使新会话退出，也不能继续交给调用方。
+    if (sessionVersion !== authSessionVersion) throw new Error('会话已切换');
 
     // 如果 Token 过期 (401)，自动跳转登录
     if (response.status === 401) {
@@ -717,6 +734,8 @@ function switchLoginTab(tab) {
 async function handleLogin(e) {
     e.preventDefault();
     try {
+        // 先让旧退出响应清完 cookie，再建立新的登录 cookie。
+        await pendingLogoutPromise;
         const res = await fetch(API + '/login', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             credentials: 'same-origin',
@@ -733,6 +752,7 @@ async function handleRegister(e) {
     const p1 = document.getElementById('regPassword').value, p2 = document.getElementById('regPassword2').value;
     if (p1 !== p2) { showToast('密码不一致', true); return; }
     try {
+        await pendingLogoutPromise;
         const res = await fetch(API + '/register', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             credentials: 'same-origin',
@@ -750,21 +770,43 @@ function logout() {
 }
 
 // 统一退出处理
-function doLogout() {
-    fetch(API + '/logout', { method: 'POST', credentials: 'same-origin' }).catch(() => {});
+function doLogout(notifyServer = true) {
+    authSessionVersion++;
+    resetEmailFeature();
+    const toast = document.getElementById('toast');
+    if (toast) { toast.textContent = ''; toast.classList.remove('show'); }
+    if (notifyServer && !pendingLogoutController) {
+        const controller = new AbortController();
+        pendingLogoutController = controller;
+        let timeout;
+        const expired = new Promise(resolve => {
+            timeout = setTimeout(() => { controller.abort(); resolve(); }, 5000);
+        });
+        const request = fetch(API + '/logout', {
+            method: 'POST', credentials: 'same-origin', signal: controller.signal
+        }).catch(() => {});
+        pendingLogoutPromise = Promise.race([request, expired]).finally(() => {
+            clearTimeout(timeout);
+            if (pendingLogoutController === controller) pendingLogoutController = null;
+        });
+    }
     localStorage.removeItem('token'); localStorage.removeItem('user'); token = null; user = null;
     accounts = []; accountTypes = []; propertyGroups = [];
     document.getElementById('app').classList.remove('show');
     document.getElementById('loginContainer').style.display = 'flex';
+    return pendingLogoutPromise;
 }
 
 // 认证失效时自动跳转登录
 function handleAuthError() {
+    if (!token && !user) return;
+    doLogout(false);
     showToast('登录已过期，请重新登录', true);
-    setTimeout(() => doLogout(), 500);
 }
 
 function showApp() {
+    authSessionVersion++;
+    resetEmailFeature();
     document.getElementById('loginContainer').style.display = 'none';
     document.getElementById('app').classList.add('show');
     // 更新用户面板信息
@@ -782,13 +824,15 @@ async function loadUserAvatar() {
 
 // 数据加载
 async function loadData() {
+    const sessionVersion = authSessionVersion;
+    // 邮箱初始化独立于账号列表，列表加载失败也应能自动恢复收信。
+    initEmailFeature();
     try {
         // 先显示骨架屏
         showSkeletonCards();
         await Promise.all([loadAccountTypes(), loadPropertyGroups(), loadAccounts()]);
+        if (sessionVersion !== authSessionVersion || !token || !user) return;
         renderSidebar(); renderCards();
-        // 初始化邮箱验证码功能
-        initEmailFeature();
     } catch (e) {
         console.error('loadData错误:', e);
     }
@@ -2589,8 +2633,7 @@ async function exportData() {
     // 确保 token 存在
     if (!token) token = localStorage.getItem('token');
     if (!token) {
-        showToast('登录已过期，请重新登录', true);
-        setTimeout(() => doLogout(), 500);
+        handleAuthError();
         return;
     }
     
@@ -2769,8 +2812,7 @@ async function batchDelete() {
     }
     
     if (!token) {
-        showToast('登录已过期，请重新登录', true);
-        setTimeout(() => doLogout(), 500);
+        handleAuthError();
         return;
     }
     
@@ -4572,6 +4614,10 @@ document.addEventListener('click', (e) => {
 let fastModeTimer = null;
 
 async function fetchEmailsNow() {
+    const sessionVersion = authSessionVersion;
+    if (!token || !user) return;
+    if (!emailDataLoaded && !await loadEmailData()) return;
+    if (!isEmailSessionCurrent(sessionVersion)) return;
     if (authorizedEmails.length === 0) {
         showToast('请先授权邮箱', true);
         return;
@@ -4592,6 +4638,8 @@ async function fetchEmailsNow() {
     
     // 1分钟后停止动画
     fastModeTimer = setTimeout(() => {
+        fastModeTimer = null;
+        if (!isEmailSessionCurrent(sessionVersion)) return;
         if (btn) btn.classList.remove('beating');
         showToast('⏱️ 加速模式已结束');
     }, 1 * 60 * 1000);
@@ -4663,7 +4711,8 @@ function showCodeToast(code) {
     }, 1000);
     
     // 10秒后自动关闭
-    setTimeout(() => {
+    if (codeToastCloseTimer) clearTimeout(codeToastCloseTimer);
+    codeToastCloseTimer = setTimeout(() => {
         closeCodeToast();
     }, 10000);
 }
@@ -4681,6 +4730,10 @@ function closeCodeToast() {
     if (codeToastTimer) {
         clearInterval(codeToastTimer);
         codeToastTimer = null;
+    }
+    if (codeToastCloseTimer) {
+        clearTimeout(codeToastCloseTimer);
+        codeToastCloseTimer = null;
     }
 }
 
@@ -4711,55 +4764,160 @@ function _markToasted(key) {
     sessionStorage.setItem('toasted_codes', JSON.stringify([..._toastedCodes]));
 }
 
+function isEmailSessionCurrent(sessionVersion, generation = emailPollingGeneration) {
+    return !!token && !!user && sessionVersion === authSessionVersion && generation === emailPollingGeneration;
+}
+
+function resetEmailFeature() {
+    stopEmailPolling();
+    authorizedEmails = [];
+    pendingEmails = [];
+    verificationCodes = [];
+    emailDataLoaded = false;
+    emailCodesLoaded = false;
+    emailIssues.clear();
+    _toastedCodes.clear();
+    sessionStorage.removeItem('toasted_codes');
+    emailAuthTimers.forEach(timer => clearInterval(timer));
+    emailAuthTimers.clear();
+    if (fastModeTimer) clearTimeout(fastModeTimer);
+    fastModeTimer = null;
+    fastModeEndTime = 0;
+    closeCodeToast();
+    ['toastCode', 'toastAccount', 'toastService', 'toastTimer', 'emailFetchStatus'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = '';
+    });
+    document.getElementById('btnRefreshEmails')?.classList.remove('beating');
+    document.getElementById('notificationPanel')?.classList.remove('show');
+    document.getElementById('emailManagerModal')?.classList.remove('show');
+    document.getElementById('addEmailModal')?.classList.remove('show');
+    const hint = document.getElementById('emailCountHint');
+    if (hint) hint.textContent = '未启用';
+    const badge = document.getElementById('mobileEmailBadge');
+    if (badge) badge.style.display = 'none';
+    renderCodesList();
+    updateNotifyBadge();
+    renderAuthorizedEmails();
+    renderPendingEmails();
+}
+
+function setEmailIssue(source, message) {
+    const previous = [...emailIssues.values()].join('；');
+    if (message) emailIssues.set(source, message);
+    else emailIssues.delete(source);
+    const current = [...emailIssues.values()].join('；');
+    let status = document.getElementById('emailFetchStatus');
+    if (!status) {
+        const body = document.getElementById('codesPanelBody');
+        if (body) {
+            status = document.createElement('div');
+            status.id = 'emailFetchStatus';
+            status.className = 'codes-empty';
+            status.setAttribute('role', 'status');
+            status.setAttribute('aria-live', 'polite');
+            body.insertAdjacentElement('beforebegin', status);
+        }
+    }
+    if (status) {
+        status.textContent = current;
+        status.style.display = current ? '' : 'none';
+    }
+    if (current && current !== previous) showToast(current, true);
+    else if (previous && !current) {
+        const recovered = { mailboxes: '邮箱列表加载已恢复', codes: '验证码记录加载已恢复', refresh: '邮箱收取已恢复' };
+        showToast('📬 ' + (recovered[source] || '邮箱收取已恢复'));
+    }
+}
+
+function describeEmailErrors(data) {
+    const labels = { cloudflare: 'Cloudflare', gmail: 'Gmail', outlook: 'Outlook', qq: 'QQ', imap: 'IMAP' };
+    const errors = Array.isArray(data.errors) ? data.errors : [];
+    if (!errors.length) return data.success === false ? '邮箱收取失败，将自动重试' : '';
+    const messages = errors.map(error => typeof error === 'string' ? error :
+        `${labels[error.provider] || '邮箱'}：${error.message || '收取失败'}`);
+    return (data.partial ? '部分邮箱收取失败：' : '邮箱收取失败：') + [...new Set(messages)].sort().join('；');
+}
+
+async function fetchEmailJson(endpoint, options = {}) {
+    const sessionVersion = authSessionVersion;
+    const generation = emailPollingGeneration;
+    const controller = new AbortController();
+    emailRequests.add(controller);
+    try {
+        const res = await apiRequest(endpoint, { ...options, signal: controller.signal });
+        if (!res.ok) throw new Error(`请求失败（HTTP ${res.status}）`);
+        const data = await res.json();
+        if (!isEmailSessionCurrent(sessionVersion, generation)) throw new Error('会话已切换');
+        return data;
+    } finally {
+        emailRequests.delete(controller);
+    }
+}
+
 // 执行一次邮件检查（学注册机：直接从 refresh 响应解析码，内存去重）
 async function checkNewEmails() {
-    if (authorizedEmails.length === 0) return;
+    if (!token || !user) return;
+    if (emailCheckInFlight) return emailCheckInFlight.promise;
+    const sessionVersion = authSessionVersion;
+    const generation = emailPollingGeneration;
+    const flight = { promise: null };
+    emailCheckInFlight = flight;
+    flight.promise = (async () => {
+        try {
+            if (!emailDataLoaded && !await loadEmailData()) return;
+            if (!isEmailSessionCurrent(sessionVersion, generation)) return;
+            if (!emailCodesLoaded) await loadVerificationCodes();
+            if (!isEmailSessionCurrent(sessionVersion, generation) || authorizedEmails.length === 0) return;
+            const data = await fetchEmailJson('/emails/refresh', {
+                method: 'POST',
+                body: JSON.stringify({})
+            });
+            if (!isEmailSessionCurrent(sessionVersion, generation)) return;
+            setEmailIssue('refresh', describeEmailErrors(data));
+            const allCodes = Array.isArray(data.new_codes) ? data.new_codes : [];
+            cleanExpiredCodes();
 
-    try {
-        const res = await apiRequest('/emails/refresh', {
-            method: 'POST',
-            body: JSON.stringify({})
-        });
-        if (!res.ok) return;
+            const now = new Date();
+            const existingSet = new Set(verificationCodes.map(c => c.code + '|' + c.email));
+            let hasNew = false;
 
-        const data = await res.json();
-        const allCodes = data.new_codes || [];
-        if (allCodes.length === 0) return;
+            allCodes.forEach(code => {
+                if (code.expires_at && new Date(code.expires_at) < now) return;
 
-        const now = new Date();
-        const existingSet = new Set(verificationCodes.map(c => c.code + '|' + c.email));
-        let hasNew = false;
+                const key = code.code + '|' + code.email;
+                if (!existingSet.has(key)) {
+                    existingSet.add(key);
+                    verificationCodes.unshift(code);
+                    hasNew = true;
 
-        allCodes.forEach(code => {
-            if (code.expires_at && new Date(code.expires_at) < now) return;
-
-            const key = code.code + '|' + code.email;
-            if (!existingSet.has(key)) {
-                existingSet.add(key);
-                verificationCodes.unshift(code);
-                hasNew = true;
-
-                // 只有从未弹过的码才弹 toast
-                if (!_toastedCodes.has(key)) {
-                    _markToasted(key);
-                    if (pushSettings.notify) {
-                        showToast(`📬 ${code.service || '验证码'}: ${code.code}`);
-                    }
-                    if (pushSettings.toast) {
-                        showCodeToast(code);
+                    // 只有从未弹过的码才弹 toast
+                    if (!_toastedCodes.has(key)) {
+                        _markToasted(key);
+                        if (pushSettings.notify) {
+                            showToast(`📬 ${code.service || '验证码'}: ${code.code}`);
+                        }
+                        if (pushSettings.toast) {
+                            showCodeToast(code);
+                        }
                     }
                 }
-            }
-        });
+            });
 
-        if (hasNew) {
-            verificationCodes = verificationCodes.slice(0, 15);
-            renderCodesList();
-            updateNotifyBadge();
+            if (hasNew) {
+                verificationCodes = verificationCodes.slice(0, 15);
+                renderCodesList();
+                updateNotifyBadge();
+            }
+        } catch (err) {
+            if (isEmailSessionCurrent(sessionVersion, generation)) {
+                setEmailIssue('refresh', '邮箱收取失败，网络连接异常或请求超时；将自动重试');
+            }
+        } finally {
+            if (emailCheckInFlight === flight) emailCheckInFlight = null;
         }
-    } catch (err) {
-        // 静默失败
-    }
+    })();
+    return flight.promise;
 }
 
 // 清理过期验证码
@@ -4778,29 +4936,32 @@ function cleanExpiredCodes() {
 }
 
 function startEmailPolling() {
-    if (emailPollingInterval) clearInterval(emailPollingInterval);
-    
-    // 立即执行一次
-    checkNewEmails();
-    
-    // 使用动态间隔：每次执行后根据当前模式决定下次间隔
-    function scheduleNext() {
+    stopEmailPolling();
+    if (!token || !user) return;
+    emailPollingActive = true;
+    const sessionVersion = authSessionVersion;
+    const generation = emailPollingGeneration;
+    async function tick() {
+        if (!emailPollingActive || !isEmailSessionCurrent(sessionVersion, generation)) return;
+        emailPollingInterval = null;
+        await checkNewEmails();
+        if (!emailPollingActive || !isEmailSessionCurrent(sessionVersion, generation)) return;
         const interval = Date.now() < fastModeEndTime ? pollingIntervalFast : pollingInterval;
-        
-        emailPollingInterval = setTimeout(async () => {
-            await checkNewEmails(); // checkNewEmails 现在已包含 DB 同步，不需要单独 cleanExpiredCodes
-            scheduleNext();
-        }, interval);
+        emailPollingInterval = setTimeout(tick, interval);
     }
-    
-    scheduleNext();
+    return tick();
 }
 
 function stopEmailPolling() {
+    emailPollingActive = false;
+    emailPollingGeneration++;
     if (emailPollingInterval) {
         clearTimeout(emailPollingInterval);
         emailPollingInterval = null;
     }
+    emailRequests.forEach(controller => controller.abort());
+    emailRequests.clear();
+    emailCheckInFlight = null;
 }
 
 // === 更多菜单 (PC端和移动端) ===
@@ -5019,6 +5180,8 @@ function fillImapPreset(preset) {
 
 // 开始指定provider的授权
 async function startProviderAuth(provider) {
+    const sessionVersion = authSessionVersion;
+    if (!token || !user) return;
     const btn = document.querySelector(`.provider-item[data-provider="${provider}"] .btn-provider-auth`);
     if (!btn) return;
     
@@ -5041,6 +5204,7 @@ async function startProviderAuth(provider) {
                         client_secret: clientSecret
                     })
                 });
+                if (!isEmailSessionCurrent(sessionVersion)) return;
                 
                 if (!saveRes.ok) {
                     const errData = await saveRes.json();
@@ -5057,30 +5221,45 @@ async function startProviderAuth(provider) {
             
             if (res.ok) {
                 const data = await res.json();
+                if (!isEmailSessionCurrent(sessionVersion)) return;
                 if (data.auth_url) {
                     window.open(data.auth_url, 'oauth', 'width=600,height=700');
                     showToast('🔗 请在弹出窗口中完成授权');
                     
                     const checkAuth = setInterval(async () => {
+                        if (!isEmailSessionCurrent(sessionVersion)) {
+                            clearInterval(checkAuth);
+                            emailAuthTimers.delete(checkAuth);
+                            return;
+                        }
                         try {
                             const statusRes = await apiRequest('/emails/oauth/status?state=' + data.state);
                             if (statusRes.ok) {
                                 const statusData = await statusRes.json();
+                                if (!isEmailSessionCurrent(sessionVersion)) return;
                                 if (statusData.status === 'success') {
                                     clearInterval(checkAuth);
+                                    emailAuthTimers.delete(checkAuth);
                                     showToast('✅ 授权成功！');
                                     closeAddEmailModal();
-                                    loadEmailData();
+                                    await loadEmailData();
+                                    if (!isEmailSessionCurrent(sessionVersion)) return;
                                     renderAuthorizedEmails();
                                 } else if (statusData.status === 'error') {
                                     clearInterval(checkAuth);
+                                    emailAuthTimers.delete(checkAuth);
                                     showToast('❌ 授权失败: ' + (statusData.message || '未知错误'), true);
                                 }
                             }
                         } catch (e) {}
                     }, 2000);
-                    
-                    setTimeout(() => clearInterval(checkAuth), 30000);
+                    emailAuthTimers.add(checkAuth);
+                    const authTimeout = setTimeout(() => {
+                        clearInterval(checkAuth);
+                        emailAuthTimers.delete(checkAuth);
+                        emailAuthTimers.delete(authTimeout);
+                    }, 30000);
+                    emailAuthTimers.add(authTimeout);
                 } else {
                     showToast('❌ 无法获取授权链接', true);
                 }
@@ -5103,9 +5282,11 @@ async function startProviderAuth(provider) {
             });
             
             if (res.ok) {
+                if (!isEmailSessionCurrent(sessionVersion)) return;
                 showToast('✅ QQ邮箱添加成功！');
                 closeAddEmailModal();
-                loadEmailData();
+                await loadEmailData();
+                if (!isEmailSessionCurrent(sessionVersion)) return;
                 renderAuthorizedEmails();
             } else {
                 const errData = await res.json();
@@ -5128,9 +5309,11 @@ async function startProviderAuth(provider) {
             });
             
             if (res.ok) {
+                if (!isEmailSessionCurrent(sessionVersion)) return;
                 showToast('✅ 邮箱添加成功！');
                 closeAddEmailModal();
-                loadEmailData();
+                await loadEmailData();
+                if (!isEmailSessionCurrent(sessionVersion)) return;
                 renderAuthorizedEmails();
             } else {
                 const errData = await res.json();
@@ -5159,9 +5342,11 @@ async function startProviderAuth(provider) {
 
             if (res.ok) {
                 const data = await res.json();
+                if (!isEmailSessionCurrent(sessionVersion)) return;
                 showToast('✅ ' + (data.message || 'Cloudflare 邮箱添加成功'));
                 closeAddEmailModal();
-                loadEmailData();
+                await loadEmailData();
+                if (!isEmailSessionCurrent(sessionVersion)) return;
                 renderAuthorizedEmails();
             } else {
                 const errData = await res.json();
@@ -5169,6 +5354,7 @@ async function startProviderAuth(provider) {
             }
         }
     } catch (e) {
+        if (!isEmailSessionCurrent(sessionVersion)) return;
         console.error('邮箱授权错误:', e);
         showToast('❌ 网络错误', true);
     } finally {
@@ -5534,48 +5720,61 @@ async function syncPendingEmails() {
 
 // === 邮箱数据加载 ===
 async function loadEmailData() {
+    const sessionVersion = authSessionVersion;
+    const generation = emailPollingGeneration;
+    if (!token || !user) return false;
     try {
-        const res = await apiRequest('/emails');
-        if (res.ok) {
-            const data = await res.json();
-            authorizedEmails = data.authorized || [];
-            pendingEmails = data.pending || [];
-            
-            // 更新邮箱计数提示
-            const countHint = document.getElementById('emailCountHint');
-            const mobileCountHint = document.getElementById('mobileEmailBadge');
-            
-            if (authorizedEmails.length > 0) {
-                if (countHint) countHint.textContent = `${authorizedEmails.length} 个`;
-                if (mobileCountHint) {
-                    mobileCountHint.textContent = authorizedEmails.length;
-                    mobileCountHint.style.display = 'inline-flex';
-                }
-            } else {
-                if (countHint) countHint.textContent = '未启用';
-                if (mobileCountHint) mobileCountHint.style.display = 'none';
+        const data = await fetchEmailJson('/emails');
+        if (!isEmailSessionCurrent(sessionVersion, generation)) return false;
+        authorizedEmails = data.authorized || [];
+        pendingEmails = data.pending || [];
+        emailDataLoaded = true;
+        setEmailIssue('mailboxes', '');
+        
+        // 更新邮箱计数提示
+        const countHint = document.getElementById('emailCountHint');
+        const mobileCountHint = document.getElementById('mobileEmailBadge');
+        
+        if (authorizedEmails.length > 0) {
+            if (countHint) countHint.textContent = `${authorizedEmails.length} 个`;
+            if (mobileCountHint) {
+                mobileCountHint.textContent = authorizedEmails.length;
+                mobileCountHint.style.display = 'inline-flex';
             }
-            
-            // collectPendingEmails removed, now manual-only
+        } else {
+            if (countHint) countHint.textContent = '未启用';
+            if (mobileCountHint) mobileCountHint.style.display = 'none';
         }
+        
+        return true;
     } catch (err) {
-        console.log('邮箱数据加载失败（可能未启用此功能）:', err.message);
-        // 静默失败，功能未启用时不显示错误
+        if (isEmailSessionCurrent(sessionVersion, generation)) {
+            emailDataLoaded = false;
+            setEmailIssue('mailboxes', '邮箱列表加载失败，将自动重试');
+        }
+        return false;
     }
 }
 
 async function loadVerificationCodes() {
+    const sessionVersion = authSessionVersion;
+    const generation = emailPollingGeneration;
+    if (!token || !user) return false;
     try {
-        const res = await apiRequest('/emails/codes');
-        if (res.ok) {
-            const data = await res.json();
-            verificationCodes = data.codes || [];
-            renderCodesList();
-            updateNotifyBadge();
-        }
+        const data = await fetchEmailJson('/emails/codes');
+        if (!isEmailSessionCurrent(sessionVersion, generation)) return false;
+        verificationCodes = data.codes || [];
+        emailCodesLoaded = true;
+        setEmailIssue('codes', '');
+        renderCodesList();
+        updateNotifyBadge();
+        return true;
     } catch (err) {
-        console.log('验证码加载失败（可能未启用此功能）:', err.message);
-        // 静默失败
+        if (isEmailSessionCurrent(sessionVersion, generation)) {
+            emailCodesLoaded = false;
+            setEmailIssue('codes', '验证码记录加载失败，将自动重试');
+        }
+        return false;
     }
 }
 
@@ -5615,9 +5814,8 @@ function renderCodesList() {
 // === 初始化 ===
 // 在用户登录后调用
 async function initEmailFeature() {
-    await loadEmailData();      // 等待邮箱数据加载完成
-    await loadVerificationCodes(); // 必须 await，防止跟首次 poll 竞态
-    startEmailPolling();
+    if (!token || !user || emailPollingActive) return;
+    return startEmailPolling();
 }
 
 // 页面卸载时停止轮询
@@ -5626,6 +5824,9 @@ window.addEventListener('beforeunload', stopEmailPolling);
 // ============================================
 // 邮箱配置帮助教程
 // ============================================
+
+const CF_WORKER_SOURCE = "// Bind MAIL_DB to D1 and set ADMIN_PASSWORD as a Worker secret.\n// Existing KV data is intentionally neither read nor deleted during migration.\nconst RETENTION_MS = 48 * 60 * 60 * 1000;\nconst MAX_RAW_BYTES = 1_500_000;\n// Bound raw-message materialization below the Worker's memory budget.\nconst MAX_PAGE_SIZE = 10;\nconst MAX_OFFSET = 100_000;\nconst encoder = new TextEncoder();\n\nconst RESPONSE_HEADERS = {\n  \"Access-Control-Allow-Origin\": \"*\",\n  \"Access-Control-Allow-Methods\": \"GET, POST, OPTIONS\",\n  \"Access-Control-Allow-Headers\": \"Content-Type, Authorization, x-admin-auth\",\n  \"Cache-Control\": \"no-store\",\n  \"Content-Type\": \"application/json; charset=utf-8\",\n};\n\nfunction json(body, status = 200, extraHeaders = {}) {\n  return new Response(JSON.stringify(body), {\n    status,\n    headers: { ...RESPONSE_HEADERS, ...extraHeaders },\n  });\n}\n\nfunction primaryDatabase(env) {\n  if (!env.MAIL_DB?.prepare) throw new Error(\"Mail database is not configured\");\n  // Without Sessions, D1 uses the primary. If Sessions are enabled, never start\n  // an authorization or mailbox read from an unconstrained stale replica.\n  return typeof env.MAIL_DB.withSession === \"function\"\n    ? env.MAIL_DB.withSession(\"first-primary\")\n    : env.MAIL_DB;\n}\n\nfunction normalizeAddress(value) {\n  if (typeof value !== \"string\") return null;\n  const address = value.trim().toLowerCase();\n  const parts = address.split(\"@\");\n  if (parts.length !== 2 || address.length > 254) return null;\n  const [local, domain] = parts;\n  if (!local || local.length > 64 || !/^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+$/.test(local)) return null;\n  if (local.startsWith(\".\") || local.endsWith(\".\") || local.includes(\"..\")) return null;\n  if (!domain || domain.length > 253 || !domain.includes(\".\")) return null;\n  if (!domain.split(\".\").every((label) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label))) return null;\n  return address;\n}\n\nasync function sha256(value) {\n  const bytes = new Uint8Array(await crypto.subtle.digest(\"SHA-256\", encoder.encode(value)));\n  return [...bytes].map((byte) => byte.toString(16).padStart(2, \"0\")).join(\"\");\n}\n\nasync function sameSecret(actual, expected) {\n  if (typeof expected !== \"string\" || expected.length === 0) return false;\n  if (typeof actual !== \"string\" || actual.length > 4096) return false;\n  const [left, right] = await Promise.all([sha256(actual), sha256(expected)]);\n  let difference = 0;\n  for (let i = 0; i < left.length; i += 1) difference |= left.charCodeAt(i) ^ right.charCodeAt(i);\n  return difference === 0;\n}\n\nfunction newToken() {\n  const bytes = crypto.getRandomValues(new Uint8Array(32));\n  return btoa(String.fromCharCode(...bytes)).replace(/\\+/g, \"-\").replace(/\\//g, \"_\").replace(/=+$/, \"\");\n}\n\nfunction integerParameter(params, name, fallback, minimum, maximum) {\n  const value = params.get(name);\n  if (value === null) return fallback;\n  if (!/^\\d+$/.test(value)) return null;\n  const number = Number(value);\n  return Number.isSafeInteger(number) && number >= minimum && number <= maximum ? number : null;\n}\n\nfunction decodedHeader(value) {\n  // Decode RFC 2047 encoded words only for the exact marketing-subject filter.\n  // The original MIME message is preserved byte-for-byte as decoded text.\n  return String(value || \"\")\n    .replace(/(\\?=)\\s+(?==\\?)/g, \"$1\")\n    .replace(/=\\?([^?]+)\\?([bq])\\?([^?]*)\\?=/gi, (original, charset, mode, encoded) => {\n      try {\n        const binary = mode.toLowerCase() === \"b\"\n          ? atob(encoded)\n          : encoded.replace(/_/g, \" \").replace(/=([0-9a-f]{2})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));\n        return new TextDecoder(charset).decode(Uint8Array.from(binary, (character) => character.charCodeAt(0)));\n      } catch {\n        return original;\n      }\n    });\n}\n\nfunction clearlyMarketing(message) {\n  const fromHeader = decodedHeader(message.headers.get(\"from\"));\n  const from = normalizeAddress(fromHeader.match(/<([^<>]+)>/)?.[1] || fromHeader);\n  const subject = decodedHeader(message.headers.get(\"subject\")).trim().replace(/\\s+/g, \" \").toLowerCase();\n  // Exact observed sender/subject pairs only. Verification links, codes,\n  // attachments, and unfamiliar subjects are never filtered by heuristics.\n  return (from === \"updates@email.grok.com\" && subject === \"ask grok what's happening now\")\n    || (from === \"noreply@email.openai.com\" && subject === \"看看你现在能做些什么\");\n}\n\nclass MailTooLarge extends Error {}\n\nasync function readRaw(message) {\n  if (Number(message.rawSize) > MAX_RAW_BYTES) throw new MailTooLarge();\n  const reader = message.raw.getReader();\n  const decoder = new TextDecoder();\n  const parts = [];\n  let byteLength = 0;\n  try {\n    while (true) {\n      const { value, done } = await reader.read();\n      if (done) break;\n      byteLength += value.byteLength;\n      if (byteLength > MAX_RAW_BYTES) {\n        await reader.cancel();\n        throw new MailTooLarge();\n      }\n      parts.push(decoder.decode(value, { stream: true }));\n    }\n    parts.push(decoder.decode());\n    const raw = parts.join(\"\");\n    // Invalid UTF-8 can expand into replacement characters when decoded.\n    if (encoder.encode(raw).byteLength > MAX_RAW_BYTES) throw new MailTooLarge();\n    return raw;\n  } finally {\n    reader.releaseLock();\n  }\n}\n\nfunction reject(message, reason) {\n  if (typeof message.setReject === \"function\") message.setReject(reason);\n}\n\nasync function fetchHandler(request, env) {\n  const url = new URL(request.url);\n  if (request.method === \"OPTIONS\") return new Response(null, { status: 204, headers: RESPONSE_HEADERS });\n  if ((url.pathname === \"/\" || url.pathname === \"/health\") && request.method === \"GET\") {\n    return json({ status: \"ok\", message: \"Email Worker is running\", storage: \"d1\", version: \"accbox-mail-d1-v1\" });\n  }\n\n  if (url.pathname === \"/admin/new_address\" && request.method === \"POST\") {\n    if (!await sameSecret(request.headers.get(\"x-admin-auth\"), env.ADMIN_PASSWORD)) {\n      return json({ error: \"Unauthorized\", code: \"UNAUTHORIZED\" }, 401);\n    }\n    let body;\n    try { body = await request.json(); } catch { return json({ error: \"Invalid JSON\" }, 400); }\n    const address = normalizeAddress(typeof body?.name === \"string\" && typeof body?.domain === \"string\"\n      ? `${body.name}@${body.domain}`\n      : null);\n    if (!address) return json({ error: \"Valid name and domain are required\" }, 400);\n    const token = newToken();\n    const tokenHash = await sha256(token);\n    const db = primaryDatabase(env);\n    await db.prepare(\n      `INSERT INTO mailboxes (address, token_hash, created_at) VALUES (?, ?, ?)\n       ON CONFLICT(address) DO UPDATE SET token_hash = excluded.token_hash`,\n    ).bind(address, tokenHash, Date.now()).run();\n    return json({ address, jwt: token });\n  }\n\n  if (url.pathname === \"/api/mails\" && request.method === \"GET\") {\n    const token = request.headers.get(\"Authorization\")?.match(/^Bearer ([A-Za-z0-9_-]{43})$/)?.[1];\n    if (!token) return json({ error: \"Invalid token\", code: \"INVALID_TOKEN\" }, 401);\n    const db = primaryDatabase(env);\n    const mailbox = await db.prepare(\"SELECT address FROM mailboxes WHERE token_hash = ?\")\n      .bind(await sha256(token)).first();\n    if (!mailbox) return json({ error: \"Invalid token\", code: \"INVALID_TOKEN\" }, 401);\n    if (url.searchParams.has(\"address\") && normalizeAddress(url.searchParams.get(\"address\")) !== mailbox.address) {\n      return json({ error: \"Token does not authorize this mailbox\" }, 403);\n    }\n    const limit = integerParameter(url.searchParams, \"limit\", 10, 1, MAX_PAGE_SIZE);\n    const offset = integerParameter(url.searchParams, \"offset\", 0, 0, MAX_OFFSET);\n    if (limit === null || offset === null) return json({ error: \"Invalid pagination\" }, 400);\n    const { results } = await db.prepare(\n      `SELECT id, address, source, subject, raw, received_at FROM mails\n       WHERE address = ? AND received_at > ?\n       ORDER BY received_at DESC, id DESC LIMIT ? OFFSET ?`,\n    ).bind(mailbox.address, Date.now() - RETENTION_MS, limit + 1, offset).all();\n    return json({\n      results: results.slice(0, limit).map((mail) => ({\n        id: mail.id,\n        address: mail.address,\n        to: mail.address,\n        source: mail.source,\n        subject: mail.subject,\n        raw: mail.raw,\n        received_at: new Date(mail.received_at).toISOString(),\n      })),\n      has_more: results.length > limit,\n      limit,\n      offset,\n    });\n  }\n  return json({ error: \"Not found\" }, 404);\n}\n\nexport default {\n  async fetch(request, env) {\n    try {\n      return await fetchHandler(request, env);\n    } catch {\n      // Do not expose credentials, recipient data, or database error contents.\n      console.error(\"mail_worker_fetch_failed\");\n      return json({ error: \"Mail storage is temporarily unavailable\", code: \"STORAGE_UNAVAILABLE\" }, 503,\n        { \"Retry-After\": \"30\" });\n    }\n  },\n\n  async email(message, env) {\n    const address = normalizeAddress(message.to);\n    if (!address) return reject(message, \"Invalid recipient\");\n    const db = primaryDatabase(env);\n    const mailbox = await db.prepare(\"SELECT address FROM mailboxes WHERE address = ?\").bind(address).first();\n    if (!mailbox) return reject(message, \"Mailbox is not registered\");\n    if (clearlyMarketing(message)) return;\n\n    let raw;\n    try {\n      raw = await readRaw(message);\n    } catch (error) {\n      if (error instanceof MailTooLarge) return reject(message, \"Message exceeds the 1500000-byte mailbox limit\");\n      // Let delivery report failure instead of storing an error as an email.\n      throw error;\n    }\n    const now = Date.now();\n    await db.batch([\n      db.prepare(\"DELETE FROM mails WHERE received_at <= ?\").bind(now - RETENTION_MS),\n      db.prepare(\n        \"INSERT INTO mails (id, address, source, subject, raw, received_at) VALUES (?, ?, ?, ?, ?, ?)\",\n      ).bind(crypto.randomUUID(), address, String(message.from || \"\").slice(0, 1024),\n        String(message.headers.get(\"subject\") || \"\").slice(0, 8192), raw, now),\n    ]);\n  },\n};\n";
+const CF_MAIL_SCHEMA = "PRAGMA foreign_keys = ON;\n\nCREATE TABLE IF NOT EXISTS mailboxes (\n  address TEXT PRIMARY KEY NOT NULL,\n  token_hash TEXT NOT NULL UNIQUE,\n  created_at INTEGER NOT NULL\n);\n\nCREATE TABLE IF NOT EXISTS mails (\n  id TEXT PRIMARY KEY NOT NULL,\n  address TEXT NOT NULL REFERENCES mailboxes(address) ON DELETE CASCADE,\n  source TEXT NOT NULL,\n  subject TEXT NOT NULL,\n  raw TEXT NOT NULL,\n  received_at INTEGER NOT NULL\n);\n\nCREATE INDEX IF NOT EXISTS mails_address_received\n  ON mails(address, received_at DESC, id DESC);\nCREATE INDEX IF NOT EXISTS mails_expiration\n  ON mails(received_at);\n";
 
 const helpContents = {
     gmail: {
@@ -5889,9 +6090,9 @@ const helpContents = {
                 <div class="help-step">
                     <div class="help-step-num">3</div>
                     <div class="help-step-content">
-                        <div class="help-step-title">创建 KV 命名空间</div>
+                        <div class="help-step-title">创建邮件数据库</div>
                         <div class="help-step-desc">
-                            左侧菜单 构建 → 存储和数据库 <strong>Workers KV</strong> → Create Instance → 名称填 <code>KV</code>
+                            左侧菜单 → 存储和数据库 → <strong>D1 SQLite 数据库</strong> → 创建数据库，名称可填 <code>accbox-mail</code>。创建后在控制台执行以下建表语句：<div class="help-copy-box" style="margin-top:8px"><pre id="cfMailSchema" style="white-space:pre-wrap;font-size:12px;max-height:220px;overflow-y:auto;margin:0">${escapeHtml(CF_MAIL_SCHEMA)}</pre><button class="btn btn-copy" onclick="copyHelpText('cfMailSchema')">复制建表语句</button></div>
                         </div>
                     </div>
                 </div>
@@ -5903,82 +6104,7 @@ const helpContents = {
                         <div class="help-step-desc">
                             Email Routing → 你的域名 → Destination Workers → Create Worker → Create my own → 部署后点击...选择「编辑代码」→ 全选删除 → 粘贴以下代码并点击 部署 ：
                             <div class="help-copy-box" style="margin-top:8px">
-                                <pre id="cfWorkerCode" style="white-space:pre-wrap;font-size:12px;max-height:300px;overflow-y:auto;margin:0">export default {
-  async fetch(request, env) {
-    const url = new URL(request.url);
-    const PASS = env.ADMIN_PASSWORD || "";
-
-    if (request.method === "OPTIONS") {
-      return new Response(null, {
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type, Authorization, x-admin-auth",
-        },
-      });
-    }
-
-    const cors = { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" };
-
-    if (url.pathname === "/" || url.pathname === "/health") {
-      return new Response(JSON.stringify({ status: "ok", message: "Email Worker is running" }), { headers: cors });
-    }
-
-    if (url.pathname === "/admin/new_address" && request.method === "POST") {
-      if ((request.headers.get("x-admin-auth") || "") !== PASS) {
-        return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: cors });
-      }
-      const body = await request.json();
-      if (!body.name || !body.domain) {
-        return new Response(JSON.stringify({ error: "Missing name or domain" }), { status: 400, headers: cors });
-      }
-      const address = body.name + "@" + body.domain;
-      const token = btoa(JSON.stringify({ address, created: Date.now(), secret: PASS }));
-      await env.KV.put("addr:" + address, JSON.stringify({ address, created: Date.now(), mails: [] }), { expirationTtl: 3600 });
-      return new Response(JSON.stringify({ address, jwt: token }), { headers: cors });
-    }
-
-    if (url.pathname === "/api/mails" && request.method === "GET") {
-      let address = "";
-      try {
-        const token = (request.headers.get("Authorization") || "").replace("Bearer ", "");
-        const decoded = JSON.parse(atob(token));
-        if (decoded.secret !== PASS) throw new Error();
-        address = decoded.address;
-      } catch { return new Response(JSON.stringify({ error: "Invalid token" }), { status: 401, headers: cors }); }
-      const data = await env.KV.get("addr:" + address, "json");
-      return new Response(JSON.stringify({ results: data ? data.mails || [] : [] }), { headers: cors });
-    }
-
-    return new Response(JSON.stringify({ error: "Not found" }), { status: 404, headers: cors });
-  },
-
-  async email(message, env) {
-    const to = message.to;
-    let rawBody = "";
-    try {
-      const reader = message.raw.getReader();
-      const decoder = new TextDecoder();
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        rawBody += decoder.decode(value, { stream: true });
-      }
-    } catch (e) { rawBody = "Error: " + e.message; }
-
-    const key = "addr:" + to;
-    let data = await env.KV.get(key, "json");
-    if (!data) data = { address: to, created: Date.now(), mails: [] };
-    data.mails.push({
-      id: "mail_" + Date.now(),
-      source: message.from,
-      subject: message.headers.get("subject") || "",
-      raw: rawBody,
-      received_at: new Date().toISOString(),
-    });
-    await env.KV.put(key, JSON.stringify(data), { expirationTtl: 3600 });
-  },
-};</pre>
+                                <pre id="cfWorkerCode" style="white-space:pre-wrap;font-size:12px;max-height:300px;overflow-y:auto;margin:0">${escapeHtml(CF_WORKER_SOURCE)}</pre>
                                 <button class="btn btn-copy" onclick="copyHelpText('cfWorkerCode')">复制代码</button>
                             </div>
                         </div>
@@ -5990,9 +6116,9 @@ const helpContents = {
                     <div class="help-step-content">
                         <div class="help-step-title">Worker 设置</div>
                         <div class="help-step-desc">
-                            <strong>绑定 KV：</strong>Workers 和 Pages → 点击你的woker 绑定 → KV命名空间 → 添加绑定 → 变量名称 填 <code>KV</code>（全大写）KV命名空间选你创建好的KV<br><br>
+                            <strong>绑定数据库：</strong>Workers 和 Pages → 你的 Worker → 绑定 → 添加 D1 数据库绑定，变量名称填 <code>MAIL_DB</code>，选择刚创建的数据库<br><br>
                             <strong>启用域：</strong>Workers 和 Pages → 点击你的woker → 设置 → 域和路由 → workers.dev 点选...启用<br><br>
-                            <strong>设置密码：</strong>Workers 和 Pages → 点击你的woker 设置 → 变量和机密 → 添加 → 类型 文本 变量名称 <code>ADMIN_PASSWORD</code> → 值填你的管理密码
+                            <strong>设置密码：</strong>Workers 和 Pages → 点击你的woker 设置 → 变量和机密 → 添加 → 类型 <strong>机密</strong>，变量名称 <code>ADMIN_PASSWORD</code> → 值填你的管理密码
                             
                         </div>
                     </div>
@@ -6026,7 +6152,7 @@ const helpContents = {
                 <div class="help-tip">
                     <div class="help-tip-title">💡 提示</div>
                     <div class="help-tip-content">
-                        Worker 是通用的，一个 Worker 可以服务多个域名。换域名时只需在 Cloudflare 配置新域名的 Email Routing 和 Catch-All，Worker 代码不用改。
+                        只有在 AccBox 中添加过的邮箱才会收信；未登记的随机地址会被拒收。邮件保留 48 小时，超过 1.5 MB 的邮件不接收。重复添加同一邮箱会更换收信令牌，但不会清空邮件。旧版升级请同步更换管理密码和邮箱授权，旧令牌不再可用。
                     </div>
                 </div>
             </div>

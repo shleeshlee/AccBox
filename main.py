@@ -3223,6 +3223,69 @@ def extract_verification_code(text: str) -> tuple:
     
     return None, None
 
+class MailFetchError(Exception):
+    """可安全展示给用户的收信错误，不包含上游响应和凭据。"""
+
+
+class MailFetchResult(list):
+    """保留已读邮件，同时明确告知本次读取是否达到限制。"""
+    def __init__(self, mails, warning):
+        super().__init__(mails)
+        self.warning = warning
+
+
+def _mail_error_message(error: Exception) -> str:
+    import urllib.error
+
+    if isinstance(error, MailFetchError):
+        return str(error)
+    if isinstance(error, urllib.error.HTTPError):
+        if error.code in (401, 403):
+            return "邮箱授权已失效，请重新授权该邮箱"
+        if error.code == 429:
+            return "邮件服务请求过多，请稍后重试"
+        return "邮件服务暂时不可用，请稍后重试"
+    if isinstance(error, (urllib.error.URLError, OSError)):
+        return "连接邮件服务失败，请稍后重试"
+    return "获取邮件失败，请稍后重试"
+
+
+def _request_mail_json(request) -> dict:
+    """只对短暂网络故障和 429/5xx 重试，最多三次。"""
+    import urllib.request
+    import urllib.error
+    import http.client
+    import time
+
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(request, timeout=10) as response:
+                return json.loads(response.read().decode())
+        except urllib.error.HTTPError as error:
+            error.close()
+            if (error.code != 429 and not 500 <= error.code <= 599) or attempt == 2:
+                raise
+        except (urllib.error.URLError, OSError, http.client.HTTPException):
+            if attempt == 2:
+                raise MailFetchError("连接邮件服务失败，请稍后重试") from None
+        except (ValueError, UnicodeError):
+            raise MailFetchError("邮件服务返回了无法识别的数据") from None
+        time.sleep(0.25 * (attempt + 1))
+
+
+def _mail_received_at(value):
+    """将提供商的接收时间转换为 UTC；旧邮件缺少时间时使用历史记录兜底。"""
+    if not value:
+        return None
+    try:
+        received = datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+        if received.tzinfo is None:
+            received = received.replace(tzinfo=timezone.utc)
+        return received.astimezone(timezone.utc)
+    except (ValueError, TypeError):
+        return None
+
+
 def refresh_gmail_token(refresh_token: str, email_id: int, user_id: int) -> str:
     """使用 refresh_token 刷新 Gmail access_token"""
     import urllib.request
@@ -3246,8 +3309,7 @@ def refresh_gmail_token(refresh_token: str, email_id: int, user_id: int) -> str:
         req = urllib.request.Request(token_url, data=token_data, method='POST')
         req.add_header('Content-Type', 'application/x-www-form-urlencoded')
         
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            token_resp = json.loads(resp.read().decode())
+        token_resp = _request_mail_json(req)
         
         new_access_token = token_resp.get('access_token')
         if not new_access_token:
@@ -3276,7 +3338,7 @@ def refresh_gmail_token(refresh_token: str, email_id: int, user_id: int) -> str:
         
         return new_access_token
     except Exception as e:
-        print(f"刷新 Gmail token 失败: {e}")
+        print(f"刷新 Gmail token 失败: {_mail_error_message(e)}")
         return None
 
 def refresh_outlook_token(refresh_token: str, email_id: int, user_id: int) -> str:
@@ -3303,8 +3365,7 @@ def refresh_outlook_token(refresh_token: str, email_id: int, user_id: int) -> st
         req = urllib.request.Request(token_url, data=token_data, method='POST')
         req.add_header('Content-Type', 'application/x-www-form-urlencoded')
         
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            token_resp = json.loads(resp.read().decode())
+        token_resp = _request_mail_json(req)
         
         new_access_token = token_resp.get('access_token')
         if not new_access_token:
@@ -3330,7 +3391,7 @@ def refresh_outlook_token(refresh_token: str, email_id: int, user_id: int) -> st
         
         return new_access_token
     except Exception as e:
-        print(f"刷新 Outlook token 失败: {e}")
+        print(f"刷新 Outlook token 失败: {_mail_error_message(e)}")
         return None
 
 def fetch_imap_emails(email_address: str, creds: dict) -> list:
@@ -3346,19 +3407,21 @@ def fetch_imap_emails(email_address: str, creds: dict) -> list:
     password = creds.get('password')
     
     if not server or not password:
-        return []
+        raise MailFetchError("邮箱配置不完整，请重新授权该邮箱")
     
     emails_content = []
     
     # 固定查询5分钟前
     since_datetime = datetime.now(timezone.utc) - timedelta(minutes=5)
     
+    imap = None
     try:
         # 设置超时，避免卡死
-        imaplib.IMAP4.timeout = 10
-        imap = imaplib.IMAP4_SSL(server, port)
+        imap = imaplib.IMAP4_SSL(server, port, timeout=10)
         imap.login(email_address, password)
-        imap.select('INBOX', readonly=True)
+        status, _ = imap.select('INBOX', readonly=True)
+        if status != 'OK':
+            raise MailFetchError("无法打开收件箱，请检查邮箱授权")
         
         # IMAP只支持按日期搜索
         months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
@@ -3366,8 +3429,7 @@ def fetch_imap_emails(email_address: str, creds: dict) -> list:
         status, messages = imap.search(None, f'SINCE {since_date}')
         
         if status != 'OK':
-            imap.logout()
-            return []
+            raise MailFetchError("无法读取收件箱，请稍后重试")
         
         msg_nums = messages[0].split()
         # 只取最近5封
@@ -3378,7 +3440,7 @@ def fetch_imap_emails(email_address: str, creds: dict) -> list:
                 # 只获取邮件头和文本部分
                 status, msg_data = imap.fetch(num, '(BODY.PEEK[HEADER] BODY.PEEK[TEXT])')
                 if status != 'OK':
-                    continue
+                    raise MailFetchError("部分邮件读取失败，请稍后重试")
                 
                 # 解析邮件
                 raw_header = msg_data[0][1] if msg_data[0] else b''
@@ -3389,9 +3451,14 @@ def fetch_imap_emails(email_address: str, creds: dict) -> list:
                 
                 # 检查邮件时间，只要最近5分钟的邮件
                 date_str = msg.get('Date', '')
+                received_at = None
                 if date_str:
                     try:
                         mail_datetime = parsedate_to_datetime(date_str)
+                        if mail_datetime.tzinfo is None:
+                            mail_datetime = mail_datetime.replace(tzinfo=timezone.utc)
+                        mail_datetime = mail_datetime.astimezone(timezone.utc)
+                        received_at = mail_datetime.isoformat()
                         if mail_datetime < since_datetime:
                             continue  # 跳过5分钟前的邮件
                     except:
@@ -3425,14 +3492,22 @@ def fetch_imap_emails(email_address: str, creds: dict) -> list:
                 if body:
                     emails_content.append({
                         'from': from_header,
-                        'body': body
+                        'body': body,
+                        'msg_id': msg.get('Message-ID', '').strip(),
+                        'received_at': received_at
                     })
-            except Exception as e:
-                continue
-        
-        imap.logout()
-    except Exception as e:
-        print(f"IMAP 获取邮件失败 ({server}): {e}")
+            except Exception:
+                raise MailFetchError("部分邮件读取失败，请稍后重试") from None
+    except MailFetchError:
+        raise
+    except Exception:
+        raise MailFetchError("连接邮箱失败，请检查邮箱授权或稍后重试") from None
+    finally:
+        if imap is not None:
+            try:
+                imap.logout()
+            except Exception:
+                pass
     
     return emails_content
 
@@ -3452,7 +3527,7 @@ def fetch_outlook_emails(access_token: str) -> list:
     params = [
         "$top=10",
         "$orderby=receivedDateTime desc",
-        "$select=from,body,subject",
+        "$select=id,from,body,subject,receivedDateTime",
         f"$filter=receivedDateTime ge {since_iso}"
     ]
 
@@ -3461,14 +3536,9 @@ def fetch_outlook_emails(access_token: str) -> list:
     req = urllib.request.Request(url)
     req.add_header('Authorization', f'Bearer {access_token}')
 
-    try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode())
-    except urllib.error.HTTPError:
-        raise  # 401/403 等状态码交给调用方处理
-    except Exception as e:
-        print(f"Outlook 获取邮件失败: {e}")
-        return emails_content
+    data = _request_mail_json(req)
+    if not isinstance(data, dict) or not isinstance(data.get('value'), list):
+        raise MailFetchError("邮件服务返回了无法识别的数据")
 
     for msg in data.get('value', []):
         from_addr = msg.get('from', {}).get('emailAddress', {}).get('address', '')
@@ -3479,7 +3549,9 @@ def fetch_outlook_emails(access_token: str) -> list:
 
         emails_content.append({
             'from': from_addr,
-            'body': body
+            'body': body,
+            'msg_id': str(msg.get('id', '')),
+            'received_at': msg.get('receivedDateTime')
         })
 
     return emails_content
@@ -3527,15 +3599,51 @@ def fetch_cloudflare_emails(worker_domain: str, cf_token: str) -> list:
 
     try:
         validate_worker_domain(worker_domain)
-        url = f"https://{worker_domain}/api/mails?limit=10&offset=0"
-        req = urllib.request.Request(url)
-        req.add_header('Authorization', f'Bearer {cf_token}')
-        req.add_header('User-Agent', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36')
-
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode())
-
-        mails = data if isinstance(data, list) else data.get('results', data.get('mails', []))
+        mails = []
+        truncated = False
+        warning = None
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=3)
+        previous_received = None
+        ordered = True
+        for page in range(10):
+            url = f"https://{worker_domain}/api/mails?limit=10&offset={page * 10}"
+            req = urllib.request.Request(url)
+            req.add_header('Authorization', f'Bearer {cf_token}')
+            req.add_header('User-Agent', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36')
+            try:
+                data = _request_mail_json(req)
+            except Exception as error:
+                if not mails:
+                    raise
+                warning = _mail_error_message(error)
+                break
+            if isinstance(data, list):
+                page_mails = data
+            elif isinstance(data, dict):
+                page_mails = data.get('results', data.get('mails'))
+            else:
+                page_mails = None
+            if not isinstance(page_mails, list):
+                if mails:
+                    warning = "邮件服务返回了无法识别的数据，部分邮件未检查"
+                    break
+                raise MailFetchError("邮件服务返回了无法识别的数据")
+            mails.extend(page_mails)
+            # 旧 Worker 不支持分页且忽略 limit，因此没有 has_more 时只读取一次。
+            has_more = isinstance(data, dict) and data.get('has_more') is True
+            if not has_more:
+                break
+            if not page_mails:
+                raise MailFetchError("邮件服务分页异常，请稍后重试")
+            for mail in page_mails:
+                received = _mail_received_at(mail.get('received_at'))
+                if received is None or (previous_received is not None and received > previous_received):
+                    ordered = False
+                previous_received = received
+            if ordered and previous_received is not None and previous_received <= cutoff:
+                break
+            if page == 9:
+                truncated = True
 
         for mail in mails:
             raw = mail.get("raw", mail.get("text", mail.get("body", mail.get("html", ""))))
@@ -3543,7 +3651,9 @@ def fetch_cloudflare_emails(worker_domain: str, cf_token: str) -> list:
 
             # 从 MIME 原始内容解析真实 From/To 头（source 是 SMTP bounce 地址，不可读）
             from_addr = mail.get("source", mail.get("from", mail.get("sender", "")))
-            to_addr = mail.get("to", "")
+            # 新接口提供 SMTP 实际收件人；转发和密送的 MIME To 可能指向别人。
+            envelope_to = mail.get("to") or mail.get("address")
+            to_addr = envelope_to or ""
             try:
                 import email as _email
                 import email.policy
@@ -3553,7 +3663,7 @@ def fetch_cloudflare_emails(worker_domain: str, cf_token: str) -> list:
                     from_addr = mime_from
                 # 优先 Delivered-To（实际投递地址），其次 To
                 mime_to = _msg.get("Delivered-To", "") or _msg.get("To", "")
-                if mime_to:
+                if mime_to and not envelope_to:
                     to_addr = mime_to
             except Exception:
                 pass
@@ -3567,10 +3677,15 @@ def fetch_cloudflare_emails(worker_domain: str, cf_token: str) -> list:
                 'from': from_addr,
                 'to': to_addr,
                 'body': full_body,
-                'msg_id': str(msg_id)
+                'msg_id': str(msg_id),
+                'received_at': mail.get('received_at')
             })
+        if truncated:
+            return MailFetchResult(emails_content, "邮件过多，本次只检查最近100封，部分邮件未检查")
+        if warning:
+            return MailFetchResult(emails_content, warning)
     except Exception as e:
-        print(f"Cloudflare 获取邮件失败 ({worker_domain}): {e}")
+        raise MailFetchError(_mail_error_message(e)) from None
 
     return emails_content
 
@@ -3579,6 +3694,8 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
     """刷新邮箱，获取最新验证码（支持 Gmail、Outlook、QQ、IMAP）"""
     user_id = user['id']
     new_codes = []
+    errors = []
+    successful_mailboxes = 0
 
     # ========== 第一段：读配置，立即释放 DB 连接 ==========
     with get_db() as conn:
@@ -3593,7 +3710,9 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
             cursor = conn.execute(f"SELECT id, address, provider, credentials FROM user_{user_id}_emails WHERE status = 'active'")
             emails = [dict(row) for row in cursor.fetchall()]
         except:
-            return {"success": False, "message": "无法获取邮箱列表", "codes": []}
+            return {"success": False, "partial": False, "errors": [
+                {"email_id": None, "provider": "system", "message": "无法获取邮箱列表，请稍后重试"}
+            ], "new_codes": []}
 
     # ========== 第二段：网络请求，不持有 DB 连接 ==========
     codes_to_insert = []
@@ -3607,6 +3726,7 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
         try:
             creds = json.loads(decrypt_password(encrypted_creds))
             emails_content = []
+            mailbox_had_errors = False
 
             # ==================== Gmail ====================
             if provider == 'gmail':
@@ -3614,7 +3734,7 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                 refresh_token = creds.get('refresh_token')
 
                 if not access_token:
-                    continue
+                    raise MailFetchError("邮箱授权缺失，请重新授权该邮箱")
 
                 import urllib.request
                 import urllib.error
@@ -3631,8 +3751,7 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                     req.add_header('Authorization', f'Bearer {access_token}')
 
                     try:
-                        with urllib.request.urlopen(req, timeout=10) as resp:
-                            messages_data = json.loads(resp.read().decode())
+                        messages_data = _request_mail_json(req)
                         break
                     except urllib.error.HTTPError as e:
                         if e.code == 401 and attempt == 0 and refresh_token:
@@ -3640,11 +3759,11 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                             if new_token:
                                 access_token = new_token
                                 continue
-                        break
+                        raise
 
-                if not messages_data:
-                    print(f"[Gmail] {email_address}: messages_data 为空")
-                    continue
+                if (not isinstance(messages_data, dict) or 'error' in messages_data
+                        or not isinstance(messages_data.get('messages', []), list)):
+                    raise MailFetchError("邮件服务返回了无法识别的数据")
 
                 msg_count = len(messages_data.get('messages', []))
                 print(f"[Gmail] {email_address}: 查询 after:{five_minutes_ago}, 获取到 {msg_count} 封邮件")
@@ -3656,9 +3775,14 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                     req.add_header('Authorization', f'Bearer {access_token}')
 
                     try:
-                        with urllib.request.urlopen(req, timeout=10) as resp:
-                            msg_data = json.loads(resp.read().decode())
-                    except:
+                        msg_data = _request_mail_json(req)
+                        if not isinstance(msg_data, dict) or 'id' not in msg_data or 'error' in msg_data:
+                            raise MailFetchError("邮件服务返回了无法识别的数据")
+                    except Exception as error:
+                        if not mailbox_had_errors:
+                            errors.append({"email_id": email_id, "provider": provider,
+                                           "message": _mail_error_message(error)})
+                        mailbox_had_errors = True
                         continue
 
                     snippet = msg_data.get('snippet', '')
@@ -3679,10 +3803,14 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                             from_addr = h['value']
                             break
 
+                    received_at = None
+                    if msg_data.get('internalDate'):
+                        received_at = datetime.fromtimestamp(int(msg_data['internalDate']) / 1000, timezone.utc).isoformat()
                     emails_content.append({
                         'from': from_addr,
                         'body': snippet + ' ' + body_data,
-                        'msg_id': msg_id
+                        'msg_id': msg_id,
+                        'received_at': received_at
                     })
                     print(f"[Gmail] 添加邮件: from={from_addr[:30]}..., body长度={len(snippet + body_data)}")
 
@@ -3692,7 +3820,7 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                 refresh_token = creds.get('refresh_token')
 
                 if not access_token:
-                    continue
+                    raise MailFetchError("邮箱授权缺失，请重新授权该邮箱")
 
                 import urllib.request
                 import urllib.error
@@ -3709,11 +3837,7 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                             if new_token:
                                 access_token = new_token
                                 continue
-                        print(f"[Outlook] {email_address}: HTTP {e.code} 失败")
-                        break
-                    except Exception as e:
-                        print(f"[Outlook] {email_address}: 获取失败 {e}")
-                        break
+                        raise
 
             # ==================== QQ / IMAP ====================
             elif provider in ['qq', 'imap']:
@@ -3721,6 +3845,7 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                 now = time.time()
                 last_fetch = imap_last_fetch.get(email_address, 0)
                 if now - last_fetch < IMAP_MIN_INTERVAL:
+                    successful_mailboxes += 1
                     continue
 
                 emails_content = fetch_imap_emails(email_address, creds)
@@ -3730,8 +3855,15 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
             elif provider == 'cloudflare':
                 cf_token = creds.get('cf_token')
                 worker_domain = creds.get('worker_domain')
-                if cf_token and worker_domain:
-                    emails_content = fetch_cloudflare_emails(worker_domain, cf_token)
+                if not cf_token or not worker_domain:
+                    raise MailFetchError("邮箱配置不完整，请重新授权该邮箱")
+                emails_content = fetch_cloudflare_emails(worker_domain, cf_token)
+                if getattr(emails_content, 'warning', None):
+                    mailbox_had_errors = True
+                    errors.append({"email_id": email_id, "provider": provider,
+                                   "message": emails_content.warning})
+            else:
+                raise MailFetchError("暂不支持该邮箱类型")
 
             # ==================== 提取验证码 ====================
             print(f"[验证码] emails_content 数量: {len(emails_content)}")
@@ -3739,13 +3871,19 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                 # CF 邮件校验收件人：to 字段须包含当前授权邮箱，否则跳过
                 to_field = email_data.get('to', '')
                 if 'to' in email_data:
-                    if not to_field or email_address.lower() not in to_field.lower():
+                    from email.utils import getaddresses
+                    recipients = {address.lower() for _, address in getaddresses([to_field])}
+                    if email_address.lower() not in recipients:
                         print(f"[验证码] 跳过非本邮箱邮件: to={to_field}, 授权={email_address}")
                         continue
 
                 full_text = email_data.get('body', '')
                 from_addr = email_data.get('from', '')
                 source_msg_id = email_data.get('msg_id', '')
+                if not source_msg_id:
+                    fingerprint = json.dumps({"from": from_addr, "to": to_field, "body": full_text},
+                                             ensure_ascii=False, sort_keys=True)
+                    source_msg_id = 'content:' + hashlib.sha256(fingerprint.encode('utf-8')).hexdigest()
 
                 code, service = extract_verification_code(full_text)
 
@@ -3753,7 +3891,32 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                     if service == 'unknown':
                         service = from_addr.split('<')[0].strip() or from_addr
 
-                    expires_at = (datetime.now(timezone.utc) + timedelta(minutes=3)).strftime('%Y-%m-%dT%H:%M:%SZ')
+                    now = datetime.now(timezone.utc)
+                    received_at = _mail_received_at(email_data.get('received_at'))
+                    expiry = (min(received_at, now) if received_at else now) + timedelta(minutes=3)
+                    expires_at = expiry.strftime('%Y-%m-%dT%H:%M:%SZ')
+
+                    # 无接收时间的旧接口复用历史有效期，不让同一封邮件每轮重新计时。
+                    if not received_at:
+                        with get_db() as conn:
+                            if source_msg_id:
+                                previous = conn.execute(f"""
+                                    SELECT expires_at FROM user_{user_id}_verification_codes
+                                    WHERE email = ? AND source_msg_id = ? ORDER BY id DESC LIMIT 1
+                                """, (email_address, source_msg_id)).fetchone()
+                            else:
+                                previous = conn.execute(f"""
+                                    SELECT expires_at FROM user_{user_id}_verification_codes
+                                    WHERE email = ? AND code = ? AND created_at > datetime('now', '-5 minutes')
+                                    ORDER BY id DESC LIMIT 1
+                                """, (email_address, code)).fetchone()
+                        if previous:
+                            old_expiry = _mail_received_at(previous['expires_at'])
+                            if old_expiry:
+                                expiry = old_expiry
+                                expires_at = expiry.strftime('%Y-%m-%dT%H:%M:%SZ')
+                    if expiry <= now:
+                        continue
 
                     new_codes.append({
                         "email": email_address,
@@ -3763,16 +3926,21 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                         "source_msg_id": source_msg_id
                     })
 
-                    codes_to_insert.append((email_address, service[:50], code, source_msg_id))
+                    codes_to_insert.append((email_address, service[:50], code, source_msg_id, expires_at))
+
+            if not mailbox_had_errors or emails_content:
+                successful_mailboxes += 1
 
         except Exception as e:
-            print(f"处理邮箱 {email_address} 失败: {e}")
+            message = _mail_error_message(e)
+            errors.append({"email_id": email_id, "provider": provider, "message": message})
+            print(f"处理邮箱失败 (id={email_id}, provider={provider}): {message}")
             continue
 
     # ========== 第三段：批量写入 DB，锁持有时间最短 ==========
     if codes_to_insert:
         with get_db() as conn:
-            for email_addr, service, code, source_msg_id in codes_to_insert:
+            for email_addr, service, code, source_msg_id, expires_at in codes_to_insert:
                 try:
                     already_exists = False
                     if source_msg_id:
@@ -3792,13 +3960,14 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
                         conn.execute(f"""
                             INSERT INTO user_{user_id}_verification_codes
                             (email, service, code, account_name, is_read, expires_at, created_at, source_msg_id)
-                            VALUES (?, ?, ?, ?, 0, datetime('now', '+3 minutes'), datetime('now'), ?)
-                        """, (email_addr, service, code, '', source_msg_id))
+                            VALUES (?, ?, ?, ?, 0, ?, datetime('now'), ?)
+                        """, (email_addr, service, code, '', expires_at, source_msg_id))
                 except Exception:
                     pass
             conn.commit()
 
-    return {"success": True, "new_codes": new_codes}
+    return {"success": not errors, "partial": bool(errors and successful_mailboxes),
+            "errors": errors, "new_codes": new_codes}
 
 @app.post("/api/emails/codes/{code_id}/read")
 def mark_code_read(code_id: int, user: dict = Depends(get_current_user)):
