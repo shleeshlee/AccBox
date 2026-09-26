@@ -73,7 +73,7 @@ button{font:inherit;cursor:pointer}
 .mailcodes .item .ago{color:var(--muted);font-size:12px}
 .mailcodes .empty{color:var(--muted);font-size:12.5px;padding:4px 0}
 .foot-note{margin-top:22px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;color:var(--muted);font-size:12px}
-.foot-note button{color:var(--accent-light);background:transparent;border:1px solid var(--border-light);padding:6px 10px;border-radius:8px}
+.foot-note .reg{color:var(--accent-light);text-decoration:none;border:1px solid var(--border-light);padding:6px 10px;border-radius:8px}
 .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%) translateY(20px);background:var(--card);border:1px solid var(--border-light);color:var(--text);padding:9px 16px;border-radius:10px;font-size:13px;opacity:0;pointer-events:none;transition:.25s;box-shadow:0 8px 30px rgba(0,0,0,.5);max-width:90vw;z-index:50}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 .toast.err{border-color:var(--red)}
@@ -135,26 +135,11 @@ button{font:inherit;cursor:pointer}
         </div>
         <div class="foot-note">
             <span id="footText">这个页面只对分享的账号有效，分享者随时可以关掉</span>
-            <button id="claimBtn">用顺手了？搬到自己的账号 →</button>
+            <a class="reg" href="/" target="_blank" rel="noopener">注册自己的 AccBox 账号，享受完整版账号管理 →</a>
         </div>
     </section>
 </div>
 
-<div class="overlay" id="claimOverlay" hidden>
-    <form class="sheet" id="claimForm">
-        <h3>把这几张卡搬到自己的账号</h3>
-        <p>复制到你自己的 AccBox 账号里（含密码和二步验证），原来的分享链接会自动关闭。分享者那边的卡不受影响。</p>
-        <div class="tabs" role="tablist">
-            <button type="button" role="tab" aria-selected="true" data-mode="register">注册新账号</button>
-            <button type="button" role="tab" aria-selected="false" data-mode="login">登录已有账号</button>
-        </div>
-        <label class="field">用户名<input id="cUser" autocomplete="username" required minlength="2"></label>
-        <label class="field">密码<input id="cPass" type="password" autocomplete="new-password" required minlength="8"></label>
-        <p id="claimHint">密码至少 8 位，含字母和数字。</p>
-        <div class="err" id="claimErr" style="color:var(--red);font-size:13px;min-height:1.2em"></div>
-        <div class="row"><button type="button" class="chip" id="claimCancel">取消</button><button type="submit" class="btn" id="claimGo" style="padding:9px 16px;font-size:14px">搬过去</button></div>
-    </form>
-</div>
 <div class="toast" id="toast"></div>
 <script src="/share.js?v=20260926"></script>
 </body>

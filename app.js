@@ -6466,7 +6466,7 @@ async function loadShares() {
         if (!shares.length) { body.innerHTML = '<div class="empty-state"><div class="empty-icon">🔗</div><div class="empty-title">还没有分享过</div><div class="empty-text">先在列表里点"勾选"，选几张卡，再点"分享"。</div></div>'; return; }
         body.innerHTML = '<div class="share-list">' + shares.map(s => {
             const dead = s.status !== 'active';
-            const statusText = s.status === 'claimed' ? '对方已搬到自己的账号' : s.status === 'revoked' ? '已作废 · ' + _shareTime(s.revoked_at) : `最后打开：${_shareTime(s.last_opened_at)} · 打开 ${s.open_count} 次 · 改过 ${s.edit_count} 次`;
+            const statusText = s.status === 'revoked' ? '已作废 · ' + _shareTime(s.revoked_at) : `最后打开：${_shareTime(s.last_opened_at)} · 打开 ${s.open_count} 次 · 改过 ${s.edit_count} 次`;
             return `<div class="share-item ${dead ? 'dead' : ''}" data-id="${s.id}">
                 <b>${escapeHtml(s.name || '未命名')} · ${s.account_ids.length} 张卡</b>
                 <span class="share-meta">${escapeHtml(statusText)}</span>
@@ -6499,11 +6499,10 @@ async function toggleShareLogs(id) {
     const box = document.createElement('div'); box.className = 'share-logs'; box.textContent = '加载中…'; item.appendChild(box);
     try {
         const res = await apiRequest(`/shares/${id}/logs`); const logs = (await res.json()).logs || [];
-        const acts = { created: '创建链接', unlocked: '打开（口令正确）', pin_failed: '口令输错', pin_locked: '口令错太多次，锁 15 分钟', edit: '修改', revoked: '作废', restored: '恢复', pin_reset: '换口令', claimed: '搬到自己的账号' };
+        const acts = { created: '创建链接', unlocked: '打开（口令正确）', pin_failed: '口令输错', pin_locked: '口令错太多次，锁 15 分钟', edit: '修改', revoked: '作废', restored: '恢复', pin_reset: '换口令' };
         box.innerHTML = logs.length ? logs.map(l => {
             const d = l.detail || {}; let extra = '';
             if (l.action === 'edit') { const acc = accounts.find(a => a.id === l.account_id); extra = `${escapeHtml(acc ? (acc.customName || acc.email) : '#' + l.account_id)} 的${d.field === 'password' ? '密码' : '备注'}` + (d.old !== undefined ? `，旧值 <code>${escapeHtml(d.old || '（空）')}</code>` : ''); }
-            if (l.action === 'claimed') extra = `复制 ${d.copied} 张到 ${escapeHtml(d.username || '')}`;
             return `<div>${escapeHtml(_shareTime(l.created_at))} · ${acts[l.action] || escapeHtml(l.action)}${extra ? ' · ' + extra : ''}${l.ip ? ` <span style="color:var(--text-muted)">${escapeHtml(l.ip)}</span>` : ''}</div>`;
         }).join('') : '还没有记录';
     } catch (e) { box.textContent = '加载失败'; }

@@ -4010,8 +4010,6 @@ share_api.setup(
     encrypt=encrypt_password, decrypt=decrypt_password,
     generate_totp=generate_totp, generate_steam_code=generate_steam_code,
     hash_password=hash_password, verify_password=verify_password,
-    validate_password_strength=validate_password_strength, init_user_tables=init_user_tables,
-    create_access_token=create_access_token, set_auth_cookies=set_auth_cookies,
     jwt_secret=get_jwt_secret, jwt_algorithm=JWT_ALGORITHM,
     refresh_mailboxes=_refresh_mailboxes, static_dir=STATIC_DIR,
 )

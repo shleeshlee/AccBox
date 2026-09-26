@@ -197,31 +197,6 @@
       return;
     }
     if (b.id === 'lock') { forgetToken(); showGate('needpin'); return; }
-    if (b.id === 'claimBtn') { $('claimOverlay').hidden = false; $('claimErr').textContent = ''; setTimeout(() => $('cUser').focus(), 50); return; }
-    if (b.id === 'claimCancel') { $('claimOverlay').hidden = true; return; }
-    if (b.dataset.mode) {
-      document.querySelectorAll('#claimForm [role=tab]').forEach(t => t.setAttribute('aria-selected', t === b));
-      const login = b.dataset.mode === 'login';
-      $('cPass').autocomplete = login ? 'current-password' : 'new-password';
-      $('claimHint').textContent = login ? '登录你已有的 AccBox 账号，卡片会加进去。' : '密码至少 8 位，含字母和数字。';
-      $('claimGo').textContent = login ? '登录并搬过去' : '搬过去';
-    }
-  });
-
-  // ---------- 转正 ----------
-  $('claimForm').addEventListener('submit', async e => {
-    e.preventDefault();
-    const mode = document.querySelector('#claimForm [role=tab][aria-selected="true"]').dataset.mode;
-    $('claimGo').disabled = true; $('claimErr').textContent = '';
-    try {
-      const data = await api('/claim', { method: 'POST', body: JSON.stringify({ mode, username: $('cUser').value.trim(), password: $('cPass').value }) });
-      try { localStorage.setItem('token', data.token); localStorage.setItem('user', JSON.stringify(data.user)); } catch (e2) {}
-      forgetToken();
-      $('claimOverlay').hidden = true;
-      say(data.message || '搬好了');
-      setTimeout(() => { location.href = '/'; }, 900);
-    } catch (e2) { $('claimErr').textContent = e2.message; }
-    finally { $('claimGo').disabled = false; }
   });
 
   // ---------- 启动 ----------
@@ -231,7 +206,7 @@
       const res = await fetch(API + '/info');
       if (res.status === 404) return showGate('missing');
       info = await res.json();
-      if (info.status !== 'active') return showGate('closed', info.status === 'claimed' ? '这些卡已经搬到你自己的账号里了，去主页登录就行' : '这个链接已经被分享者关闭了');
+      if (info.status !== 'active') return showGate('closed', '这个链接已经被分享者关闭了');
       if (info.locked) return showGate('locked');
     } catch (e) { $('gateDesc').textContent = '网络不通，稍后再试'; return; }
     if (guestToken) {

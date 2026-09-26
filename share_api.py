@@ -9,6 +9,7 @@
 - 访客所有查询都以分享记录里写死的 account_ids / 对应邮箱地址过滤，没有"列全部"的接口。
 - 访客永远拿不到：TOTP 密钥、备用码、邮箱授权凭据、组合/属性/标签、导出、删除。
 - 访客只能改：密码、备注；每一笔记旧值。
+- 没有任何把卡片复制/转移给访客的接口：分享的意思是"看和用"，不是"给"。
 """
 import json
 import secrets
@@ -40,8 +41,8 @@ REFRESH_MIN_INTERVAL = 10        # 秒，访客触发收信的最小间隔
 def setup(app, **deps):
     """main.py 调用：share_api.setup(app, get_db=..., ...)"""
     required = ["get_db", "get_current_user", "encrypt", "decrypt", "generate_totp", "generate_steam_code",
-                "hash_password", "verify_password", "validate_password_strength", "init_user_tables",
-                "create_access_token", "set_auth_cookies", "jwt_secret", "jwt_algorithm",
+                "hash_password", "verify_password",
+                "jwt_secret", "jwt_algorithm",
                 "refresh_mailboxes", "static_dir"]
     missing = [k for k in required if k not in deps]
     if missing:
@@ -275,8 +276,6 @@ def restore_share(share_id: int, request: Request, authorization: str = Header(N
     user = _owner(request, authorization, auth_token)
     with _d["get_db"]() as conn:
         row = _owned_share(conn, user["id"], share_id)
-        if row["status"] == "claimed":
-            raise HTTPException(status_code=400, detail="对方已把卡片搬走，这个链接不能恢复")
         conn.execute("UPDATE shares SET status = 'active', revoked_at = NULL, pin_attempts = 0, pin_locked_until = NULL WHERE id = ?", (share_id,))
         _log(conn, share_id, "restored", _client_ip(request))
         conn.commit()
@@ -565,88 +564,6 @@ def guest_mail_refresh(token: str, request: Request, authorization: str = Header
     # 出错信息只给"哪个邮箱"，不带任何凭据/上游细节（refresh 本身已脱敏，再兜一层）
     result["errors"] = [{"provider": e.get("provider", ""), "message": e.get("message", "")} for e in result.get("errors", [])]
     return result
-
-
-# ==================== 转正：把卡片搬到自己的账号 ====================
-
-class Claim(BaseModel):
-    mode: str = "register"        # register | login
-    username: str
-    password: str
-
-
-@router.post("/api/s/{token}/claim")
-def guest_claim(token: str, data: Claim, request: Request, authorization: str = Header(None)):
-    share = _guest(token, request, authorization)
-    ip = _client_ip(request)
-    username = (data.username or "").strip()
-    if len(username) < 2:
-        raise HTTPException(status_code=400, detail="用户名至少2个字符")
-
-    with _d["get_db"]() as conn:
-        if data.mode == "login":
-            row = conn.execute("SELECT id, username, password_hash FROM users WHERE username = ?", (username,)).fetchone()
-            if not row:
-                raise HTTPException(status_code=401, detail="用户名或密码错误")
-            ok, _ = _d["verify_password"](data.password, row["password_hash"])
-            if not ok:
-                raise HTTPException(status_code=401, detail="用户名或密码错误")
-            new_user_id = row["id"]
-        else:
-            valid, msg = _d["validate_password_strength"](data.password)
-            if not valid:
-                raise HTTPException(status_code=400, detail=msg)
-            try:
-                cur = conn.execute("INSERT INTO users (username, password_hash) VALUES (?, ?)", (username, _d["hash_password"](data.password)))
-                new_user_id = cur.lastrowid
-                conn.commit()
-            except Exception:
-                raise HTTPException(status_code=400, detail="用户名已存在，请选「登录已有账号」")
-        if new_user_id == share["owner_id"]:
-            raise HTTPException(status_code=400, detail="这是分享者自己的账号")
-
-    _d["init_user_tables"](new_user_id)
-
-    owner_id = share["owner_id"]
-    copied = 0
-    with _d["get_db"]() as conn:
-        rows = _owner_accounts(conn, owner_id, _listed_ids(share))
-        type_cache: Dict[str, int] = {}
-        for r in rows:
-            keys = r.keys()
-            type_id = None
-            tname = r["type_name"]
-            if tname:
-                if tname not in type_cache:
-                    t = conn.execute(f"SELECT id FROM user_{new_user_id}_account_types WHERE name = ?", (tname,)).fetchone()
-                    if t:
-                        type_cache[tname] = t["id"]
-                    else:
-                        cur = conn.execute(
-                            f"INSERT INTO user_{new_user_id}_account_types (name, icon, color) VALUES (?, ?, ?)",
-                            (tname, r["type_icon"] or "🔑", r["type_color"] or "#8b5cf6"))
-                        type_cache[tname] = cur.lastrowid
-                type_id = type_cache[tname]
-            g = lambda k, default="": (r[k] if k in keys and r[k] is not None else default)
-            # 密码 / TOTP 密钥是同一把主密钥加的密，密文直接照抄
-            conn.execute(f"""
-                INSERT INTO user_{new_user_id}_accounts
-                (type_id, email, password, country, custom_name, properties, combos, tags, notes, is_favorite,
-                 totp_secret, totp_issuer, totp_type, totp_algorithm, totp_digits, totp_period, backup_codes, time_offset, backup_email)
-                VALUES (?, ?, ?, ?, ?, '{{}}', '[]', '[]', ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (type_id, r["email"], g("password"), g("country", "🌍"), g("custom_name"), g("notes"),
-                  g("totp_secret"), g("totp_issuer"), g("totp_type"), g("totp_algorithm", "SHA1"),
-                  g("totp_digits", 6), g("totp_period", 30), g("backup_codes", "[]"), g("time_offset", 0), g("backup_email")))
-            copied += 1
-        conn.execute("UPDATE shares SET status = 'claimed', revoked_at = ? WHERE id = ?", (_now(), share["id"]))
-        _log(conn, share["id"], "claimed", ip, None, {"username": username, "copied": copied})
-        conn.commit()
-
-    jwt_token = _d["create_access_token"](new_user_id, username)
-    response = JSONResponse(content={"message": f"已复制 {copied} 张卡到你的账号", "copied": copied,
-                                     "token": jwt_token, "user": {"id": new_user_id, "username": username, "avatar": "👤"}})
-    _d["set_auth_cookies"](response, jwt_token)
-    return response
 
 
 # ==================== 页面 ====================
