@@ -177,6 +177,7 @@ function init() {
     initFavStyle();
     initTimeBadge(); // 初始化时间提醒开关
     if (token && user) { showApp(); loadData(); }
+    else if (location.hash === '#register') switchLoginTab('register');
     checkSecurity(); // 安全检查
     checkHttpWarning(); // HTTP不安全警告
 }
@@ -6502,7 +6503,7 @@ async function toggleShareLogs(id) {
         const acts = { created: '创建链接', unlocked: '打开（口令正确）', pin_failed: '口令输错', pin_locked: '口令错太多次，锁 15 分钟', edit: '修改', revoked: '作废', restored: '恢复', pin_reset: '换口令' };
         box.innerHTML = logs.length ? logs.map(l => {
             const d = l.detail || {}; let extra = '';
-            if (l.action === 'edit') { const acc = accounts.find(a => a.id === l.account_id); extra = `${escapeHtml(acc ? (acc.customName || acc.email) : '#' + l.account_id)} 的${d.field === 'password' ? '密码' : '备注'}` + (d.old !== undefined ? `，旧值 <code>${escapeHtml(d.old || '（空）')}</code>` : ''); }
+            if (l.action === 'edit') { const acc = accounts.find(a => a.id === l.account_id); extra = `${escapeHtml(acc ? (acc.customName || acc.email) : '#' + l.account_id)} 的密码` + (d.old !== undefined ? `，旧值 <code>${escapeHtml(d.old || '（空）')}</code>` : ''); }
             return `<div>${escapeHtml(_shareTime(l.created_at))} · ${acts[l.action] || escapeHtml(l.action)}${extra ? ' · ' + extra : ''}${l.ip ? ` <span style="color:var(--text-muted)">${escapeHtml(l.ip)}</span>` : ''}</div>`;
         }).join('') : '还没有记录';
     } catch (e) { box.textContent = '加载失败'; }

@@ -8,7 +8,7 @@
 - 链接 token（24 位随机）+ 口令；口令通过后签发访客 JWT（scope=share），存在访客浏览器。
 - 访客所有查询都以分享记录里写死的 account_ids / 对应邮箱地址过滤，没有"列全部"的接口。
 - 访客永远拿不到：TOTP 密钥、备用码、邮箱授权凭据、组合/属性/标签、导出、删除。
-- 访客只能改：密码、备注；每一笔记旧值。
+- 访客只能改：密码（同步回主人的卡，记旧值）和"他自己的备注"（存 share_notes，主人的备注不给他看、他的也不覆盖主人的）。
 - 没有任何把卡片复制/转移给访客的接口：分享的意思是"看和用"，不是"给"。
 """
 import json
@@ -84,6 +84,15 @@ def _ensure_tables():
             )
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_share_logs_share ON share_logs(share_id, id)")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS share_notes (
+                share_id INTEGER NOT NULL,
+                account_id INTEGER NOT NULL,
+                note TEXT DEFAULT '',
+                updated_at TEXT,
+                PRIMARY KEY (share_id, account_id)
+            )
+        """)
         conn.commit()
 
 
@@ -300,6 +309,7 @@ def delete_share(share_id: int, request: Request, authorization: str = Header(No
     with _d["get_db"]() as conn:
         _owned_share(conn, user["id"], share_id)
         conn.execute("DELETE FROM share_logs WHERE share_id = ?", (share_id,))
+        conn.execute("DELETE FROM share_notes WHERE share_id = ?", (share_id,))
         conn.execute("DELETE FROM shares WHERE id = ?", (share_id,))
         conn.commit()
     return {"message": "已删除"}
@@ -358,7 +368,7 @@ class Unlock(BaseModel):
 
 class GuestEdit(BaseModel):
     password: Optional[str] = None
-    notes: Optional[str] = None
+    note: Optional[str] = None
 
 
 @router.get("/api/s/{token}/info")
@@ -412,6 +422,7 @@ def guest_accounts(token: str, request: Request, authorization: str = Header(Non
     with _d["get_db"]() as conn:
         rows = _owner_accounts(conn, share["owner_id"], _listed_ids(share))
         owner = conn.execute("SELECT username FROM users WHERE id = ?", (share["owner_id"],)).fetchone()
+        notes = {r["account_id"]: r["note"] for r in conn.execute("SELECT account_id, note FROM share_notes WHERE share_id = ?", (share["id"],))}
         conn.execute("UPDATE shares SET last_opened_at = ? WHERE id = ?", (_now(), share["id"]))
         conn.commit()
     accounts = []
@@ -425,7 +436,7 @@ def guest_accounts(token: str, request: Request, authorization: str = Header(Non
             "type_name": r["type_name"] or "",
             "type_icon": r["type_icon"] or "🔑",
             "type_color": r["type_color"] or "#8b5cf6",
-            "notes": r["notes"] or "",
+            "note": notes.get(r["id"], ""),
             "has_totp": bool(r["totp_secret"]) if "totp_secret" in keys else False,
             "totp_type": (r["totp_type"] or "totp") if "totp_type" in keys else "totp",
             "updated_at": r["updated_at"],
@@ -473,39 +484,34 @@ def guest_edit(token: str, account_id: int, data: GuestEdit, request: Request, a
         raise HTTPException(status_code=403, detail="这个链接不允许修改")
     if account_id not in _listed_ids(share):
         raise HTTPException(status_code=404, detail="账号不存在")
-    if data.password is None and data.notes is None:
+    if data.password is None and data.note is None:
         raise HTTPException(status_code=400, detail="没有要改的内容")
     ip = _client_ip(request)
     owner_id = share["owner_id"]
+    changed = False
     with _d["get_db"]() as conn:
-        row = conn.execute(f"SELECT password, notes FROM user_{owner_id}_accounts WHERE id = ?", (account_id,)).fetchone()
+        row = conn.execute(f"SELECT password FROM user_{owner_id}_accounts WHERE id = ?", (account_id,)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="账号不存在")
-        updates, values = [], []
-        if data.password is not None:
+        if data.password is not None and share["perms"].get("password"):
             new_pw = data.password[:200]
             try:
                 old_pw = _d["decrypt"](row["password"]) if row["password"] else ""
             except Exception:
                 old_pw = None
-            if new_pw != old_pw:                      # 没改的字段不写、不记
-                updates.append("password = ?")
-                values.append(_d["encrypt"](new_pw) if new_pw else "")
+            if new_pw != old_pw:                      # 没改就不写、不记
+                conn.execute(f"UPDATE user_{owner_id}_accounts SET password = ?, updated_at = ? WHERE id = ?",
+                             (_d["encrypt"](new_pw) if new_pw else "", _now(), account_id))
                 _log(conn, share["id"], "edit", ip, account_id, {"field": "password", "old_enc": row["password"] or ""})
-        if data.notes is not None:
-            new_notes = data.notes[:2000]
-            if new_notes != (row["notes"] or ""):
-                updates.append("notes = ?")
-                values.append(new_notes)
-                _log(conn, share["id"], "edit", ip, account_id, {"field": "notes", "old": row["notes"] or ""})
-        if not updates:
-            return {"message": "没有变化"}
-        updates.append("updated_at = ?")
-        values.append(_now())
-        values.append(account_id)
-        conn.execute(f"UPDATE user_{owner_id}_accounts SET {', '.join(updates)} WHERE id = ?", values)
+                changed = True
+        if data.note is not None:
+            # 访客自己的备注，只存在分享记录下，不碰主人的 notes 列
+            conn.execute("INSERT INTO share_notes (share_id, account_id, note, updated_at) VALUES (?, ?, ?, ?) "
+                         "ON CONFLICT(share_id, account_id) DO UPDATE SET note = excluded.note, updated_at = excluded.updated_at",
+                         (share["id"], account_id, data.note[:2000], _now()))
+            changed = True
         conn.commit()
-    return {"message": "已保存"}
+    return {"message": "已保存" if changed else "没有变化"}
 
 
 def _codes_for_emails(conn, owner_id: int, emails: List[str], only_new: bool = False):
