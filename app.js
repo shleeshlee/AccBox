@@ -6410,6 +6410,105 @@ setInterval(() => {
     });
 }, 60000);
 
+
+// ==================== 分享给队友（链接 + 口令） ====================
+let _shareCreatedPath = '';
+function openShareCreateModal() {
+    const n = selectedAccounts.size;
+    if (!n) { showToast('先勾选要分享的卡', true); return; }
+    document.getElementById('shareIntro').textContent = `已选 ${n} 张卡。没勾的他永远看不到。`;
+    document.getElementById('shareResult').style.display = 'none';
+    document.getElementById('shareCreateBtn').style.display = '';
+    document.getElementById('sharePin').value = '';
+    document.getElementById('shareCreateModal').classList.add('show');
+    setTimeout(() => document.getElementById('shareName').focus(), 50);
+}
+function closeShareCreateModal() { document.getElementById('shareCreateModal').classList.remove('show'); }
+async function createShare() {
+    const pin = document.getElementById('sharePin').value.trim();
+    if (pin.length < 4 || pin.length > 16) { showToast('口令要 4~16 位', true); return; }
+    const body = {
+        name: document.getElementById('shareName').value.trim(),
+        account_ids: Array.from(selectedAccounts),
+        pin,
+        perms: {
+            password: document.getElementById('sharePermPassword').checked,
+            edit: document.getElementById('sharePermEdit').checked,
+            mail_codes: document.getElementById('sharePermMail').checked,
+        }
+    };
+    const btn = document.getElementById('shareCreateBtn'); btn.disabled = true;
+    try {
+        const res = await apiRequest('/shares', { method: 'POST', body: JSON.stringify(body) });
+        const data = await res.json();
+        if (!res.ok) { showToast(data.detail || '生成失败', true); return; }
+        _shareCreatedPath = data.path;
+        document.getElementById('shareLinkText').textContent = location.origin + data.path;
+        document.getElementById('shareResult').style.display = '';
+        btn.style.display = 'none';
+        showToast('链接已生成');
+        updateShareCountHint();
+    } catch (e) { showToast('网络错误', true); }
+    finally { btn.disabled = false; }
+}
+function copyShareLink() { copyToClipboard(location.origin + _shareCreatedPath).then(() => showToast('链接已复制')).catch(() => showToast('复制失败', true)); }
+
+function openShareManager() { document.getElementById('shareManagerModal').classList.add('show'); loadShares(); }
+function closeShareManager() { document.getElementById('shareManagerModal').classList.remove('show'); }
+function _shareTime(iso) { if (!iso) return '还没打开过'; const d = new Date(iso); return isNaN(d) ? iso : d.toLocaleString('zh-CN', { hour12: false }); }
+async function loadShares() {
+    const body = document.getElementById('shareManagerBody');
+    try {
+        const res = await apiRequest('/shares');
+        const data = await res.json();
+        const shares = data.shares || [];
+        updateShareCountHint(shares);
+        if (!shares.length) { body.innerHTML = '<div class="empty-state"><div class="empty-icon">🔗</div><div class="empty-title">还没有分享过</div><div class="empty-text">先在列表里点"勾选"，选几张卡，再点"分享"。</div></div>'; return; }
+        body.innerHTML = '<div class="share-list">' + shares.map(s => {
+            const dead = s.status !== 'active';
+            const statusText = s.status === 'claimed' ? '对方已搬到自己的账号' : s.status === 'revoked' ? '已作废 · ' + _shareTime(s.revoked_at) : `最后打开：${_shareTime(s.last_opened_at)} · 打开 ${s.open_count} 次 · 改过 ${s.edit_count} 次`;
+            return `<div class="share-item ${dead ? 'dead' : ''}" data-id="${s.id}">
+                <b>${escapeHtml(s.name || '未命名')} · ${s.account_ids.length} 张卡</b>
+                <span class="share-meta">${escapeHtml(statusText)}</span>
+                <div class="share-acts">
+                    ${!dead ? `<button class="btn-secondary btn-sm" onclick="copyToClipboard(location.origin + '${escapeInlineJs(s.path)}').then(()=>showToast('链接已复制'))">复制链接</button>` : ''}
+                    <button class="btn-secondary btn-sm" onclick="toggleShareLogs(${s.id})">记录</button>
+                    ${!dead ? `<button class="btn-secondary btn-sm" onclick="resetSharePin(${s.id})">换口令</button><button class="btn-danger btn-sm" onclick="revokeShare(${s.id})">作废</button>` : (s.status === 'revoked' ? `<button class="btn-secondary btn-sm" onclick="restoreShare(${s.id})">恢复</button>` : '')}
+                    ${dead ? `<button class="btn-danger btn-sm" onclick="deleteShare(${s.id})">删除</button>` : ''}
+                </div>
+            </div>`; }).join('') + '</div>';
+    } catch (e) { body.innerHTML = '<div class="empty-state"><div class="empty-text">加载失败</div></div>'; }
+}
+async function updateShareCountHint(shares) {
+    try {
+        if (!shares) { const res = await apiRequest('/shares'); shares = (await res.json()).shares || []; }
+        const n = shares.filter(s => s.status === 'active').length;
+        const el = document.getElementById('shareCountHint'); if (el) el.textContent = n ? `${n} 个在用` : '';
+    } catch (e) {}
+}
+async function revokeShare(id) { if (!confirm('作废后他打开会看到"链接已关闭"。确定？')) return; try { await apiRequest(`/shares/${id}/revoke`, { method: 'POST' }); showToast('已作废'); loadShares(); } catch (e) { showToast('操作失败', true); } }
+async function restoreShare(id) { try { const res = await apiRequest(`/shares/${id}/restore`, { method: 'POST' }); const d = await res.json(); if (!res.ok) return showToast(d.detail || '恢复失败', true); showToast('已恢复'); loadShares(); } catch (e) { showToast('操作失败', true); } }
+async function deleteShare(id) { if (!confirm('删除这条分享记录（含操作记录）？')) return; try { await apiRequest(`/shares/${id}`, { method: 'DELETE' }); showToast('已删除'); loadShares(); } catch (e) { showToast('操作失败', true); } }
+async function resetSharePin(id) {
+    const pin = prompt('新口令（4~16 位）：'); if (pin === null) return;
+    try { const res = await apiRequest(`/shares/${id}/pin`, { method: 'POST', body: JSON.stringify({ pin: pin.trim() }) }); const d = await res.json(); showToast(d.detail || d.message || '', !res.ok); } catch (e) { showToast('操作失败', true); }
+}
+async function toggleShareLogs(id) {
+    const item = document.querySelector(`.share-item[data-id="${id}"]`); if (!item) return;
+    const existing = item.querySelector('.share-logs'); if (existing) { existing.remove(); return; }
+    const box = document.createElement('div'); box.className = 'share-logs'; box.textContent = '加载中…'; item.appendChild(box);
+    try {
+        const res = await apiRequest(`/shares/${id}/logs`); const logs = (await res.json()).logs || [];
+        const acts = { created: '创建链接', unlocked: '打开（口令正确）', pin_failed: '口令输错', pin_locked: '口令错太多次，锁 15 分钟', edit: '修改', revoked: '作废', restored: '恢复', pin_reset: '换口令', claimed: '搬到自己的账号' };
+        box.innerHTML = logs.length ? logs.map(l => {
+            const d = l.detail || {}; let extra = '';
+            if (l.action === 'edit') { const acc = accounts.find(a => a.id === l.account_id); extra = `${escapeHtml(acc ? (acc.customName || acc.email) : '#' + l.account_id)} 的${d.field === 'password' ? '密码' : '备注'}` + (d.old !== undefined ? `，旧值 <code>${escapeHtml(d.old || '（空）')}</code>` : ''); }
+            if (l.action === 'claimed') extra = `复制 ${d.copied} 张到 ${escapeHtml(d.username || '')}`;
+            return `<div>${escapeHtml(_shareTime(l.created_at))} · ${acts[l.action] || escapeHtml(l.action)}${extra ? ' · ' + extra : ''}${l.ip ? ` <span style="color:var(--text-muted)">${escapeHtml(l.ip)}</span>` : ''}</div>`;
+        }).join('') : '还没有记录';
+    } catch (e) { box.textContent = '加载失败'; }
+}
+
 // 启动必须放在文件末尾：init() 在已有登录态时会同步调用 showApp() → resetEmailFeature()，
 // 它依赖下方声明的 fastModeTimer / _toastedCodes 等 let/const，提前调用会撞上暂时性死区并中断整段脚本。
 init();

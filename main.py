@@ -565,7 +565,8 @@ def init_user_tables(user_id: int):
                 totp_period INTEGER DEFAULT 30,
                 backup_codes TEXT DEFAULT '[]',
                 time_offset INTEGER DEFAULT 0,
-                timers TEXT
+                timers TEXT,
+                backup_email TEXT DEFAULT ''
             )
         """)
 
@@ -3689,10 +3690,9 @@ def fetch_cloudflare_emails(worker_domain: str, cf_token: str) -> list:
 
     return emails_content
 
-@app.post("/api/emails/refresh")
-def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
-    """刷新邮箱，获取最新验证码（支持 Gmail、Outlook、QQ、IMAP）"""
-    user_id = user['id']
+def _refresh_mailboxes(user_id: int, only_addresses: list = None):
+    """刷新邮箱，获取最新验证码（支持 Gmail、Outlook、QQ、IMAP）
+    only_addresses：只收这些地址（分享链接用），None = 全部 active 邮箱"""
     new_codes = []
     errors = []
     successful_mailboxes = 0
@@ -3709,6 +3709,9 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
         try:
             cursor = conn.execute(f"SELECT id, address, provider, credentials FROM user_{user_id}_emails WHERE status = 'active'")
             emails = [dict(row) for row in cursor.fetchall()]
+            if only_addresses is not None:
+                allowed = {a.strip().lower() for a in only_addresses}
+                emails = [e for e in emails if (e.get("address") or "").strip().lower() in allowed]
         except:
             return {"success": False, "partial": False, "errors": [
                 {"email_id": None, "provider": "system", "message": "无法获取邮箱列表，请稍后重试"}
@@ -3969,6 +3972,11 @@ def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
     return {"success": not errors, "partial": bool(errors and successful_mailboxes),
             "errors": errors, "new_codes": new_codes}
 
+
+@app.post("/api/emails/refresh")
+def refresh_emails(data: dict = None, user: dict = Depends(get_current_user)):
+    return _refresh_mailboxes(user['id'])
+
 @app.post("/api/emails/codes/{code_id}/read")
 def mark_code_read(code_id: int, user: dict = Depends(get_current_user)):
     """标记验证码已读"""
@@ -3993,6 +4001,20 @@ def mark_all_codes_read(user: dict = Depends(get_current_user)):
 
 
 STATIC_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# ==================== 分享链接（独立模块，依赖全部注入） ====================
+import share_api
+share_api.setup(
+    app,
+    get_db=get_db, get_current_user=get_current_user,
+    encrypt=encrypt_password, decrypt=decrypt_password,
+    generate_totp=generate_totp, generate_steam_code=generate_steam_code,
+    hash_password=hash_password, verify_password=verify_password,
+    validate_password_strength=validate_password_strength, init_user_tables=init_user_tables,
+    create_access_token=create_access_token, set_auth_cookies=set_auth_cookies,
+    jwt_secret=get_jwt_secret, jwt_algorithm=JWT_ALGORITHM,
+    refresh_mailboxes=_refresh_mailboxes, static_dir=STATIC_DIR,
+)
 
 @app.get("/")
 def root():

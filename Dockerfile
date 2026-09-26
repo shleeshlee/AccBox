@@ -14,10 +14,13 @@ WORKDIR /app
 
 # 复制应用文件
 COPY main.py .
+COPY share_api.py .
 COPY index.html /var/www/html/
 COPY style.css /var/www/html/
 COPY app.js /var/www/html/
 COPY flags.js /var/www/html/
+COPY share.html /var/www/html/
+COPY share.js /var/www/html/
 
 # 复制配置文件
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf

@@ -133,6 +133,7 @@
                     <button class="btn-batch-select" onclick="toggleSelectAll()">全选</button>
                     <button class="btn-batch-props" onclick="openBatchPropsModal()"><span class="pc-only">🏷️ 属性</span><span class="mobile-only">🏷️</span></button>
                     <button class="btn-batch-timer" onclick="openBatchTimerDialog()"><span class="pc-only">⏰ 定时</span><span class="mobile-only">⏰</span></button>
+                    <button class="btn-batch-share" onclick="openShareCreateModal()" title="把选中的卡分享给队友"><span class="pc-only">🔗 分享</span><span class="mobile-only">🔗</span></button>
                     <button class="btn-batch-delete" onclick="batchDelete()"><span class="pc-only">删除</span><span class="mobile-only">🗑️</span></button>
                 </div>
                 
@@ -187,6 +188,9 @@
                                 <span class="menu-label">时间提醒</span>
                                 <span class="toggle-status" id="menuTimeBadgeStatus">开</span>
                             </div>
+                        </div>
+                        <div class="menu-section">
+                            <div class="menu-item" onclick="openShareManager();closeMoreMenu()"><span class="menu-icon">🔗</span><span class="menu-label">分享给队友</span><span class="menu-hint" id="shareCountHint"></span></div>
                         </div>
                         <div class="menu-section">
                             <div class="menu-section-title">邮箱验证码</div>
@@ -1006,10 +1010,48 @@
                 <span class="toggle-status" id="mobileTimeBadgeStatus">开</span>
             </div>
             <div class="mobile-menu-divider"></div>
+            <div class="mobile-menu-item" onclick="openShareManager();closeMoreMenu()"><span class="menu-icon">🔗</span>分享给队友</div>
             <div class="mobile-menu-item" onclick="openEmailManager();closeMoreMenu()">
                 <span class="menu-icon">📬</span>邮箱授权
                 <span class="menu-badge" id="mobileEmailBadge" style="display:none">0</span>
             </div>
+        </div>
+    </div>
+
+    <!-- 分享：创建链接 -->
+    <div class="modal-overlay" id="shareCreateModal">
+        <div class="modal">
+            <div class="modal-header"><h2 class="modal-title"><span class="modal-title-icon">🔗</span>分享给队友</h2><button class="btn-close" onclick="closeShareCreateModal()">✕</button></div>
+            <form class="modal-body" autocomplete="off" onsubmit="return false" data-form-type="other">
+                <p class="share-intro" id="shareIntro">已选 0 张卡。没勾的他永远看不到。</p>
+                <div class="form-row">
+                    <div class="form-group"><label class="form-label">给链接起个名</label><input type="text" class="form-input" id="shareName" placeholder="比如：给阿蜗的" maxlength="40"></div>
+                    <div class="form-group"><label class="form-label">口令（4~16 位，单独告诉他）</label><input type="text" class="form-input" id="sharePin" placeholder="比如 4 位数字" maxlength="16" inputmode="numeric" autocomplete="off" data-lpignore="true" data-1p-ignore="true"></div>
+                </div>
+                <div class="share-perms">
+                    <label class="share-perm"><span><b>看安全码</b><small>30 秒一换的 6 位数；密钥留在你这，他只拿到数字</small></span><input type="checkbox" checked disabled></label>
+                    <label class="share-perm"><span><b>看密码</b><small>不给的话他改了密码就没法同步给你</small></span><input type="checkbox" id="sharePermPassword" checked></label>
+                    <label class="share-perm"><span><b>改密码和备注</b><small>他改，你的卡同步变，每一笔留旧值</small></span><input type="checkbox" id="sharePermEdit" checked></label>
+                    <label class="share-perm"><span><b>看这几个邮箱的验证码</b><small>只收这几个地址，不碰你别的邮箱</small></span><input type="checkbox" id="sharePermMail" checked></label>
+                    <label class="share-perm off"><span><b>备用码 / 2FA 密钥</b><small>永远不给，没有开关</small></span><input type="checkbox" disabled></label>
+                </div>
+                <div class="share-result" id="shareResult" style="display:none">
+                    <div class="share-link-row"><code id="shareLinkText"></code><button type="button" class="btn-secondary btn-sm" onclick="copyShareLink()">复制链接</button></div>
+                    <p class="form-label-hint">发一次给他就行，链接不过期。口令记得单独发。</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn-secondary" onclick="closeShareCreateModal()">关闭</button>
+                    <button type="button" class="btn-primary" id="shareCreateBtn" onclick="createShare()">生成链接</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 分享：已发出的链接 -->
+    <div class="modal-overlay" id="shareManagerModal">
+        <div class="modal wide">
+            <div class="modal-header"><h2 class="modal-title"><span class="modal-title-icon">🔗</span>已发出的链接</h2><button class="btn-close" onclick="closeShareManager()">✕</button></div>
+            <div class="modal-body" id="shareManagerBody"><div class="empty-state"><div class="empty-text">加载中…</div></div></div>
         </div>
     </div>
 
