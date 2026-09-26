@@ -4080,7 +4080,6 @@ async function applyBatchProps() {
     showToast(`✅ 已更新 ${successCount} 个账号的属性`);
 }
 
-init();
 
 // 新增：专门处理标签输入框的回车提交
 function handleTagSubmit(e) {
@@ -6410,3 +6409,7 @@ setInterval(() => {
         }
     });
 }, 60000);
+
+// 启动必须放在文件末尾：init() 在已有登录态时会同步调用 showApp() → resetEmailFeature()，
+// 它依赖下方声明的 fastModeTimer / _toastedCodes 等 let/const，提前调用会撞上暂时性死区并中断整段脚本。
+init();
